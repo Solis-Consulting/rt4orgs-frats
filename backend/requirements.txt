@@ -7,3 +7,5 @@ sentence-transformers
 numpy
 python-dotenv
 
+# CPU-only PyTorch (required on Railway)
+torch==2.2.2+cpu --extra-index-url https://download.pytorch.org/whl/cpu
