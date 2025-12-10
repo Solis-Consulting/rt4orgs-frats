@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+python-multipart
+flask
+twilio
+sentence-transformers
+numpy
+python-dotenv
+

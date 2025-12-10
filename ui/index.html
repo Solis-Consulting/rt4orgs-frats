@@ -1,0 +1,171 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RT4 Lead Console</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: #0f172a; color: #e5e7eb; }
+    .shell { max-width: 1100px; margin: 32px auto; padding: 0 16px; }
+    .card { background: #020617; border-radius: 16px; padding: 20px 24px; box-shadow: 0 18px 60px rgba(0,0,0,0.6); border: 1px solid #1f2937; }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    .sub { margin-bottom: 16px; color: #9ca3af; font-size: 14px; }
+    .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    input, select { background: #020617; border: 1px solid #4b5563; border-radius: 8px; padding: 6px 10px; color: #e5e7eb; font-size: 13px; }
+    input:focus, select:focus { outline: none; border-color: #38bdf8; }
+    .pill-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .pill { font-size: 11px; padding: 4px 10px; border-radius: 999px; border: 1px solid #374151; cursor: pointer; color: #9ca3af; }
+    .pill.active { background: #0ea5e9; border-color: #0ea5e9; color: #0f172a; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+    th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid #1f2937; }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; }
+    tr:hover td { background: #020617; }
+    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+    .badge.green { background: rgba(34,197,94,0.15); color: #bbf7d0; }
+    .badge.red { background: rgba(248,113,113,0.15); color: #fecaca; }
+    .badge.amber { background: rgba(245,158,11,0.15); color: #fed7aa; }
+    .badge.gray { background: rgba(75,85,99,0.4); color: #e5e7eb; }
+    .link { color: #38bdf8; text-decoration: none; font-weight: 500; }
+    .link:hover { text-decoration: underline; }
+    .meta { display: flex; gap: 16px; font-size: 12px; color: #9ca3af; margin-bottom: 8px; }
+    .meta strong { color: #e5e7eb; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="card">
+      <h1>RT4 Lead Console</h1>
+      <div class="sub">Live state view of all current conversations.</div>
+
+      <div class="toolbar">
+        <input id="search" placeholder="Search by name or phone">
+        <select id="stateFilter">
+          <option value="all">All states</option>
+          <option value="active">Active (not dead/not_interested/no_time)</option>
+          <option value="initial_outreach">Initial outreach only</option>
+        </select>
+      </div>
+
+      <div class="pill-row">
+        <div class="pill active" data-sort="state">Sort by state</div>
+        <div class="pill" data-sort="name">Sort by name</div>
+        <div class="pill" data-sort="folders_desc">Sort by folders</div>
+      </div>
+
+      <div class="meta" id="summary"></div>
+
+      <div id="tableWrap"></div>
+    </div>
+  </div>
+
+  <script>
+    const BACKEND = "https://YOUR-RAILWAY-DOMAIN.up.railway.app";
+    let allLeads = [];
+    let currentSort = "state";
+
+    function stateBadgeClass(s) {
+      if (!s) return "gray";
+      const v = s.toLowerCase();
+      if (v.includes("ready") || v.includes("pay")) return "green";
+      if (v.includes("dead") || v.includes("not_interested") || v.includes("no_time")) return "red";
+      if (v.includes("question") || v.includes("who_are_you") || v.includes("waiting")) return "amber";
+      if (v.includes("initial_outreach")) return "gray";
+      return "amber";
+    }
+
+    function sortLeads(leads, mode) {
+      if (mode === "name") {
+        leads.sort((a, b) => a.name.localeCompare(b.name));
+      } else if (mode === "folders_desc") {
+        leads.sort((a, b) => b.folders.length - a.folders.length);
+      } else {
+        leads.sort((a, b) => {
+          const s1 = a.latest_state?.next_state || "";
+          const s2 = b.latest_state?.next_state || "";
+          if (s1 === "initial_outreach" && s2 !== "initial_outreach") return 1;
+          if (s2 === "initial_outreach" && s1 !== "initial_outreach") return -1;
+          return s1 < s2 ? 1 : -1;
+        });
+      }
+    }
+
+    function render() {
+      const search = document.getElementById("search").value.toLowerCase();
+      const filter = document.getElementById("stateFilter").value;
+
+      let rows = allLeads.slice();
+
+      sortLeads(rows, currentSort);
+
+      rows = rows.filter(l => {
+        const s = l.latest_state?.next_state || "";
+        if (filter === "active") {
+          const v = s.toLowerCase();
+          if (v.includes("dead") || v.includes("not_interested") || v.includes("no_time") || v.includes("initial_outreach")) return false;
+        }
+        if (filter === "initial_outreach" && s !== "initial_outreach") return false;
+        if (!search) return true;
+        const phone = l.folders[0]?.state?.raw?.from || l.folders[0]?.state?.contact?.phone || "";
+        return l.name.toLowerCase().includes(search) || phone.toLowerCase().includes(search);
+      });
+
+      const total = allLeads.length;
+      const active = allLeads.filter(l => {
+        const s = l.latest_state?.next_state || "";
+        const v = s.toLowerCase();
+        return !(v.includes("dead") || v.includes("not_interested") || v.includes("no_time"));
+      }).length;
+
+      document.getElementById("summary").innerHTML =
+        "<div><strong>" + total + "</strong> leads</div>" +
+        "<div><strong>" + active + "</strong> active</div>" +
+        "<div><strong>" + rows.length + "</strong> shown</div>";
+
+      let html = "<table><thead><tr>";
+      html += "<th>Name</th><th>State</th><th>Folders</th><th>Open</th>";
+      html += "</tr></thead><tbody>";
+
+      rows.forEach(l => {
+        const s = l.latest_state?.next_state || "";
+        const cls = stateBadgeClass(s);
+        html += "<tr>";
+        html += "<td>" + l.name + "</td>";
+        html += "<td><span class='badge " + cls + "'>" + s + "</span></td>";
+        html += "<td>" + l.folders.length + "</td>";
+        html += "<td><a class='link' href='lead.html?name=" + encodeURIComponent(l.name) + "'>View</a></td>";
+        html += "</tr>";
+      });
+
+      html += "</tbody></table>";
+
+      document.getElementById("tableWrap").innerHTML = html;
+    }
+
+    async function load() {
+      try {
+        const res = await fetch(BACKEND + "/all");
+        const data = await res.json();
+        allLeads = Object.values(data);
+        render();
+      } catch (error) {
+        document.getElementById("tableWrap").innerHTML = "<div style='color: #fecaca; padding: 20px;'>Error loading leads. Make sure BACKEND URL is set correctly.</div>";
+      }
+    }
+
+    document.getElementById("search").addEventListener("input", render);
+    document.getElementById("stateFilter").addEventListener("change", render);
+
+    document.querySelectorAll(".pill").forEach(p => {
+      p.addEventListener("click", () => {
+        document.querySelectorAll(".pill").forEach(x => x.classList.remove("active"));
+        p.classList.add("active");
+        currentSort = p.getAttribute("data-sort");
+        render();
+      });
+    });
+
+    load();
+    // Auto-refresh every 30 seconds
+    setInterval(load, 30000);
+  </script>
+</body>
+</html>

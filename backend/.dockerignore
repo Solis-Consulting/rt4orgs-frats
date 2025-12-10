@@ -1,0 +1,57 @@
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignore virtual environments
+.venv/
+venv/
+
+# Ignore Node stuff
+ui/node_modules/
+ui/.next/
+ui/dist/
+ui/build/
+
+# Ignore datasets, exports, models, embeddings, and other huge folders
+output/
+outputs/
+data/
+datasets/
+models/
+model/
+checkpoints/
+*.bin
+*.pt
+*.ckpt
+
+# Ignore your HF embeddings (they're HUGE)
+*.jsonl
+*.pkl
+*.npy
+
+# Ignore git stuff
+.git/
+.gitignore
+Dockerfile
+.DS_Store
+
+# Ignore editor folders
+.vscode/
+.idea/
+
+# If backend has large files
+backend/__pycache__/
+backend/.pytest_cache/
+backend/static/
+backend/media/
+
+# Prevent accidental large file uploads
+*.sqlite3
+
+# Include only what backend needs
+frontend/
+scripts/
+README.md
+requirements.txt
+backend/

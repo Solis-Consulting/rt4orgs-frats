@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/lead/:name",
+      "destination": "/lead.html?name=:name"
+    },
+    {
+      "source": "/",
+      "destination": "/index.html"
+    }
+  ]
+}

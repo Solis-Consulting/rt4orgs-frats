@@ -1,0 +1,91 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Lead Detail</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: #0f172a; color: #e5e7eb; }
+    .shell { max-width: 900px; margin: 32px auto; padding: 0 16px; }
+    .card { background: #020617; border-radius: 16px; padding: 20px 24px; box-shadow: 0 18px 60px rgba(0,0,0,0.6); border: 1px solid #1f2937; }
+    a { color: #38bdf8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    h1 { margin: 0 0 8px; font-size: 22px; }
+    .sub { margin-bottom: 16px; font-size: 13px; color: #9ca3af; }
+    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+    .badge.green { background: rgba(34,197,94,0.15); color: #bbf7d0; }
+    .badge.red { background: rgba(248,113,113,0.15); color: #fecaca; }
+    .badge.amber { background: rgba(245,158,11,0.15); color: #fed7aa; }
+    .badge.gray { background: rgba(75,85,99,0.4); color: #e5e7eb; }
+    .section { margin-top: 16px; border-top: 1px solid #1f2937; padding-top: 12px; }
+    pre { background: #020617; border-radius: 10px; padding: 10px 12px; font-size: 12px; overflow-x: auto; border: 1px solid #111827; }
+    .folderTitle { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="card">
+      <a href="index.html">&larr; Back to list</a>
+      <div id="content" style="margin-top:12px;">Loading...</div>
+    </div>
+  </div>
+
+  <script>
+    const BACKEND = "https://YOUR-RAILWAY-DOMAIN.up.railway.app";
+
+    function stateBadgeClass(s) {
+      if (!s) return "gray";
+      const v = s.toLowerCase();
+      if (v.includes("ready") || v.includes("pay")) return "green";
+      if (v.includes("dead") || v.includes("not_interested") || v.includes("no_time")) return "red";
+      if (v.includes("question") || v.includes("who_are_you") || v.includes("waiting")) return "amber";
+      if (v.includes("initial_outreach")) return "gray";
+      return "amber";
+    }
+
+    async function load() {
+      const params = new URLSearchParams(window.location.search);
+      const name = params.get("name");
+      
+      if (!name) {
+        document.getElementById("content").innerText = "No lead name provided.";
+        return;
+      }
+
+      try {
+        const res = await fetch(BACKEND + "/lead/" + encodeURIComponent(name));
+        const data = await res.json();
+        
+        if (data.error) {
+          document.getElementById("content").innerText = "Lead not found.";
+          return;
+        }
+
+        const s = data.latest_state?.next_state || "";
+        const cls = stateBadgeClass(s);
+
+        let html = "";
+        html += "<h1>" + data.name + "</h1>";
+        html += "<div class='sub'>Current state: <span class='badge " + cls + "'>" + s + "</span></div>";
+
+        data.folders.forEach(f => {
+          html += "<div class='section'>";
+          html += "<div class='folderTitle'>" + f.folder + "</div>";
+          html += "<div style='font-size:12px;color:#9ca3af;margin-bottom:4px;'>State snapshot</div>";
+          html += "<pre>" + JSON.stringify(f.state, null, 2) + "</pre>";
+          if (f.message && f.message.trim()) {
+            html += "<div style='font-size:12px;color:#9ca3af;margin-top:6px;margin-bottom:4px;'>Message</div>";
+            html += "<pre>" + f.message + "</pre>";
+          }
+          html += "</div>";
+        });
+
+        document.getElementById("content").innerHTML = html;
+      } catch (error) {
+        document.getElementById("content").innerHTML = "<div style='color: #fecaca;'>Error loading lead. Make sure BACKEND URL is set correctly.</div>";
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>
