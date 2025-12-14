@@ -5,12 +5,22 @@ import os
 
 app = FastAPI()
 
-conn = psycopg2.connect(os.environ["DATABASE_URL"])
-conn.autocommit = True
+_conn = None
+
+def get_conn():
+    global _conn
+    if _conn is None:
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            raise ValueError("DATABASE_URL environment variable is not set")
+        _conn = psycopg2.connect(database_url)
+        _conn.autocommit = True
+    return _conn
 
 
 @app.post("/events/outbound")
 async def outbound(event: dict):
+    conn = get_conn()
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO conversations
@@ -34,6 +44,7 @@ async def outbound(event: dict):
 
 @app.post("/events/inbound")
 async def inbound(event: dict):
+    conn = get_conn()
     with conn.cursor() as cur:
         cur.execute("""
             UPDATE conversations
