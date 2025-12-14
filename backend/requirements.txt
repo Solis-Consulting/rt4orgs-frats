@@ -1,12 +1,4 @@
 fastapi
-uvicorn[standard]
-python-multipart
-flask
-twilio
-sentence-transformers
-numpy
+uvicorn
+psycopg2-binary
 python-dotenv
-
-# CPU-only PyTorch (required on Railway)
-torch --index-url https://download.pytorch.org/whl/cpu
-

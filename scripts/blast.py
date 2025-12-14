@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from twilio.rest import Client
+import requests
 
 import sys
 from pathlib import Path
@@ -130,6 +131,16 @@ def run_blast():
         print(f"Sending to {contact.get('name')} ({phone}):")
         sms_result = send_sms(phone, message)
         print(" → Twilio SID:", sms_result["sid"], "| Status:", sms_result["status"])
+
+        requests.post(
+          "https://YOUR_RAILWAY_URL/events/outbound",
+          json={
+            "phone": phone,
+            "contact_id": contact.get("contact_id"),
+            "owner": "david",
+            "source_batch_id": "david_2025_12_08"
+          }
+        )
 
         folder = make_contact_event_folder(contact.get("name", "Unknown"))
         write_initial_state(folder, contact, purchased_example)
