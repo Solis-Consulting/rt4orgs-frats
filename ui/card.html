@@ -71,6 +71,12 @@
       }
     }
 
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
     function renderCard(card) {
       const type = card.type || 'person';
       const salesState = card.sales_state || 'cold';
@@ -114,21 +120,72 @@
         html += "</div>";
       }
 
-      // Conversations
+      // Conversations with message history
       if (card.conversations && card.conversations.length > 0) {
-        html += "<div class='section'>";
-        html += "<div class='field-label'>Linked Conversations</div>";
-        html += "<table><thead><tr><th>Phone</th><th>State</th><th>Last Outbound</th><th>Last Inbound</th></tr></thead><tbody>";
-        card.conversations.forEach(conv => {
-          html += `<tr>`;
-          html += `<td>${conv.phone}</td>`;
-          html += `<td>${conv.state || ''}</td>`;
-          html += `<td>${conv.last_outbound_at || ''}</td>`;
-          html += `<td>${conv.last_inbound_at || ''}</td>`;
-          html += `</tr>`;
+        card.conversations.forEach((conv, convIndex) => {
+          html += "<div class='section'>";
+          html += `<div class='field-label'>Conversation ${convIndex + 1} - ${conv.phone}</div>`;
+          html += `<div style='font-size: 12px; color: #9ca3af; margin-bottom: 8px;'>State: <strong>${conv.state || 'N/A'}</strong> | Last Outbound: ${conv.last_outbound_at ? new Date(conv.last_outbound_at).toLocaleString() : 'Never'} | Last Inbound: ${conv.last_inbound_at ? new Date(conv.last_inbound_at).toLocaleString() : 'Never'}</div>`;
+          
+          // Message history
+          if (conv.history && conv.history.length > 0) {
+            html += "<div style='margin-top: 12px;'>";
+            html += "<div class='field-label' style='margin-bottom: 8px;'>Message History</div>";
+            html += "<div style='display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto;'>";
+            
+            conv.history.forEach((msg, msgIndex) => {
+              // Handle both old format (strings) and new format (objects)
+              let direction, text, timestamp, state;
+              
+              if (typeof msg === 'string') {
+                // Old format: just a string (inbound message)
+                direction = 'inbound';
+                text = msg;
+                timestamp = null;
+                state = null;
+              } else if (typeof msg === 'object' && msg !== null) {
+                // New format: object with direction, text, timestamp
+                direction = msg.direction || 'inbound';
+                text = msg.text || String(msg);
+                timestamp = msg.timestamp || null;
+                state = msg.state || null;
+              } else {
+                // Fallback
+                direction = 'inbound';
+                text = String(msg);
+                timestamp = null;
+                state = null;
+              }
+              
+              // Style based on direction
+              const isOutbound = direction === 'outbound';
+              const borderColor = isOutbound ? '#3b82f6' : '#22c55e';
+              const bgColor = isOutbound ? '#1e3a5f' : '#111827';
+              const label = isOutbound ? 'Outbound' : 'Inbound';
+              
+              html += `<div style='background: ${bgColor}; border-left: 3px solid ${borderColor}; padding: 8px 12px; border-radius: 6px;'>`;
+              html += `<div style='font-size: 11px; color: #6b7280; margin-bottom: 4px; display: flex; justify-content: space-between;'>`;
+              html += `<span>${label} #${msgIndex + 1}</span>`;
+              if (timestamp) {
+                const date = new Date(timestamp);
+                html += `<span>${date.toLocaleString()}</span>`;
+              }
+              if (state) {
+                html += `<span style='margin-left: 8px; color: #9ca3af;'>[${state}]</span>`;
+              }
+              html += `</div>`;
+              html += `<div style='font-size: 13px; color: #e5e7eb; white-space: pre-wrap; word-wrap: break-word;'>${escapeHtml(text)}</div>`;
+              html += `</div>`;
+            });
+            
+            html += "</div>";
+            html += "</div>";
+          } else {
+            html += "<div style='color: #9ca3af; font-size: 13px; margin-top: 8px;'>No message history available.</div>";
+          }
+          
+          html += "</div>";
         });
-        html += "</tbody></table>";
-        html += "</div>";
       } else if (type === 'person') {
         html += "<div class='section'>";
         html += "<div class='field-label'>Linked Conversations</div>";

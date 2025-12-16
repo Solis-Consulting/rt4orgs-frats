@@ -558,16 +558,48 @@ async def inbound_intelligent(event: dict):
             raise HTTPException(status_code=500, detail=f"Failed to create or fetch conversation for phone: {phone}")
         
         # Build conversation_row dict
+        # Parse history, handling both old format (strings) and new format (objects)
+        raw_history = []
+        if len(row) > 2 and row[2]:
+            try:
+                raw_history = json.loads(row[2]) if isinstance(row[2], str) else row[2]
+            except:
+                raw_history = []
+        
+        # Convert old format (strings) to new format (objects) for processing
+        normalized_history = []
+        for item in raw_history:
+            if isinstance(item, str):
+                # Old format: convert to object
+                normalized_history.append({
+                    "direction": "inbound",
+                    "text": item,
+                    "timestamp": None,  # We don't have timestamp for old messages
+                    "state": None
+                })
+            else:
+                # Already in new format
+                normalized_history.append(item)
+        
         conversation_row = {
             "phone": row[0],
             "state": row[1],
-            "history": json.loads(row[2]) if len(row) > 2 and row[2] else [],
+            "history": [item.get("text") if isinstance(item, dict) else item for item in normalized_history],  # Pass text only to handler
         }
         
         # Call intelligence handler
         result = handle_inbound(conversation_row, inbound_text, intent)
         
-        # Update conversations table with new state
+        # Add new inbound message as object to history
+        inbound_msg = {
+            "direction": "inbound",
+            "text": inbound_text,
+            "timestamp": datetime.utcnow().isoformat(),
+            "state": result["next_state"]
+        }
+        updated_history = normalized_history + [inbound_msg]
+        
+        # Update conversations table with new state and history
         # Try to update history if column exists
         try:
             cur.execute("""
@@ -579,7 +611,7 @@ async def inbound_intelligent(event: dict):
             """, (
                 result["next_state"],
                 datetime.utcnow(),
-                json.dumps(result["updated_history"]),
+                json.dumps(updated_history),
                 phone,
             ))
         except psycopg2.ProgrammingError:
@@ -781,6 +813,54 @@ async def twilio_inbound(request: Request):
                         )
                     else:
                         print("[TWILIO_INBOUND] WARNING: No Twilio Messaging Service SID or Phone Number configured")
+                    
+                    # Store outbound reply in conversation history
+                    try:
+                        with conn.cursor() as cur:
+                            # Get existing history
+                            cur.execute("""
+                                SELECT COALESCE(history::text, '[]') as history
+                                FROM conversations
+                                WHERE phone = %s;
+                            """, (normalized_phone,))
+                            row = cur.fetchone()
+                            existing_history = []
+                            if row and row[0]:
+                                try:
+                                    existing_history = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                                except:
+                                    existing_history = []
+                            
+                            # Add outbound message to history
+                            outbound_msg = {
+                                "direction": "outbound",
+                                "text": reply_text,
+                                "timestamp": datetime.utcnow().isoformat(),
+                                "state": result.get("next_state", "unknown")
+                            }
+                            updated_history = existing_history + [outbound_msg]
+                            
+                            # Update conversation with new history and last_outbound_at
+                            try:
+                                cur.execute("""
+                                    UPDATE conversations
+                                    SET history = %s::jsonb,
+                                        last_outbound_at = %s
+                                    WHERE phone = %s;
+                                """, (
+                                    json.dumps(updated_history),
+                                    datetime.utcnow(),
+                                    normalized_phone
+                                ))
+                            except psycopg2.ProgrammingError:
+                                # History column doesn't exist, just update last_outbound_at
+                                cur.execute("""
+                                    UPDATE conversations
+                                    SET last_outbound_at = %s
+                                    WHERE phone = %s;
+                                """, (datetime.utcnow(), normalized_phone))
+                    except Exception as history_error:
+                        print(f"[TWILIO_INBOUND] WARNING: Could not store outbound message in history: {history_error}")
                     
                     print(f"[TWILIO_INBOUND] Reply sent: {reply_text[:50]}... (SID: {msg.sid if 'msg' in locals() else 'N/A'})")
                 else:
@@ -1149,23 +1229,46 @@ async def get_card_endpoint(card_id: str):
     relationships = get_card_relationships(conn, card_id)
     card["relationships"] = relationships
     
-    # Get linked conversations
+    # Get linked conversations with message history
     with conn.cursor() as cur:
-        cur.execute("""
-            SELECT phone, state, last_outbound_at, last_inbound_at
-            FROM conversations
-            WHERE card_id = %s
-            ORDER BY last_outbound_at DESC NULLS LAST;
-        """, (card_id,))
+        try:
+            # Try to fetch with history column
+            cur.execute("""
+                SELECT phone, state, last_outbound_at, last_inbound_at, 
+                       COALESCE(history::text, '[]') as history
+                FROM conversations
+                WHERE card_id = %s
+                ORDER BY last_outbound_at DESC NULLS LAST;
+            """, (card_id,))
+        except psycopg2.ProgrammingError:
+            # History column doesn't exist, fetch without it
+            cur.execute("""
+                SELECT phone, state, last_outbound_at, last_inbound_at
+                FROM conversations
+                WHERE card_id = %s
+                ORDER BY last_outbound_at DESC NULLS LAST;
+            """, (card_id,))
         
         conversations = []
         for row in cur.fetchall():
-            conversations.append({
+            conv_data = {
                 "phone": row[0],
                 "state": row[1],
                 "last_outbound_at": row[2].isoformat() if row[2] else None,
                 "last_inbound_at": row[3].isoformat() if row[3] else None,
-            })
+            }
+            
+            # Include history if available
+            if len(row) > 4 and row[4]:
+                try:
+                    history = json.loads(row[4]) if isinstance(row[4], str) else row[4]
+                    conv_data["history"] = history
+                except (json.JSONDecodeError, TypeError):
+                    conv_data["history"] = []
+            else:
+                conv_data["history"] = []
+            
+            conversations.append(conv_data)
         card["conversations"] = conversations
     
     return card

@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 from datetime import datetime
 from pathlib import Path
+import json
 
 import psycopg2
 
@@ -426,29 +427,82 @@ def run_blast_for_cards(
             write_initial_message(folder, message)
 
             # Record conversation row directly into conversations table
+            # Also store outbound message in history
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO conversations
-                    (phone, contact_id, card_id, owner, state, source_batch_id, last_outbound_at)
-                    VALUES (%s, %s, %s, %s, 'awaiting_response', %s, %s)
-                    ON CONFLICT (phone)
-                    DO UPDATE SET
-                      last_outbound_at = EXCLUDED.last_outbound_at,
-                      owner = EXCLUDED.owner,
-                      state = 'awaiting_response',
-                      source_batch_id = EXCLUDED.source_batch_id,
-                      card_id = COALESCE(EXCLUDED.card_id, conversations.card_id);
-                    """,
-                    (
-                        phone,
-                        card_id,  # contact_id
-                        card_id,
-                        owner,
-                        blast_id,
-                        datetime.utcnow(),
-                    ),
-                )
+                # First, get existing history
+                cur.execute("""
+                    SELECT COALESCE(history::text, '[]') as history
+                    FROM conversations
+                    WHERE phone = %s;
+                """, (phone,))
+                row = cur.fetchone()
+                existing_history = []
+                if row and row[0]:
+                    try:
+                        import json as _json
+                        existing_history = _json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                    except:
+                        existing_history = []
+                
+                # Add outbound message to history
+                outbound_msg = {
+                    "direction": "outbound",
+                    "text": message,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "state": "initial_outreach"
+                }
+                updated_history = existing_history + [outbound_msg]
+                
+                # Insert or update conversation with history
+                try:
+                    cur.execute(
+                        """
+                        INSERT INTO conversations
+                        (phone, contact_id, card_id, owner, state, source_batch_id, last_outbound_at, history)
+                        VALUES (%s, %s, %s, %s, 'awaiting_response', %s, %s, %s::jsonb)
+                        ON CONFLICT (phone)
+                        DO UPDATE SET
+                          last_outbound_at = EXCLUDED.last_outbound_at,
+                          owner = EXCLUDED.owner,
+                          state = 'awaiting_response',
+                          source_batch_id = EXCLUDED.source_batch_id,
+                          card_id = COALESCE(EXCLUDED.card_id, conversations.card_id),
+                          history = EXCLUDED.history;
+                        """,
+                        (
+                            phone,
+                            card_id,  # contact_id
+                            card_id,
+                            owner,
+                            blast_id,
+                            datetime.utcnow(),
+                            json.dumps(updated_history),
+                        ),
+                    )
+                except psycopg2.ProgrammingError:
+                    # History column doesn't exist, update without it
+                    cur.execute(
+                        """
+                        INSERT INTO conversations
+                        (phone, contact_id, card_id, owner, state, source_batch_id, last_outbound_at)
+                        VALUES (%s, %s, %s, %s, 'awaiting_response', %s, %s)
+                        ON CONFLICT (phone)
+                        DO UPDATE SET
+                          last_outbound_at = EXCLUDED.last_outbound_at,
+                          owner = EXCLUDED.owner,
+                          state = 'awaiting_response',
+                          source_batch_id = EXCLUDED.source_batch_id,
+                          card_id = COALESCE(EXCLUDED.card_id, conversations.card_id);
+                        """,
+                        (
+                            phone,
+                            card_id,  # contact_id
+                            card_id,
+                            owner,
+                            blast_id,
+                            datetime.utcnow(),
+                        ),
+                    )
 
             sent_count += 1
             results.append(
