@@ -203,7 +203,7 @@
         const typeFilter = document.getElementById("cardTypeFilter").value;
         const stateFilter = document.getElementById("cardStateFilter").value;
         
-        let url = `${BACKEND}/cards?limit=1000`;
+        let url = `${BACKEND}/cards?limit=10000`;
         if (typeFilter) url += `&type=${encodeURIComponent(typeFilter)}`;
         if (stateFilter) url += `&sales_state=${encodeURIComponent(stateFilter)}`;
         
@@ -246,7 +246,7 @@
         `<div><strong>${shown}</strong> shown</div>`;
 
       let html = "<table><thead><tr>";
-      html += "<th></th><th>Name</th><th>Type</th><th>Sales State</th><th>Owner</th><th>Updated</th><th>View</th>";
+      html += "<th></th><th>Name</th><th>Type</th><th>Sales State</th><th>Owner</th><th>Updated</th><th>Actions</th>";
       html += "</tr></thead><tbody>";
 
       rows.forEach(card => {
@@ -263,7 +263,8 @@
         html += `<td><span class='badge gray'>${salesState}</span></td>`;
         html += `<td>${owner}</td>`;
         html += `<td>${updated}</td>`;
-        html += `<td><a class='link' href='card.html?id=${encodeURIComponent(card.id)}'>View</a></td>`;
+        html += `<td><a class='link' href='card.html?id=${encodeURIComponent(card.id)}' style='margin-right: 8px;'>View</a>`;
+        html += `<a class='link' href='#' onclick='deleteCard("${card.id}"); return false;' style='color: #fecaca;'>Delete</a></td>`;
         html += "</tr>";
       });
 
@@ -346,6 +347,32 @@
 
     document.getElementById("search").addEventListener("input", render);
     document.getElementById("stateFilter").addEventListener("change", render);
+    async function deleteCard(cardId) {
+      if (!confirm(`Delete card "${cardId}"? This will also delete related conversations and relationships.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`${BACKEND}/cards/${encodeURIComponent(cardId)}`, {
+          method: "DELETE",
+        });
+
+        if (!res.ok) {
+          const data = await res.json();
+          alert(`Delete failed: ${data.detail || res.status}`);
+          return;
+        }
+
+        alert("Card deleted successfully");
+        loadCards(); // Refresh the list
+      } catch (error) {
+        alert(`Delete error: ${error.message}`);
+      }
+    }
+
+    // Expose deleteCard to global scope for inline onclick
+    window.deleteCard = deleteCard;
+
     document.getElementById("cardSearch").addEventListener("input", renderCards);
     document.getElementById("cardTypeFilter").addEventListener("change", loadCards);
     document.getElementById("cardStateFilter").addEventListener("change", loadCards);

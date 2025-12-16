@@ -565,35 +565,50 @@ async def twilio_inbound(request: Request):
     Receives form-encoded data from Twilio and processes through intelligence layer.
     Gated by webhook configuration (enabled, mode, logging).
     """
+    print("=" * 60)
+    print("[TWILIO_INBOUND] Webhook hit")
+    print("=" * 60)
+    
     # Check if webhook is enabled
     if not WEBHOOK_CONFIG.enabled:
+        print("[TWILIO_INBOUND] Webhook disabled in config")
         return PlainTextResponse("Webhook disabled", status_code=200)
     
     # Parse form data
     payload = await request.form()
+    payload_dict = dict(payload)
+    
+    # Always log payload for debugging
+    print(f"[TWILIO_INBOUND] Payload: {payload_dict}")
     
     # Log payload if enabled
     if WEBHOOK_CONFIG.log_payloads:
-        print("TWILIO PAYLOAD:", dict(payload))
+        print("TWILIO PAYLOAD:", payload_dict)
     
     # Handle dry_run mode
     if WEBHOOK_CONFIG.mode == "dry_run":
+        print("[TWILIO_INBOUND] Dry run mode - returning OK without processing")
         return PlainTextResponse("Dry run OK", status_code=200)
     
     # Handle paused mode
     if WEBHOOK_CONFIG.mode == "paused":
+        print("[TWILIO_INBOUND] Paused mode - returning OK without processing")
         return PlainTextResponse("Webhook paused", status_code=200)
     
     # Normal processing (mode == "prod")
     try:
-        From = payload.get("From", "")
-        Body = payload.get("Body", "")
+        From = payload_dict.get("From", "")
+        Body = payload_dict.get("Body", "")
+        
+        print(f"[TWILIO_INBOUND] From={From}, Body={Body[:50]}...")
         
         if not From:
+            print("[TWILIO_INBOUND] ERROR: Missing From field")
             return PlainTextResponse("Missing From field", status_code=400)
         
         # Normalize phone number from Twilio (E.164 format)
         normalized_phone = normalize_phone(From)
+        print(f"[TWILIO_INBOUND] Normalized phone: {normalized_phone}")
         
         # Prepare event payload for inbound_intelligent
         event = {
@@ -603,13 +618,19 @@ async def twilio_inbound(request: Request):
             "intent": {}  # Empty intent - can be enhanced with LLM classification later
         }
         
+        print(f"[TWILIO_INBOUND] Calling inbound_intelligent for {normalized_phone}")
+        
         # Call the intelligence handler directly (no HTTP overhead)
         result = await inbound_intelligent(event)
+        
+        print(f"[TWILIO_INBOUND] Success: {result}")
         return "ok"
     except Exception as e:
         # Log error but return ok to Twilio (prevents retries on transient errors)
         # In production, you might want to log this to a monitoring service
-        print(f"Error processing Twilio webhook: {e}")
+        import traceback
+        print(f"[TWILIO_INBOUND] ERROR processing webhook: {e}")
+        print(f"[TWILIO_INBOUND] Traceback: {traceback.format_exc()}")
         return "ok"
 
 
@@ -983,13 +1004,50 @@ async def get_card_endpoint(card_id: str):
     return card
 
 
+@app.delete("/cards/{card_id}")
+async def delete_card_endpoint(card_id: str):
+    """Delete a card by ID. Also deletes related relationships and conversations."""
+    conn = get_conn()
+    
+    # Check if card exists
+    card = get_card(conn, card_id)
+    if not card:
+        raise HTTPException(status_code=404, detail=f"Card not found: {card_id}")
+    
+    try:
+        with conn.cursor() as cur:
+            # Delete relationships (cascade should handle this, but explicit is safer)
+            cur.execute(
+                "DELETE FROM card_relationships WHERE parent_card_id = %s OR child_card_id = %s",
+                (card_id, card_id)
+            )
+            
+            # Delete conversations linked to this card
+            cur.execute(
+                "DELETE FROM conversations WHERE card_id = %s",
+                (card_id,)
+            )
+            
+            # Delete the card itself
+            cur.execute("DELETE FROM cards WHERE id = %s", (card_id,))
+            
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail=f"Card not found: {card_id}")
+        
+        return {"ok": True, "message": f"Card {card_id} deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting card: {str(e)}")
+
+
 @app.get("/cards")
 async def list_cards(
     type: Optional[str] = Query(None, description="Filter by card type"),
     sales_state: Optional[str] = Query(None, description="Filter by sales state"),
     owner: Optional[str] = Query(None, description="Filter by owner"),
     where: Optional[str] = Query(None, description="JSON where clause"),
-    limit: Optional[int] = Query(100, description="Limit results"),
+    limit: Optional[int] = Query(10000, description="Limit results"),
     offset: Optional[int] = Query(0, description="Offset results")
 ):
     """

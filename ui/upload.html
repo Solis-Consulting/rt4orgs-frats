@@ -249,7 +249,7 @@
           // Verify cards are actually in DB
           let verificationMessage = '';
           try {
-            const verifyResponse = await fetch(`${BACKEND}/cards?limit=1000`);
+            const verifyResponse = await fetch(`${BACKEND}/cards?limit=10000`);
             if (verifyResponse.ok) {
               const verifyData = await verifyResponse.json();
               const uploadedIds = result.cards.map(c => c.id);
