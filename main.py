@@ -650,25 +650,21 @@ async def twilio_inbound(request: Request):
                 card_id = row[0]
                 card = get_card(conn, card_id)
         
-        # Generate reply message based on state and intent
+        # Generate reply message using configured Markov responses
         reply_text = None
         if result.get("next_state"):
             next_state = result["next_state"]
-            intent = result.get("intent", {})
             
-            # Simple reply logic based on state transition
-            if "interested" in next_state.lower() or intent.get("category") == "interested":
-                reply_text = "Great! Would you like pricing or a sample list?"
-            elif "pricing" in next_state.lower() or intent.get("category") == "pricing":
-                reply_text = "We offer one-time chapter lists starting at $299. Want details?"
-            elif "dead" in next_state.lower() or "not_interested" in next_state.lower():
-                reply_text = "All good — appreciate the reply."
-            elif next_state == "initial_outreach":
-                # First inbound after outbound
-                reply_text = "Thanks for getting back! What would you like to see next?"
+            # Try to get configured response for this state
+            configured_response = get_markov_response(conn, next_state)
+            
+            if configured_response:
+                reply_text = configured_response
+                print(f"[TWILIO_INBOUND] Using configured response for state '{next_state}'")
             else:
-                # Default reply
-                reply_text = "Got it — what would you like to see next?"
+                # Fallback to default if no configuration exists
+                print(f"[TWILIO_INBOUND] No configured response for state '{next_state}', skipping reply")
+                # Don't send a reply if not configured - prevents unwanted messages
         
         # Send explicit reply via Twilio (webhook return does NOT send SMS)
         if reply_text:
@@ -714,7 +710,7 @@ async def twilio_inbound(request: Request):
         import traceback
         print(f"[TWILIO_INBOUND] ERROR processing webhook: {e}")
         print(f"[TWILIO_INBOUND] Traceback: {traceback.format_exc()}")
-        return "ok"
+        return PlainTextResponse("OK", status_code=200)
 
 
 # ============================================================================
@@ -1663,6 +1659,99 @@ async def send_message(request: Dict[str, Any]):
         "messages_sent": len([r for r in results if r["status"] == "sent"]),
         "results": results
     }
+
+
+# ============================================================================
+# Markov Response Configuration Endpoints
+# ============================================================================
+
+@app.get("/markov/responses")
+async def get_markov_responses():
+    """Get all configured Markov state responses."""
+    conn = get_conn()
+    
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT state_key, response_text, description, updated_at
+            FROM markov_responses
+            ORDER BY state_key;
+        """)
+        rows = cur.fetchall()
+    
+    responses = {
+        row[0]: {
+            "response_text": row[1],
+            "description": row[2],
+            "updated_at": row[3].isoformat() if row[3] else None,
+        }
+        for row in rows
+    }
+    
+    # Also get initial outreach (stored as special key)
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT response_text FROM markov_responses WHERE state_key = '__initial_outreach__'
+        """)
+        row = cur.fetchone()
+        initial_outreach = row[0] if row else None
+    
+    return {
+        "responses": responses,
+        "initial_outreach": initial_outreach,
+    }
+
+
+@app.post("/markov/responses")
+async def update_markov_responses(payload: Dict[str, Any] = Body(...)):
+    """Update Markov state responses. Payload: {responses: {state_key: {response_text, description}}, initial_outreach: str}"""
+    conn = get_conn()
+    
+    responses = payload.get("responses", {})
+    initial_outreach = payload.get("initial_outreach")
+    
+    with conn.cursor() as cur:
+        # Update/insert state responses
+        for state_key, config in responses.items():
+            response_text = config.get("response_text", "")
+            description = config.get("description", "")
+            
+            cur.execute("""
+                INSERT INTO markov_responses (state_key, response_text, description, updated_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (state_key)
+                DO UPDATE SET
+                    response_text = EXCLUDED.response_text,
+                    description = EXCLUDED.description,
+                    updated_at = EXCLUDED.updated_at;
+            """, (state_key, response_text, description, datetime.utcnow()))
+        
+        # Update initial outreach (special key)
+        if initial_outreach is not None:
+            cur.execute("""
+                INSERT INTO markov_responses (state_key, response_text, updated_at)
+                VALUES ('__initial_outreach__', %s, %s)
+                ON CONFLICT (state_key)
+                DO UPDATE SET
+                    response_text = EXCLUDED.response_text,
+                    updated_at = EXCLUDED.updated_at;
+            """, (initial_outreach, datetime.utcnow()))
+    
+    return {"ok": True, "message": "Responses updated successfully"}
+
+
+def get_markov_response(conn: Any, state_key: str) -> Optional[str]:
+    """Get configured response text for a Markov state, or None if not configured."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT response_text FROM markov_responses WHERE state_key = %s
+        """, (state_key,))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
+def get_initial_outreach_message(conn: Any) -> Optional[str]:
+    """Get configured initial outreach message, or None if not configured."""
+    return get_markov_response(conn, "__initial_outreach__")
 
 
 # ============================================================================

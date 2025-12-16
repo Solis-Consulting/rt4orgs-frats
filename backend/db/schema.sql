@@ -63,7 +63,18 @@ CREATE TABLE IF NOT EXISTS blast_runs (
     status TEXT
 );
 
--- 4. Bridge Conversations to Cards
+-- 4. Markov Response Configuration Table
+CREATE TABLE IF NOT EXISTS markov_responses (
+    state_key TEXT PRIMARY KEY,
+    response_text TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_markov_responses_state ON markov_responses(state_key);
+
+-- 5. Bridge Conversations to Cards
 -- Add foreign key constraint to card_id column (if conversations table exists and column exists)
 DO $$ 
 BEGIN

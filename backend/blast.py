@@ -234,8 +234,31 @@ def run_blast_for_cards(
                     purchased_example = row
                     break
 
-        # Generate message text
-        message = generate_message(data, purchased_example, ARCHIVE_DIR / "templates" / "messages.txt")
+        # Generate message text - try configured initial outreach first, fallback to template
+        message = None
+        try:
+            # Check for configured initial outreach
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT response_text FROM markov_responses WHERE state_key = '__initial_outreach__'
+                """)
+                row = cur.fetchone()
+                if row and row[0]:
+                    configured_outreach = row[0]
+                    # Use configured message, replacing placeholders if present
+                    message = configured_outreach
+                    # Simple placeholder replacement (can be enhanced)
+                    if "{name}" in message:
+                        message = message.replace("{name}", data.get("name", ""))
+                    if "{fraternity}" in message:
+                        message = message.replace("{fraternity}", data.get("fraternity", ""))
+                    print(f"[BLAST] Using configured initial outreach message")
+        except Exception as e:
+            print(f"[BLAST] Could not load configured outreach, using template: {e}")
+        
+        if not message:
+            # Fallback to template-based generation
+            message = generate_message(data, purchased_example, ARCHIVE_DIR / "templates" / "messages.txt")
 
         try:
             print(
