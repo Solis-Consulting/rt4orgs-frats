@@ -27,6 +27,12 @@
     .state-key { font-family: monospace; font-size: 12px; color: #9ca3af; }
     .state-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-left: 8px; }
     .state-description { font-size: 11px; color: #6b7280; margin-bottom: 8px; }
+    .state-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .save-state-btn { background: #0ea5e9; color: #0f172a; border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+    .save-state-btn:hover { background: #38bdf8; }
+    .save-state-btn:disabled { background: #374151; color: #6b7280; cursor: not-allowed; }
+    .save-state-btn.saved { background: #22c55e; color: white; }
+    @keyframes flashSaved { 0% { background: #22c55e; } 100% { background: #0ea5e9; } }
     .response-input { width: 100%; min-height: 60px; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
     th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid #1f2937; }
@@ -49,6 +55,9 @@
           This message is sent during outbound blasts. Supports placeholders: {"{"}name{"}"}, {"{"}fraternity{"}"}
         </div>
         <textarea id="initialOutreach" placeholder="Hello {name}, we would like to know how {fraternity}'s spring rush could be with a FRESH PNM list..."></textarea>
+        <div class="state-actions">
+          <button class="save-state-btn" id="saveInitialOutreachBtn" onclick="saveState('__initial_outreach__', 'initialOutreach', 'saveInitialOutreachBtn')">Save</button>
+        </div>
       </div>
 
       <!-- State Responses Section -->
@@ -73,7 +82,6 @@
       </div>
 
       <div style="margin-top: 24px;">
-        <button id="saveBtn" onclick="saveResponses()">Save All Changes</button>
         <button class="button-secondary" onclick="loadResponses()" style="opacity: 0.7;">Reload</button>
       </div>
     </div>
@@ -149,6 +157,8 @@
 
           const row = document.createElement('div');
           row.className = 'state-row';
+          const textareaId = `state-${state.state_key}`;
+          const buttonId = `save-${state.state_key}-btn`;
           row.innerHTML = `
             <div class="state-header">
               <div>
@@ -157,7 +167,10 @@
               </div>
             </div>
             ${description ? `<div class="state-description">${description}</div>` : ''}
-            <textarea class="response-input" data-state="${state.state_key}" placeholder="Leave empty to skip replies for this state">${responseText}</textarea>
+            <textarea id="${textareaId}" class="response-input" data-state="${state.state_key}" placeholder="Leave empty to skip replies for this state">${responseText}</textarea>
+            <div class="state-actions">
+              <button class="save-state-btn" id="${buttonId}" onclick="saveState('${state.state_key}', '${textareaId}', '${buttonId}')">Save</button>
+            </div>
           `;
           container.appendChild(row);
         });
@@ -169,44 +182,32 @@
       }
     }
 
-    async function saveResponses(isAutoSave = false) {
-      if (!isAutoSave) {
-        console.log('SAVE CLICKED - saveResponses() called');
+    async function saveState(stateKey, textareaId, buttonId) {
+      console.log('SAVE STATE:', stateKey);
+      const textarea = document.getElementById(textareaId);
+      const button = document.getElementById(buttonId);
+      
+      if (!textarea || !button) {
+        console.error('Could not find textarea or button for state:', stateKey);
+        return;
       }
-      const saveBtn = document.getElementById('saveBtn');
-      const wasDisabled = saveBtn ? saveBtn.disabled : false;
-      if (!isAutoSave && saveBtn) {
-        saveBtn.disabled = true;
-        saveBtn.textContent = 'Saving...';
-      }
+
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = 'Saving...';
 
       try {
-        console.log('SAVE: BACKEND URL =', BACKEND);
+        const responseText = textarea.value.trim();
         
-        // Collect initial outreach
-        const initialOutreach = document.getElementById('initialOutreach').value.trim();
-
-        // Collect state responses
-        const responses = {};
-        document.querySelectorAll('.response-input').forEach(textarea => {
-          const stateKey = textarea.getAttribute('data-state');
-          const responseText = textarea.value.trim();
-          if (stateKey) {
-            responses[stateKey] = {
-              response_text: responseText,
-              description: '', // Can be enhanced later
-            };
-          }
-        });
-
         const payload = {
-          initial_outreach: initialOutreach,
-          responses: responses,
+          state_key: stateKey,
+          response_text: responseText,
+          description: '',
         };
 
-        const requestUrl = `${BACKEND}/markov/responses`;
-        console.log('SAVE: Request URL =', requestUrl);
-        console.log('SAVE: Payload =', JSON.stringify(payload, null, 2));
+        const requestUrl = `${BACKEND}/markov/response`;
+        console.log('SAVE STATE: Request URL =', requestUrl);
+        console.log('SAVE STATE: Payload =', payload);
 
         const res = await fetch(requestUrl, {
           method: 'POST',
@@ -214,33 +215,32 @@
           body: JSON.stringify(payload),
         });
 
-        console.log('SAVE: Response status =', res.status);
-        console.log('SAVE: Response ok =', res.ok);
+        console.log('SAVE STATE: Response status =', res.status);
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData.detail || errorData.message || `HTTP ${res.status}`);
+        }
 
         const data = await res.json();
-        console.log('SAVE: Response data =', data);
+        console.log('SAVE STATE: Response data =', data);
 
-        if (!res.ok || !data.ok) {
-          throw new Error(data.error || data.message || `HTTP ${res.status}`);
-        }
+        // Flash saved state
+        button.classList.add('saved');
+        button.textContent = 'Saved ✓';
+        setTimeout(() => {
+          button.classList.remove('saved');
+          button.textContent = originalText;
+        }, 2000);
 
-        if (!isAutoSave) {
-          showStatus('All responses saved successfully', 'success');
-        }
       } catch (error) {
-        console.error('SAVE ERROR:', error);
-        if (!isAutoSave) {
-          showStatus(`Error saving: ${error.message}`, 'error');
-        } else {
-          throw error; // Re-throw for importFromJSON to handle
-        }
+        console.error('SAVE STATE ERROR:', error);
+        button.textContent = 'Error';
+        setTimeout(() => {
+          button.textContent = originalText;
+        }, 2000);
       } finally {
-        if (!isAutoSave && saveBtn) {
-          saveBtn.disabled = false;
-          saveBtn.textContent = 'Save All Changes';
-        } else if (saveBtn) {
-          saveBtn.disabled = wasDisabled;
-        }
+        button.disabled = false;
       }
     }
 
@@ -272,28 +272,32 @@
         if (data.initial_outreach !== undefined && data.initial_outreach !== null) {
           document.getElementById('initialOutreach').value = data.initial_outreach;
           console.log('IMPORT: Set initial_outreach');
+          // Save initial outreach
+          await saveState('__initial_outreach__', 'initialOutreach', 'saveInitialOutreachBtn');
         }
 
-        // Import state responses
+        // Import state responses - compile to individual saves
         if (data.responses && typeof data.responses === 'object') {
-          document.querySelectorAll('.response-input').forEach(textarea => {
-            const stateKey = textarea.getAttribute('data-state');
-            if (stateKey && data.responses[stateKey]) {
-              const stateData = data.responses[stateKey];
-              const responseText = stateData.response_text || stateData.responseText || '';
+          const stateKeys = Object.keys(data.responses);
+          console.log('IMPORT: Compiling', stateKeys.length, 'states to individual saves...');
+          
+          for (const stateKey of stateKeys) {
+            const stateData = data.responses[stateKey];
+            const responseText = stateData.response_text || stateData.responseText || '';
+            const textareaId = `state-${stateKey}`;
+            const buttonId = `save-${stateKey}-btn`;
+            
+            // Populate textarea
+            const textarea = document.getElementById(textareaId);
+            if (textarea) {
               textarea.value = responseText;
+              // Save state
+              await saveState(stateKey, textareaId, buttonId);
+            } else {
+              console.warn('IMPORT: Textarea not found for state:', stateKey);
             }
-          });
-          console.log('IMPORT: Imported', Object.keys(data.responses).length, 'state responses');
+          }
         }
-
-        // Auto-save immediately after import
-        console.log('IMPORT: Auto-saving to backend...');
-        await saveResponses(true); // Pass true to indicate this is from import
-
-        // Re-hydrate UI from backend to ensure UI matches DB
-        console.log('IMPORT: Re-hydrating UI from backend...');
-        await loadResponses();
 
         showStatus('JSON imported and saved successfully', 'success');
       } catch (error) {

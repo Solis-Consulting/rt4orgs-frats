@@ -1773,6 +1773,32 @@ async def get_markov_responses():
     }
 
 
+@app.post("/markov/response")
+async def update_single_markov_response(payload: Dict[str, Any] = Body(...)):
+    """Update a single Markov state response. Payload: {state_key: str, response_text: str, description: str?}"""
+    conn = get_conn()
+    
+    state_key = payload.get("state_key")
+    response_text = payload.get("response_text", "")
+    description = payload.get("description", "")
+    
+    if not state_key:
+        raise HTTPException(status_code=400, detail="state_key is required")
+    
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO markov_responses (state_key, response_text, description, updated_at)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (state_key)
+            DO UPDATE SET
+                response_text = EXCLUDED.response_text,
+                description = EXCLUDED.description,
+                updated_at = EXCLUDED.updated_at;
+        """, (state_key, response_text, description, datetime.utcnow()))
+    
+    return {"ok": True, "state_key": state_key, "message": "Response saved successfully"}
+
+
 @app.post("/markov/responses")
 async def update_markov_responses(payload: Dict[str, Any] = Body(...)):
     """Update Markov state responses. Payload: {responses: {state_key: {response_text, description}}, initial_outreach: str}"""
