@@ -851,6 +851,14 @@ async def twilio_inbound(request: Request):
                     # Don't send a reply if not configured - prevents unwanted messages
         
         # Send explicit reply via Twilio (webhook return does NOT send SMS)
+        # Filter out "OK" messages - don't send standalone "OK" responses
+        if reply_text:
+            reply_text_clean = reply_text.strip().upper()
+            # Skip sending if reply is just "OK" or variations
+            if reply_text_clean in ["OK", "OKAY", "K", "OK."]:
+                print(f"[TWILIO_INBOUND] Skipping 'OK' message - not sending reply")
+                reply_text = None
+        
         if reply_text:
             try:
                 twilio_sid = os.getenv("TWILIO_ACCOUNT_SID")
