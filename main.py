@@ -667,12 +667,16 @@ async def twilio_inbound(request: Request):
         normalized_phone = normalize_phone(From)
         print(f"[TWILIO_INBOUND] Normalized phone: {normalized_phone}")
         
+        # Classify intent from message text (simple keyword-based for now)
+        intent = classify_intent_simple(Body)
+        print(f"[TWILIO_INBOUND] Classified intent: {intent}")
+        
         # Prepare event payload for inbound_intelligent
         event = {
             "phone": normalized_phone,
             "text": Body,
             "body": Body,
-            "intent": {}  # Empty intent - can be enhanced with LLM classification later
+            "intent": intent
         }
         
         print(f"[TWILIO_INBOUND] Calling inbound_intelligent for {normalized_phone}")
@@ -698,17 +702,57 @@ async def twilio_inbound(request: Request):
         reply_text = None
         if result.get("next_state"):
             next_state = result["next_state"]
+            previous_state = result.get("previous_state", "initial_outreach")
+            
+            print(f"[TWILIO_INBOUND] State transition: {previous_state} → {next_state}")
             
             # Try to get configured response for this state
             configured_response = get_markov_response(conn, next_state)
             
             if configured_response:
-                reply_text = configured_response
-                print(f"[TWILIO_INBOUND] Using configured response for state '{next_state}'")
+                # If we have a card, substitute template placeholders
+                if card and card.get("card_data"):
+                    from backend.blast import _substitute_template
+                    from archive_intelligence.message_processor.utils import load_sales_history, find_matching_fraternity
+                    
+                    data = card["card_data"]
+                    sales_history = load_sales_history()
+                    purchased_example = None
+                    if isinstance(sales_history, dict):
+                        purchased_example = find_matching_fraternity(data, sales_history)
+                    
+                    reply_text = _substitute_template(configured_response, data, purchased_example)
+                    print(f"[TWILIO_INBOUND] Using configured response for state '{next_state}' (with template substitution)")
+                else:
+                    reply_text = configured_response
+                    print(f"[TWILIO_INBOUND] Using configured response for state '{next_state}' (no substitution)")
             else:
-                # Fallback to default if no configuration exists
-                print(f"[TWILIO_INBOUND] No configured response for state '{next_state}', skipping reply")
-                # Don't send a reply if not configured - prevents unwanted messages
+                # Fallback: provide a helpful default response based on state
+                fallback_responses = {
+                    "interest": "Great! What would you like to know?",
+                    "light_interest": "Awesome! I can help you get a fresh PNM list. What questions do you have?",
+                    "strong_interest": "Excellent! Let's get you set up. What's your timeline?",
+                    "pricing": "I'd be happy to discuss pricing. What's your chapter size?",
+                    "asks_for_price": "Pricing depends on chapter size and delivery timeline. What are you looking for?",
+                    "question": "I'm here to help! What would you like to know?",
+                    "demo": "I can show you examples. What would be most helpful?",
+                    "asks_for_example_list": "I can send you a sample list. What chapter are you interested in?",
+                }
+                
+                # Try to find a fallback based on state or category
+                fallback = fallback_responses.get(next_state)
+                if not fallback:
+                    # Try category-based fallback
+                    intent_category = result.get("intent", {}).get("category")
+                    if intent_category:
+                        fallback = fallback_responses.get(intent_category)
+                
+                if fallback:
+                    reply_text = fallback
+                    print(f"[TWILIO_INBOUND] Using fallback response for state '{next_state}': {fallback}")
+                else:
+                    print(f"[TWILIO_INBOUND] No configured response for state '{next_state}' and no fallback available")
+                    # Don't send a reply if not configured - prevents unwanted messages
         
         # Send explicit reply via Twilio (webhook return does NOT send SMS)
         if reply_text:
@@ -1920,6 +1964,47 @@ async def update_markov_responses(payload: Dict[str, Any] = Body(...)):
         logger.error("❌ Batch save failed")
         logger.exception(e)
         raise
+
+
+def classify_intent_simple(text: str) -> Dict[str, Any]:
+    """
+    Simple keyword-based intent classifier.
+    Returns intent dict with 'category' and/or 'subcategory' keys.
+    """
+    if not text:
+        return {}
+    
+    text_lower = text.lower().strip()
+    
+    # Interest indicators
+    if any(word in text_lower for word in ["interested", "yes", "sounds good", "tell me more", "i want", "i need"]):
+        return {"category": "interest", "subcategory": "light_interest"}
+    
+    # Pricing questions
+    if any(word in text_lower for word in ["price", "cost", "how much", "$", "dollar", "pay"]):
+        return {"category": "pricing", "subcategory": "asks_for_price"}
+    
+    # Questions
+    if any(word in text_lower for word in ["what", "how", "when", "where", "why", "?", "question"]):
+        return {"category": "question"}
+    
+    # Objections
+    if any(word in text_lower for word in ["no", "not interested", "don't", "can't", "won't", "too expensive"]):
+        return {"category": "objection"}
+    
+    # Demo requests
+    if any(word in text_lower for word in ["example", "sample", "demo", "show me", "preview"]):
+        return {"category": "demo", "subcategory": "asks_for_example_list"}
+    
+    # Purchase intent
+    if any(word in text_lower for word in ["buy", "purchase", "order", "sign up", "ready"]):
+        return {"category": "purchase"}
+    
+    # Default: treat as interest if positive sentiment
+    if any(word in text_lower for word in ["ok", "okay", "sure", "yeah", "yep"]):
+        return {"category": "interest", "subcategory": "light_interest"}
+    
+    return {}
 
 
 def get_markov_response(conn: Any, state_key: str) -> Optional[str]:
