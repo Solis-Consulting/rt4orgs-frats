@@ -24,55 +24,132 @@ def normalize_text(text: Optional[str]) -> str:
     return re.sub(r"\s+", " ", text)
 
 
+def _get_deal_field(deal: Dict[str, Any], *field_names: str) -> str:
+    """Get deal field value, trying multiple possible field name variations. Exported for use in blast.py."""
+    """Get deal field value, trying multiple possible field name variations."""
+    for field_name in field_names:
+        value = deal.get(field_name) or deal.get(field_name.lower()) or deal.get(field_name.upper())
+        if value:
+            return str(value).strip()
+    return ""
+
+
+def _get_deal_abbreviation(deal: Dict[str, Any]) -> str:
+    """Get fraternity abbreviation from deal - handles 'Abbreviation', 'fraternity', etc."""
+    return _get_deal_field(deal, "Abbreviation", "abbreviation", "fraternity", "Fraternity").upper()
+
+
+def _get_deal_institution(deal: Dict[str, Any]) -> str:
+    """Get institution from deal."""
+    return _get_deal_field(deal, "Institution", "institution").lower()
+
+
+def _get_deal_chapter(deal: Dict[str, Any]) -> str:
+    """Get chapter from deal."""
+    return _get_deal_field(deal, "Chapter", "chapter").lower()
+
+
+def _get_deal_names_given(deal: Dict[str, Any]) -> int:
+    """Get names given from deal - handles 'Names given', 'names_given', etc."""
+    value = deal.get("Names given") or deal.get("names given") or deal.get("names_given") or deal.get("Names Given")
+    if value:
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            pass
+    return 0
+
+
 def find_matching_fraternity(
     contact: Dict[str, Any],
     sales_history: Dict[str, List[Dict[str, Any]]],
 ) -> Optional[Dict[str, Any]]:
     """
-    Matching logic with fallback priority:
-    1. Exact fraternity & chapter match
-    2. Any record under the same fraternity
-    3. SAE Nationals deal at Towson University
-    4. First record in the entire sales_history (last fallback)
+    Relational proof-point selector with matching hierarchy:
+    1. Same fraternity + same institution (best)
+    2. Same fraternity, different school
+    3. Same school, different fraternity
+    4. Fallback: TKE at University of Colorado Boulder (708 names)
     
     Pure function: no side effects, returns matched deal or None.
     """
-    fraternity = contact.get("fraternity", "").strip().upper()
-    chapter = contact.get("chapter", "").strip()
-    location_norm = (contact.get("location") or contact.get("institution") or chapter).strip().lower()
-
-    # Normalize key for sales_history lookup
-    deals_for_frat = sales_history.get(fraternity, [])
-
+    target_frat = contact.get("fraternity", "").strip().upper()
+    target_inst = (contact.get("institution") or contact.get("location") or "").strip().lower()
+    
+    # Collect all deals and match by abbreviation
+    all_deals: List[Dict[str, Any]] = []
+    for frat_key, deal_list in sales_history.items():
+        if isinstance(deal_list, list):
+            all_deals.extend(deal_list)
+    
+    # Normalize: also handle direct fraternity key matches
+    deals_for_frat = sales_history.get(target_frat, [])
+    if isinstance(deals_for_frat, list) and deals_for_frat:
+        pass  # Will use this below
+    else:
+        # Try to find deals by abbreviation matching
+        deals_for_frat = [
+            deal for deal in all_deals
+            if _get_deal_abbreviation(deal) == target_frat
+        ]
+    
     # -------------------------------------------------------
-    # 1) EXACT MATCH: fraternity + institution/chapter
+    # 1) PRIMARY MATCH: Same fraternity + same institution
+    # -------------------------------------------------------
+    if deals_for_frat and target_inst:
+        matches = [
+            deal for deal in deals_for_frat
+            if _get_deal_institution(deal) == target_inst
+        ]
+        if matches:
+            # If multiple, pick highest Names Given
+            matches.sort(key=_get_deal_names_given, reverse=True)
+            return matches[0]
+    
+    # -------------------------------------------------------
+    # 2) SECONDARY MATCH: Same fraternity, different school
     # -------------------------------------------------------
     if deals_for_frat:
-        for deal in deals_for_frat:
-            inst = (deal.get("institution") or deal.get("chapter") or "").lower()
-            if inst == location_norm:
-                return deal
-
+        # Sort by Names Given (highest first), or most recent
+        sorted_deals = sorted(
+            deals_for_frat,
+            key=lambda d: (_get_deal_names_given(d),),
+            reverse=True
+        )
+        return sorted_deals[0]
+    
     # -------------------------------------------------------
-    # 2) ANY DEAL under same fraternity
+    # 3) TERTIARY MATCH: Same institution, different fraternity
     # -------------------------------------------------------
-    if deals_for_frat:
-        return deals_for_frat[0]
-
+    if target_inst:
+        inst_matches = [
+            deal for deal in all_deals
+            if _get_deal_institution(deal) == target_inst
+        ]
+        if inst_matches:
+            inst_matches.sort(key=_get_deal_names_given, reverse=True)
+            return inst_matches[0]
+    
     # -------------------------------------------------------
-    # 3) FALLBACK: SAE Nationals at Towson
+    # 4) FALLBACK: TKE at University of Colorado Boulder (708 names)
     # -------------------------------------------------------
-    sae = sales_history.get("SAE", [])
-    for deal in sae:
-        inst = (deal.get("institution") or "").lower()
-        if "towson" in inst:
+    for deal in all_deals:
+        abbrev = _get_deal_abbreviation(deal)
+        inst = _get_deal_institution(deal)
+        if abbrev == "TKE" and "colorado boulder" in inst:
             return deal
-
+    
+    # If TKE Boulder not found, try any TKE deal
+    tke_deals = [deal for deal in all_deals if _get_deal_abbreviation(deal) == "TKE"]
+    if tke_deals:
+        tke_deals.sort(key=_get_deal_names_given, reverse=True)
+        return tke_deals[0]
+    
     # -------------------------------------------------------
-    # 4) FINAL FALLBACK: First deal in entire file
+    # 5) FINAL FALLBACK: Highest names given deal
     # -------------------------------------------------------
-    for _, deal_list in sales_history.items():
-        if deal_list:
-            return deal_list[0]
-
+    if all_deals:
+        all_deals.sort(key=_get_deal_names_given, reverse=True)
+        return all_deals[0]
+    
     return None

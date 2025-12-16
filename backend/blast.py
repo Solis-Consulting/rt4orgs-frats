@@ -31,6 +31,13 @@ from archive_intelligence.message_processor.utils import (  # type: ignore
     make_contact_event_folder,
 )
 from archive_intelligence.message_processor.generate_message import generate_message  # type: ignore
+from intelligence.utils import (
+    find_matching_fraternity,
+    _get_deal_field as get_deal_field,
+    _get_deal_names_given as get_deal_names_given,
+    _get_deal_chapter as get_deal_chapter,
+    _get_deal_institution as get_deal_institution,
+)
 
 
 def _fetch_cards_by_ids(conn: Any, card_ids: List[str]) -> List[Dict[str, Any]]:
@@ -225,14 +232,21 @@ def run_blast_for_cards(
             )
             continue
 
-        # Find a purchased_example by fraternity, if available
-        fraternity = data.get("fraternity")
+        # Find matching deal using new relational proof-point selector
         purchased_example = None
-        if fraternity and isinstance(sales_history, list):
+        if isinstance(sales_history, dict):
+            purchased_example = find_matching_fraternity(data, sales_history)
+        elif isinstance(sales_history, list):
+            # Legacy format - convert to dict format for matching
+            sales_dict = {}
             for row in sales_history:
-                if isinstance(row, dict) and row.get("fraternity") == fraternity:
-                    purchased_example = row
-                    break
+                if isinstance(row, dict):
+                    frat_key = _get_deal_field(row, "Abbreviation", "abbreviation", "fraternity", "Fraternity").upper()
+                    if frat_key:
+                        if frat_key not in sales_dict:
+                            sales_dict[frat_key] = []
+                        sales_dict[frat_key].append(row)
+            purchased_example = find_matching_fraternity(data, sales_dict)
 
         # Generate message text - try configured initial outreach first, fallback to template
         message = None
@@ -245,20 +259,14 @@ def run_blast_for_cards(
                 row = cur.fetchone()
                 if row and row[0]:
                     configured_outreach = row[0]
-                    # Use configured message, replacing placeholders if present
-                    message = configured_outreach
-                    # Simple placeholder replacement (can be enhanced)
-                    if "{name}" in message:
-                        message = message.replace("{name}", data.get("name", ""))
-                    if "{fraternity}" in message:
-                        message = message.replace("{fraternity}", data.get("fraternity", ""))
+                    message = _format_initial_outreach(configured_outreach, data, purchased_example)
                     print(f"[BLAST] Using configured initial outreach message")
         except Exception as e:
             print(f"[BLAST] Could not load configured outreach, using template: {e}")
         
         if not message:
             # Fallback to template-based generation
-            message = generate_message(data, purchased_example, ARCHIVE_DIR / "templates" / "messages.txt")
+            message = _format_initial_outreach_from_template(data, purchased_example)
 
         try:
             print(

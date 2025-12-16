@@ -1,3 +1,5 @@
-Hello {name}, we would like to know how {fraternity}'s spring rush could be with a FRESH PNM list.
+Hello {name}, we wanted to show you what {fraternity}'s spring rush could look like with a FRESH PNM list.
 
-See how we gave {purchased_names} names to {purchased_chapter} at {purchased_institution} and saved their rush chair DAYS. I'm David with rt4orgs https://rt4orgs.com.
+We recently delivered {names_given} PNMs to {matched_chapter} at {matched_institution}, saving their rush chair days of work.
+
+I'm David with RT4Orgs — https://rt4orgs.com
