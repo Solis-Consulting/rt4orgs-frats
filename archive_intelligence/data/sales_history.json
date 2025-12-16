@@ -1,0 +1,126 @@
+{
+  "BYX": [
+    {
+      "Abbreviation": "BYX",
+      "Chapter": "Beta Upsilon Chi",
+      "Institution": "UNC Chapel Hill",
+      "Names given": 138,
+      "Revenue": "$200",
+      "Date completed": "6-23-2025"
+    },
+    {
+      "Abbreviation": "BYX",
+      "Chapter": "Beta Upsilon Chi",
+      "Institution": "Texas Tech University",
+      "Names given": 113,
+      "Revenue": "$600",
+      "Date completed": "6-13-2025"
+    }
+  ],
+  "SAE": [
+    {
+      "Abbreviation": "SAE",
+      "Chapter": "Sigma Alpha Epsilon",
+      "Institution": "University of Iowa",
+      "Names given": 357,
+      "Revenue": "$400",
+      "Date completed": "7-1-2025"
+    },
+    {
+      "Abbreviation": "SAE",
+      "Chapter": "Sigma Alpha Epsilon",
+      "Institution": "Towson University",
+      "Names given": 210,
+      "Revenue": "$400",
+      "Date completed": "8-19-2025"
+    }
+  ],
+  "FIJI": [
+    {
+      "Abbreviation": "FIJI",
+      "Chapter": "Phi Gamma Delta",
+      "Institution": "University of Illinois at Urbana-Champaign",
+      "Names given": 612,
+      "Revenue": "$50",
+      "Date completed": "7-14-2025"
+    }
+  ],
+  "SNU": [
+    {
+      "Abbreviation": "SNU",
+      "Chapter": "Sigma Nu",
+      "Institution": "University of Minnesota",
+      "Names given": 91,
+      "Revenue": "$50",
+      "Date completed": "7-23-2025"
+    }
+  ],
+  "ATO": [
+    {
+      "Abbreviation": "ATO",
+      "Chapter": "Alpha Tau Omega",
+      "Institution": "University of New Hampshire",
+      "Names given": 140,
+      "Revenue": "$350",
+      "Date completed": "7-30-2025"
+    }
+  ],
+  "DX": [
+    {
+      "Abbreviation": "DX",
+      "Chapter": "Delta Chi",
+      "Institution": "Louisiana Tech University",
+      "Names given": 101,
+      "Revenue": "$50",
+      "Date completed": "8-4-2025"
+    }
+  ],
+  "KS": [
+    {
+      "Abbreviation": "KS",
+      "Chapter": "Kappa Sigma",
+      "Institution": "Northwood University",
+      "Names given": 73,
+      "Revenue": "$100",
+      "Date completed": "8-4-2025"
+    }
+  ],
+  "TKE": [
+    {
+      "Abbreviation": "TKE",
+      "Chapter": "Tau Kappa Epsilon",
+      "Institution": "University of Colorado Boulder",
+      "Names given": 708,
+      "Revenue": "$100",
+      "Date completed": "8-4-2025"
+    }
+  ],
+  "PIKE": [
+    {
+      "Abbreviation": "PIKE",
+      "Chapter": "Pi Kappa Alpha",
+      "Institution": "University of Northern Colorado",
+      "Names given": 90,
+      "Revenue": "$90",
+      "Date completed": "8-8-2025"
+    },
+    {
+      "Abbreviation": "PIKE",
+      "Chapter": "Pi Kappa Alpha",
+      "Institution": "University of Delaware",
+      "Names given": 361,
+      "Revenue": "$500",
+      "Date completed": "8-11-2025"
+    }
+  ],
+  "PhiDelt": [
+    {
+      "Abbreviation": "PhiDelt",
+      "Chapter": "Phi Delta Theta",
+      "Institution": "Ohio University",
+      "Names given": 93,
+      "Revenue": "$50",
+      "Date completed": "8-9-2025"
+    }
+  ]
+}

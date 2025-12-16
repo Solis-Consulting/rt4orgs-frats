@@ -273,6 +273,15 @@ def run_blast_for_cards(
         cards = cards[:limit]
 
     sales_history = load_sales_history()
+    
+    # Log sales history loading
+    print(f"[BLAST] Sales history loaded: {len(sales_history)} fraternity keys", flush=True)
+    if sales_history:
+        total_deals = sum(len(deals) if isinstance(deals, list) else 0 for deals in sales_history.values())
+        print(f"[BLAST] Total deals in sales history: {total_deals}", flush=True)
+        print(f"[BLAST] Available fraternity keys: {list(sales_history.keys())}", flush=True)
+    else:
+        print("[BLAST] ⚠️ WARNING: Sales history is empty - no matches will be found!", flush=True)
 
     # Generate a blast_run ID
     blast_id = f"cards_ui_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
