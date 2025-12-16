@@ -96,7 +96,7 @@
         </div>
         <textarea id="jsonInput" placeholder='{"initial_outreach": "...", "responses": {"state_key": {"response_text": "...", "description": "..."}}}' style="min-height: 150px; font-family: 'Monaco', 'Courier New', monospace; font-size: 12px;"></textarea>
         <div style="margin-top: 12px;">
-          <button id="importBtn" type="button" onclick="importFromJSON()">Import JSON</button>
+          <button id="importBtn" type="button" onclick="console.log('[HTML_ONCLICK] Import button clicked via onclick'); if (typeof window.importFromJSON === 'function') { window.importFromJSON(); } else { console.error('[HTML_ONCLICK] window.importFromJSON is not a function!', typeof window.importFromJSON); }">Import JSON</button>
         </div>
         <div id="importStatus" class="import-status" style="display: none;"></div>
       </div>
@@ -105,14 +105,33 @@
   </div>
 
   <script type="module">
+    // Global error handler to catch any unhandled errors
+    window.addEventListener('error', (event) => {
+      console.error('[GLOBAL_ERROR] Unhandled error:', event.error);
+      console.error('[GLOBAL_ERROR] Message:', event.message);
+      console.error('[GLOBAL_ERROR] Filename:', event.filename);
+      console.error('[GLOBAL_ERROR] Line:', event.lineno);
+      console.error('[GLOBAL_ERROR] Column:', event.colno);
+      console.error('[GLOBAL_ERROR] Stack:', event.error?.stack);
+    });
+    
+    window.addEventListener('unhandledrejection', (event) => {
+      console.error('[GLOBAL_ERROR] Unhandled promise rejection:', event.reason);
+      console.error('[GLOBAL_ERROR] Promise:', event.promise);
+    });
+    
     import { BACKEND_URL } from '/config.js';
     const BACKEND = BACKEND_URL;
     
     // Log backend URL on load for debugging
-    console.log('Markov Response Editor initialized');
+    console.log('========================================');
+    console.log('🚀 Markov Response Editor initialized');
+    console.log('========================================');
     console.log('BACKEND_URL from config:', BACKEND_URL);
     console.log('BACKEND constant:', BACKEND);
+    console.log('BACKEND type:', typeof BACKEND);
     console.log('Location:', window.location.href);
+    console.log('========================================');
 
     // States will be loaded from the registry endpoint
     let MARKOV_STATES = [];
@@ -230,9 +249,12 @@
 
     async function saveState(stateKey, cfg) {
       console.log('[SAVE] ========================================');
+      console.log('[SAVE] 🎯 FUNCTION ENTERED');
       console.log('[SAVE] Function called', stateKey);
       console.log('[SAVE] Config:', cfg);
       console.log('[SAVE] BACKEND URL:', BACKEND);
+      console.log('[SAVE] BACKEND type:', typeof BACKEND);
+      console.log('[SAVE] BACKEND value:', String(BACKEND));
       
       setStateStatus(stateKey, 'saving', 'Saving…');
 
@@ -246,22 +268,34 @@
         const url = `${BACKEND}/markov/response`;
         console.log('[SAVE] URL:', url);
         console.log('[SAVE] Payload:', JSON.stringify(payload, null, 2));
-        console.log('[SAVE] Making POST request...');
-
-        const res = await fetch(url, {
+        console.log('[SAVE] About to call fetch()...');
+        console.log('[SAVE] Fetch options:', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
 
-        console.log('[SAVE] Response received');
+        // Create fetch promise and log it immediately
+        const fetchPromise = fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        console.log('[SAVE] ✅ fetch() called, promise created:', fetchPromise);
+        console.log('[SAVE] Promise state:', fetchPromise.constructor.name);
+        
+        // Await the response
+        const res = await fetchPromise;
+        console.log('[SAVE] ✅ Response received');
+        console.log('[SAVE] Response object:', res);
         console.log('[SAVE] Status:', res.status);
         console.log('[SAVE] Status OK:', res.ok);
+        console.log('[SAVE] Status text:', res.statusText);
         console.log('[SAVE] Headers:', Object.fromEntries(res.headers.entries()));
 
         // MUST consume response body - browsers require this
         const data = await res.json();
-        console.log('[SAVE] Response body:', JSON.stringify(data, null, 2));
+        console.log('[SAVE] ✅ Response body parsed:', JSON.stringify(data, null, 2));
 
         if (!res.ok) {
           console.error('[SAVE] ❌ FAILED', stateKey, `HTTP ${res.status}:`, data);
@@ -273,9 +307,14 @@
         setStateStatus(stateKey, 'success', 'Saved');
         return true;
       } catch (err) {
-        console.error('[SAVE] ❌ EXCEPTION', stateKey, err);
+        console.error('[SAVE] ❌ EXCEPTION', stateKey);
+        console.error('[SAVE] Error object:', err);
+        console.error('[SAVE] Error name:', err.name);
         console.error('[SAVE] Error message:', err.message);
         console.error('[SAVE] Error stack:', err.stack);
+        if (err.cause) {
+          console.error('[SAVE] Error cause:', err.cause);
+        }
         console.log('[SAVE] ========================================');
         setStateStatus(stateKey, 'error', err.message);
         return false;
@@ -398,14 +437,19 @@
 
     async function importFromJSON(event) {
       console.log('[IMPORT] ========================================');
-      console.log('[IMPORT] 🎯 IMPORT BUTTON CLICKED');
+      console.log('[IMPORT] 🎯🎯🎯 IMPORT FUNCTION CALLED 🎯🎯🎯');
       console.log('[IMPORT] Event:', event);
+      console.log('[IMPORT] Event type:', typeof event);
+      console.log('[IMPORT] This context:', this);
+      console.log('[IMPORT] Call stack:', new Error().stack);
       
       // Prevent any form submission
       if (event) {
         event.preventDefault();
         event.stopPropagation();
         console.log('[IMPORT] Event prevented');
+      } else {
+        console.log('[IMPORT] No event object (called from onclick)');
       }
       
       const importBtn = document.getElementById('importBtn');
@@ -546,7 +590,20 @@
     window.importFromJSON = importFromJSON;
     window.saveState = saveState;
     
-    // Add click listeners with logging to verify they're bound
+    // Verify functions are exposed
+    console.log('[MARKOV_UI] ✅ Functions exposed to window');
+    console.log('[MARKOV_UI] window.saveStateFromTextarea:', typeof window.saveStateFromTextarea);
+    console.log('[MARKOV_UI] window.importFromJSON:', typeof window.importFromJSON);
+    console.log('[MARKOV_UI] window.saveState:', typeof window.saveState);
+    
+    // Test that functions are callable
+    if (typeof window.importFromJSON === 'function') {
+      console.log('[MARKOV_UI] ✅ importFromJSON is callable');
+    } else {
+      console.error('[MARKOV_UI] ❌ importFromJSON is NOT a function!');
+    }
+    
+    // Add explicit event listeners as backup to onclick handlers
     window.addEventListener('DOMContentLoaded', () => {
       console.log('[MARKOV_UI] DOM Content Loaded');
       console.log('[MARKOV_UI] Checking button bindings...');
@@ -556,10 +613,37 @@
       console.log('[MARKOV_UI] Import button onclick:', importBtn ? importBtn.getAttribute('onclick') : 'null');
       console.log('[MARKOV_UI] window.importFromJSON:', typeof window.importFromJSON);
       
+      // Add explicit click listener as backup
+      if (importBtn && typeof window.importFromJSON === 'function') {
+        importBtn.addEventListener('click', (e) => {
+          console.log('[MARKOV_UI] 🔥 EXPLICIT CLICK LISTENER FIRED');
+          console.log('[MARKOV_UI] Event:', e);
+          e.preventDefault();
+          e.stopPropagation();
+          window.importFromJSON(e);
+        });
+        console.log('[MARKOV_UI] ✅ Added explicit click listener to import button');
+      }
+      
       const saveInitialBtn = document.getElementById('saveInitialOutreachBtn');
       console.log('[MARKOV_UI] Save initial button:', saveInitialBtn);
       console.log('[MARKOV_UI] Save initial onclick:', saveInitialBtn ? saveInitialBtn.getAttribute('onclick') : 'null');
       console.log('[MARKOV_UI] window.saveStateFromTextarea:', typeof window.saveStateFromTextarea);
+      
+      // Add explicit listeners to all save buttons
+      document.querySelectorAll('.save-state-btn').forEach(btn => {
+        const onclick = btn.getAttribute('onclick');
+        if (onclick && onclick.includes('saveStateFromTextarea')) {
+          btn.addEventListener('click', (e) => {
+            console.log('[MARKOV_UI] 🔥 EXPLICIT SAVE BUTTON CLICK LISTENER FIRED');
+            console.log('[MARKOV_UI] Button:', btn);
+            console.log('[MARKOV_UI] Original onclick:', onclick);
+            // Let the onclick handler run, but log it
+          });
+        }
+      });
+      
+      console.log('[MARKOV_UI] ✅ All event listeners attached');
     });
 
     // Load on page load

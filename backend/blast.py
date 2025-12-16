@@ -31,11 +31,12 @@ from archive_intelligence.message_processor.utils import (  # type: ignore
     make_contact_event_folder,
 )
 from archive_intelligence.message_processor.generate_message import generate_message  # type: ignore
-from intelligence.utils import find_matching_fraternity
-
-# Import helper functions for deal field extraction
-# Note: These are prefixed with _ but we need them, so we'll import directly
-import intelligence.utils as utils_module
+from intelligence.utils import (
+    find_matching_fraternity,
+    _get_deal_names_given,
+    _get_deal_chapter,
+    _get_deal_institution,
+)
 
 
 def _fetch_cards_by_ids(conn: Any, card_ids: List[str]) -> List[Dict[str, Any]]:
@@ -89,6 +90,63 @@ def _fetch_cards_by_ids(conn: Any, card_ids: List[str]) -> List[Dict[str, Any]]:
         person_cards.append(card)
 
     return person_cards
+
+
+def _substitute_template(template: str, data: Dict[str, Any], purchased_example: Dict[str, Any] | None) -> str:
+    """
+    Substitute placeholders in template string with values from card data and purchased example.
+    
+    Supported placeholders:
+    - {name} - from data.get("name")
+    - {fraternity} - from data.get("fraternity")
+    - {purchased_names} or {names_given} - from purchased_example (names given)
+    - {purchased_chapter} or {matched_chapter} - from purchased_example (chapter)
+    - {purchased_institution} or {matched_institution} - from purchased_example (institution)
+    
+    Falls back to empty string if placeholder value is missing.
+    """
+    # Extract values from card data
+    name = data.get("name") or ""
+    fraternity = data.get("fraternity") or ""
+    
+    # Extract values from purchased example (deal)
+    purchased_names = ""
+    purchased_chapter = ""
+    purchased_institution = ""
+    
+    if purchased_example:
+        names_given = _get_deal_names_given(purchased_example)
+        purchased_names = str(names_given) if names_given > 0 else ""
+        purchased_chapter = _get_deal_chapter(purchased_example)
+        purchased_institution = _get_deal_institution(purchased_example)
+    
+    # Perform substitution using .format() with safe defaults
+    # Support both naming conventions for backward compatibility
+    try:
+        return template.format(
+            name=name,
+            fraternity=fraternity,
+            purchased_names=purchased_names,
+            names_given=purchased_names,  # Alias for backward compatibility
+            purchased_chapter=purchased_chapter,
+            matched_chapter=purchased_chapter,  # Alias for backward compatibility
+            purchased_institution=purchased_institution,
+            matched_institution=purchased_institution,  # Alias for backward compatibility
+        )
+    except KeyError as e:
+        # If template has unknown placeholders, log and continue with what we have
+        print(f"[BLAST] Template substitution warning: unknown placeholder {e}", flush=True)
+        # Fallback: use replace for known placeholders
+        result = template
+        result = result.replace("{name}", name)
+        result = result.replace("{fraternity}", fraternity)
+        result = result.replace("{purchased_names}", purchased_names)
+        result = result.replace("{names_given}", purchased_names)
+        result = result.replace("{purchased_chapter}", purchased_chapter)
+        result = result.replace("{matched_chapter}", purchased_chapter)
+        result = result.replace("{purchased_institution}", purchased_institution)
+        result = result.replace("{matched_institution}", purchased_institution)
+        return result
 
 
 def _insert_blast_run_row(
@@ -259,14 +317,29 @@ def run_blast_for_cards(
                 row = cur.fetchone()
                 if row and row[0]:
                     configured_outreach = row[0]
-                    message = _format_initial_outreach(configured_outreach, data, purchased_example)
+                    message = _substitute_template(configured_outreach, data, purchased_example)
                     print(f"[BLAST] Using configured initial outreach message")
         except Exception as e:
             print(f"[BLAST] Could not load configured outreach, using template: {e}")
         
         if not message:
-            # Fallback to template-based generation
-            message = _format_initial_outreach_from_template(data, purchased_example)
+            # Fallback to template-based generation using archive_intelligence
+            try:
+                message = generate_message(
+                    contact=data,
+                    purchased_example=purchased_example,
+                    template_path=None,  # Will use default template
+                )
+                print(f"[BLAST] Using template-based message generation")
+            except Exception as e:
+                print(f"[BLAST] Template generation failed: {e}")
+                # Final fallback: basic message
+                name = data.get("name", "there")
+                fraternity = data.get("fraternity", "your fraternity")
+                message = (
+                    f"Hello {name}, we would like to know how {fraternity}'s spring rush could be "
+                    f"with a FRESH PNM list.\n\nI'm David with rt4orgs https://rt4orgs.com."
+                )
 
         try:
             print(
