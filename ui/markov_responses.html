@@ -229,8 +229,8 @@
     }
 
     async function saveState(stateKey, cfg) {
+      log('▶️ SAVE CLICKED', stateKey);
       setStateStatus(stateKey, 'saving', 'Saving…');
-      log('POST /markov/response', stateKey, cfg);
 
       try {
         const payload = {
@@ -239,22 +239,26 @@
           description: cfg.description || '',
         };
 
+        log('📤 sending payload', payload);
+
         const res = await fetch(`${BACKEND}/markov/response`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
 
-        log('POST response status', res.status, stateKey);
+        log('📥 response status', res.status, stateKey);
+
+        // MUST consume response body - browsers require this
+        const data = await res.json();
+        log('📥 response json', data);
 
         if (!res.ok) {
-          const errorText = await res.text();
-          log('SAVE FAILED', stateKey, `HTTP ${res.status}: ${errorText}`);
-          throw new Error(`HTTP ${res.status}: ${errorText}`);
+          log('SAVE FAILED', stateKey, `HTTP ${res.status}: ${JSON.stringify(data)}`);
+          throw new Error(data.detail || data.message || `HTTP ${res.status}`);
         }
 
-        const data = await res.json();
-        log('Saved', stateKey, data);
+        log('✅ SAVE CONFIRMED', stateKey);
         setStateStatus(stateKey, 'success', 'Saved');
         return true;
       } catch (err) {

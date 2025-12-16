@@ -287,14 +287,34 @@ app.add_middleware(
 # Request logging middleware
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    logger.info(f"➡️ {request.method} {request.url.path}")
-    try:
-        response = await call_next(request)
-        logger.info(f"⬅️ {request.method} {request.url.path} → {response.status_code}")
-        return response
-    except Exception as e:
-        logger.error(f"❌ {request.method} {request.url.path} → Exception: {str(e)}")
-        raise
+    import time
+    start = time.time()
+    
+    # Read body for POST/PUT requests (will need to recreate request body for handler)
+    body = b""
+    if request.method in ("POST", "PUT", "PATCH"):
+        body = await request.body()
+        body_str = body.decode('utf-8')[:500] if body else None  # Limit length
+    else:
+        body_str = None
+    
+    logger.info(
+        f"➡️ {request.method} {request.url.path} "
+        f"body={'<present>' if body_str else None}"
+    )
+    if body_str:
+        logger.debug(f"   Request body: {body_str}")
+    
+    response = await call_next(request)
+    
+    duration = round((time.time() - start) * 1000, 2)
+    logger.info(
+        f"⬅️ {request.method} {request.url.path} "
+        f"status={response.status_code} "
+        f"{duration}ms"
+    )
+    
+    return response
 
 # Mount UI directory for static file serving
 UI_DIR = Path(__file__).resolve().parent / "ui"
@@ -1796,9 +1816,8 @@ async def get_markov_responses():
 @app.post("/markov/response")
 async def update_single_markov_response(payload: Dict[str, Any] = Body(...)):
     """Update a single Markov state response. Payload: {state_key: str, response_text: str, description: str?}"""
-    logger.info("📥 POST /markov/response called")
-    logger.info(f"📦 Payload keys: {list(payload.keys())}")
-    logger.debug(f"📦 Full payload: {json.dumps(payload, indent=2)}")
+    logger.info("🧠 ENTER save_markov_response")
+    logger.info(f"📦 payload={json.dumps(payload, indent=2)}")
     
     conn = get_conn()
     
@@ -1826,6 +1845,7 @@ async def update_single_markov_response(payload: Dict[str, Any] = Body(...)):
             """, (state_key, response_text, description, datetime.utcnow()))
         
         logger.info(f"✅ Saved state: {state_key}")
+        logger.info("✅ SAVE COMPLETE")
         return {"ok": True, "state_key": state_key, "message": "Response saved successfully"}
     except Exception as e:
         logger.error(f"❌ Failed saving state: {state_key}")
