@@ -1,5 +1,26 @@
 -- JSON-Native CRM Schema Migration
--- Creates cards table, card_relationships table, and bridges to conversations
+-- Creates conversations table, cards table, card_relationships table, and bridges them
+
+-- 0. Conversations Table (required for Markov + Cards bridge)
+-- This table stores SMS conversation state for the intelligence/Markov system
+CREATE TABLE IF NOT EXISTS conversations (
+    phone TEXT PRIMARY KEY,
+    contact_id TEXT,
+    card_id TEXT,  -- Will be linked to cards table via foreign key constraint below
+    owner TEXT,
+    state TEXT DEFAULT 'initial_outreach',
+    source_batch_id TEXT,
+    history JSONB DEFAULT '[]'::jsonb,
+    last_outbound_at TIMESTAMP,
+    last_inbound_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversations_phone ON conversations(phone);
+CREATE INDEX IF NOT EXISTS idx_conversations_state ON conversations(state);
+CREATE INDEX IF NOT EXISTS idx_conversations_owner ON conversations(owner);
+CREATE INDEX IF NOT EXISTS idx_conversations_card_id ON conversations(card_id);
 
 -- 1. Cards Table (JSONB storage)
 CREATE TABLE IF NOT EXISTS cards (
@@ -30,17 +51,39 @@ CREATE TABLE IF NOT EXISTS card_relationships (
 CREATE INDEX IF NOT EXISTS idx_relationships_parent ON card_relationships(parent_card_id);
 CREATE INDEX IF NOT EXISTS idx_relationships_child ON card_relationships(child_card_id);
 
--- 3. Bridge to Conversations
--- Add card_id reference to conversations (if not exists)
+-- 3. Bridge Conversations to Cards
+-- Add foreign key constraint to card_id column (if conversations table exists and column exists)
 DO $$ 
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'conversations' AND column_name = 'card_id'
+    -- Only proceed if conversations table exists
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'conversations'
     ) THEN
-        ALTER TABLE conversations ADD COLUMN card_id TEXT REFERENCES cards(id);
+        -- Check if card_id column exists (it should, since we created it above)
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_schema = 'public'
+            AND table_name = 'conversations' 
+            AND column_name = 'card_id'
+        ) THEN
+            -- Add foreign key constraint if it doesn't already exist
+            -- First check if constraint already exists
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu 
+                    ON tc.constraint_name = kcu.constraint_name
+                WHERE tc.table_schema = 'public'
+                AND tc.table_name = 'conversations'
+                AND kcu.column_name = 'card_id'
+                AND tc.constraint_type = 'FOREIGN KEY'
+            ) THEN
+                ALTER TABLE conversations 
+                ADD CONSTRAINT fk_conversations_card_id 
+                FOREIGN KEY (card_id) REFERENCES cards(id);
+            END IF;
+        END IF;
     END IF;
 END $$;
-
-CREATE INDEX IF NOT EXISTS idx_conversations_card_id ON conversations(card_id);
 
