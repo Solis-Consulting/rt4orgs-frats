@@ -7,7 +7,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # Now we can import everything
 from fastapi import FastAPI, HTTPException, Form, Query, Body
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi.encoders import jsonable_encoder
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
@@ -563,7 +564,7 @@ async def trigger_blast(request: Request, payload: Dict[str, Any] = Body(...)):
                     "timestamp": int(datetime.now().timestamp() * 1000),
                     "location": f"{__file__}:BLAST_EXCEPTION",
                     "message": "Exception in run_blast",
-                    "data": {"error": str(e), "error_type": type(e).__name__},
+                    "data": {"error": str(e), "error_type": e.__class__.__name__},
                     "hypothesisId": "D"
                 }) + "\n")
         except:
@@ -718,19 +719,33 @@ async def list_cards(
                     "updated_at": row[6].isoformat() if row[6] else None,
                 })
         
-        return {
+        result = {
             "cards": cards,
             "count": len(cards)
         }
+        
+        # Force JSON serialization to handle any non-serializable types
+        return JSONResponse(
+            content=jsonable_encoder(result),
+            status_code=200
+        )
     except Exception as e:
         # Return detailed error for debugging
         import traceback
+        # Use __class__ instead of type() to avoid shadowing issues
+        error_type = e.__class__.__name__ if e else "UnknownError"
+        
         error_detail = {
-            "error": str(e),
-            "error_type": type(e).__name__,
+            "error": str(e) if e else "Unknown error occurred",
+            "error_type": error_type,
             "traceback": traceback.format_exc()
         }
-        raise HTTPException(status_code=500, detail=error_detail)
+        
+        # Return as JSONResponse to ensure proper serialization
+        return JSONResponse(
+            content=jsonable_encoder(error_detail),
+            status_code=500
+        )
 
 
 # ============================================================================
