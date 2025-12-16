@@ -1,3 +1,11 @@
+# CRITICAL: Add project root to Python path BEFORE any local imports
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+# Now we can import everything
 from fastapi import FastAPI, HTTPException, Form, Query, Body
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -8,23 +16,19 @@ from datetime import datetime
 import psycopg2
 import os
 import json
-import sys
-from pathlib import Path
 from typing import List, Optional, Dict, Any
 from dotenv import load_dotenv
-from intelligence.handler import handle_inbound
-from intelligence.utils import normalize_phone
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Ensure the project root is in Python path for imports
-PROJECT_ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
 # Add backend to path for imports
 BACKEND_DIR = PROJECT_ROOT / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
+
+# Now import local modules (they need the path to be set first)
+from intelligence.handler import handle_inbound
+from intelligence.utils import normalize_phone
 
 from cards import (
     validate_card_schema,
