@@ -81,9 +81,39 @@ def run_migration() -> Tuple[bool, Optional[str]]:
     if not database_url:
         return False, "DATABASE_URL environment variable is not set"
     
-    # Read schema file - use absolute path resolution
-    # In Railway, files are at /app, so we need to resolve from the module location
-    schema_file = Path(__file__).resolve().parent / "schema.sql"
+    # Read schema file - try multiple possible paths
+    # In Railway, the working directory is /app, and files are relative to project root
+    possible_paths = [
+        Path(__file__).resolve().parent / "schema.sql",  # Relative to migrate.py (most reliable)
+        Path("/app/backend/db/schema.sql"),  # Absolute Railway path
+        Path("backend/db/schema.sql"),  # Relative to current working directory
+        Path("./backend/db/schema.sql"),  # Relative with explicit current dir
+    ]
+    
+    # Also try resolving from main.py location (project root)
+    try:
+        import sys
+        import os
+        # Find project root by looking for main.py in parent directories
+        current = Path(__file__).resolve().parent
+        for _ in range(5):  # Check up to 5 levels up
+            if (current / "main.py").exists():
+                possible_paths.insert(0, current / "backend" / "db" / "schema.sql")
+                print(f"📁 Found project root: {current}")
+                break
+            current = current.parent
+    except Exception as root_e:
+        print(f"⚠️  Could not find project root: {root_e}")
+    
+    schema_file = None
+    checked_paths = []
+    for path in possible_paths:
+        checked_paths.append(str(path))
+        abs_path = path.resolve() if not path.is_absolute() else path
+        if abs_path.exists():
+            schema_file = abs_path
+            print(f"✅ Found schema file at: {schema_file}")
+            break
     
     # #region agent log - Schema path check
     try:
@@ -94,44 +124,32 @@ def run_migration() -> Tuple[bool, Optional[str]]:
                 "runId": "run1",
                 "timestamp": int(time.time() * 1000),
                 "location": f"{__file__}:SCHEMA_PATH_CHECK",
-                "message": "Checking schema file path",
-                "data": {"path": str(schema_file), "exists": schema_file.exists(), "__file__": __file__},
+                "message": "Checking schema file paths",
+                "data": {
+                    "checked_paths": checked_paths,
+                    "found_path": str(schema_file) if schema_file else None,
+                    "__file__": __file__,
+                    "cwd": str(Path.cwd()),
+                    "migrate_file_dir": str(Path(__file__).resolve().parent)
+                },
                 "hypothesisId": "D"
             }) + "\n")
     except:
         pass
     # #endregion
     
-    print(f"📁 Schema path: {schema_file}")
-    print(f"📁 Schema file exists: {schema_file.exists()}")
+    if not schema_file:
+        all_paths_str = "\n  - ".join(checked_paths)
+        print(f"❌ Schema file not found. Checked paths:")
+        for p in checked_paths:
+            print(f"  - {p} (exists: {Path(p).exists()})")
+        print(f"📁 Current working directory: {Path.cwd()}")
+        print(f"📁 __file__ location: {__file__}")
+        print(f"📁 migrate.py directory: {Path(__file__).resolve().parent}")
+        return False, f"Schema file not found. Checked {len(checked_paths)} paths. Current dir: {Path.cwd()}"
     
-    if not schema_file.exists():
-        # Try alternative path (in case we're running from different location)
-        alt_path = Path("/app/backend/db/schema.sql")
-        
-        # #region agent log - Alternative path check
-        try:
-            import time
-            with open(_log_file, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "timestamp": int(time.time() * 1000),
-                    "location": f"{__file__}:ALT_PATH_CHECK",
-                    "message": "Checking alternative schema path",
-                    "data": {"alt_path": str(alt_path), "exists": alt_path.exists()},
-                    "hypothesisId": "D"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
-        
-        print(f"📁 Trying alternative path: {alt_path}")
-        print(f"📁 Alternative exists: {alt_path.exists()}")
-        if alt_path.exists():
-            schema_file = alt_path
-        else:
-            return False, f"Schema file not found at {schema_file} or {alt_path}"
+    print(f"📁 Using schema path: {schema_file}")
+    print(f"📁 Schema file exists: {schema_file.exists()}")
     
     try:
         print("📖 Reading schema file...")
