@@ -37,8 +37,23 @@ from backend.query import build_list_query
 from backend.resolve import resolve_target, extract_phones_from_cards
 from backend.webhook_config import WEBHOOK_CONFIG, WebhookConfig
 
-# Import blast function (scripts is now a package)
-from scripts.blast import run_blast
+# Import blast function lazily to prevent startup crashes if dependencies are missing
+# Will be imported only when /admin/blast endpoint is called
+run_blast = None
+
+def _get_run_blast():
+    """Lazy import of run_blast to avoid startup failures."""
+    global run_blast
+    if run_blast is None:
+        try:
+            from scripts.blast import run_blast as _run_blast
+            run_blast = _run_blast
+        except ImportError as e:
+            # If blast dependencies are missing, return a stub function
+            def _stub_blast(*args, **kwargs):
+                return {"ok": False, "error": f"Blast functionality unavailable: {str(e)}"}
+            run_blast = _stub_blast
+    return run_blast
 
 app = FastAPI()
 
@@ -511,7 +526,9 @@ async def trigger_blast(request: Request, payload: Dict[str, Any] = Body(...)):
             pass
         # #endregion
         
-        result = run_blast(
+        # Lazy import to avoid startup failures
+        blast_func = _get_run_blast()
+        result = blast_func(
             limit=limit,
             auto_confirm=True,
             base_url=base_url,
