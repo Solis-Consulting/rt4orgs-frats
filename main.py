@@ -669,48 +669,68 @@ async def list_cards(
     List cards with optional filters.
     Supports type, sales_state, owner filters, or complex where clause.
     """
-    conn = get_conn()
-    
-    # Build where clause
-    where_dict = {}
-    if type:
-        where_dict["type"] = type
-    if sales_state:
-        where_dict["sales_state"] = sales_state
-    if owner:
-        where_dict["owner"] = owner
-    
-    # Parse where JSON if provided
-    if where:
-        try:
-            where_json = json.loads(where)
-            where_dict.update(where_json)
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=400, detail="Invalid JSON in where parameter")
-    
-    # Build query
-    query, params = build_list_query(where=where_dict if where_dict else None, limit=limit, offset=offset)
-    
-    # Execute query
-    cards = []
-    with conn.cursor() as cur:
-        cur.execute(query, params)
+    try:
+        conn = get_conn()
         
-        for row in cur.fetchall():
-            cards.append({
-                "id": row[0],
-                "type": row[1],
-                "card_data": row[2],
-                "sales_state": row[3],
-                "owner": row[4],
-                "created_at": row[5].isoformat() if row[5] else None,
-                "updated_at": row[6].isoformat() if row[6] else None,
-            })
-    
-    return {
-        "cards": cards,
-        "count": len(cards)
-    }
+        # Build where clause
+        where_dict = {}
+        if type:
+            where_dict["type"] = type
+        if sales_state:
+            where_dict["sales_state"] = sales_state
+        if owner:
+            where_dict["owner"] = owner
+        
+        # Parse where JSON if provided
+        if where:
+            try:
+                where_json = json.loads(where)
+                where_dict.update(where_json)
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=400, detail="Invalid JSON in where parameter")
+        
+        # Build query
+        query, params = build_list_query(where=where_dict if where_dict else None, limit=limit, offset=offset)
+        
+        # Execute query
+        cards = []
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            
+            for row in cur.fetchall():
+                # Handle JSONB data - convert to dict if needed
+                card_data = row[2]
+                if isinstance(card_data, str):
+                    try:
+                        card_data = json.loads(card_data)
+                    except:
+                        pass
+                elif hasattr(card_data, 'dict'):  # psycopg2.extras.Json object
+                    card_data = card_data.dict()
+                
+                cards.append({
+                    "id": row[0],
+                    "type": row[1],
+                    "card_data": card_data,
+                    "sales_state": row[3],
+                    "owner": row[4],
+                    "created_at": row[5].isoformat() if row[5] else None,
+                    "updated_at": row[6].isoformat() if row[6] else None,
+                })
+        
+        return {
+            "cards": cards,
+            "count": len(cards)
+        }
+    except Exception as e:
+        # Return detailed error for debugging
+        import traceback
+        error_detail = {
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "traceback": traceback.format_exc()
+        }
+        raise HTTPException(status_code=500, detail=error_detail)
 
 
 # ============================================================================
