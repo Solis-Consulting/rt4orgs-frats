@@ -22,24 +22,20 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# Add backend to path for imports
-BACKEND_DIR = PROJECT_ROOT / "backend"
-sys.path.insert(0, str(BACKEND_DIR))
-
-# Now import local modules (they need the path to be set first)
+# Now import local modules (using proper package paths)
 from intelligence.handler import handle_inbound
 from intelligence.utils import normalize_phone
 
-from cards import (
+from backend.cards import (
     validate_card_schema,
     normalize_card,
     store_card,
     get_card,
     get_card_relationships
 )
-from query import build_list_query
-from resolve import resolve_target, extract_phones_from_cards
-from webhook_config import WEBHOOK_CONFIG, WebhookConfig
+from backend.query import build_list_query
+from backend.resolve import resolve_target, extract_phones_from_cards
+from backend.webhook_config import WEBHOOK_CONFIG, WebhookConfig
 
 # Import blast function
 SCRIPTS_DIR = Path(__file__).resolve().parent / "scripts"
