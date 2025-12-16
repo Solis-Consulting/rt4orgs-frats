@@ -287,4 +287,3 @@ def run_blast_for_cards(
         "skipped": skipped_count,
         "results": results,
     }
-
