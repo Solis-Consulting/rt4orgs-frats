@@ -31,13 +31,11 @@ from archive_intelligence.message_processor.utils import (  # type: ignore
     make_contact_event_folder,
 )
 from archive_intelligence.message_processor.generate_message import generate_message  # type: ignore
-from intelligence.utils import (
-    find_matching_fraternity,
-    _get_deal_field as get_deal_field,
-    _get_deal_names_given as get_deal_names_given,
-    _get_deal_chapter as get_deal_chapter,
-    _get_deal_institution as get_deal_institution,
-)
+from intelligence.utils import find_matching_fraternity
+
+# Import helper functions for deal field extraction
+# Note: These are prefixed with _ but we need them, so we'll import directly
+import intelligence.utils as utils_module
 
 
 def _fetch_cards_by_ids(conn: Any, card_ids: List[str]) -> List[Dict[str, Any]]:
@@ -241,7 +239,7 @@ def run_blast_for_cards(
             sales_dict = {}
             for row in sales_history:
                 if isinstance(row, dict):
-                    frat_key = _get_deal_field(row, "Abbreviation", "abbreviation", "fraternity", "Fraternity").upper()
+                    frat_key = utils_module._get_deal_field(row, "Abbreviation", "abbreviation", "fraternity", "Fraternity").upper()
                     if frat_key:
                         if frat_key not in sales_dict:
                             sales_dict[frat_key] = []
