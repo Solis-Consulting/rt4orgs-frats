@@ -74,7 +74,7 @@
         </div>
         <textarea id="initialOutreach" placeholder="Hello {name}, we would like to know how {fraternity}'s spring rush could be with a FRESH PNM list..."></textarea>
         <div class="state-actions">
-          <button class="save-state-btn" type="button" id="saveInitialOutreachBtn" onclick="saveState('__initial_outreach__', 'initialOutreach')">Save</button>
+          <button class="save-state-btn" type="button" id="saveInitialOutreachBtn" onclick="saveStateFromTextarea('__initial_outreach__', 'initialOutreach')">Save</button>
           <span class="state-status" id="status-__initial_outreach__"></span>
         </div>
       </div>
@@ -186,7 +186,7 @@
             ${description ? `<div class="state-description">${description}</div>` : ''}
             <textarea id="${textareaId}" class="response-input" data-state="${state.state_key}" placeholder="Leave empty to skip replies for this state">${responseText}</textarea>
             <div class="state-actions">
-              <button class="save-state-btn" type="button" id="${buttonId}" onclick="saveState('${state.state_key}', '${textareaId}')">Save</button>
+              <button class="save-state-btn" type="button" id="${buttonId}" onclick="saveStateFromTextarea('${state.state_key}', '${textareaId}')">Save</button>
               <span class="state-status" id="status-${state.state_key}"></span>
             </div>
           `;
@@ -228,58 +228,60 @@
       }
     }
 
-    async function saveState(stateKey, textareaId) {
-      logUI('save:click', stateKey);
+    async function saveState(stateKey, cfg) {
+      setStateStatus(stateKey, 'saving', 'Saving…');
+      log('POST /markov/response', stateKey, cfg);
+
+      try {
+        const payload = {
+          state_key: stateKey,
+          response_text: cfg.response_text || cfg || '',
+          description: cfg.description || '',
+        };
+
+        const res = await fetch(`${BACKEND}/markov/response`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        log('POST response status', res.status, stateKey);
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          log('SAVE FAILED', stateKey, `HTTP ${res.status}: ${errorText}`);
+          throw new Error(`HTTP ${res.status}: ${errorText}`);
+        }
+
+        const data = await res.json();
+        log('Saved', stateKey, data);
+        setStateStatus(stateKey, 'success', 'Saved');
+        return true;
+      } catch (err) {
+        log('SAVE FAILED', stateKey, err);
+        setStateStatus(stateKey, 'error', err.message);
+        return false;
+      }
+    }
+
+    async function saveStateFromTextarea(stateKey, textareaId) {
       const textarea = document.getElementById(textareaId);
       const buttonId = textareaId === 'initialOutreach' ? 'saveInitialOutreachBtn' : `save-${stateKey}-btn`;
       const button = document.getElementById(buttonId);
       
       if (!textarea) {
-        logUI('save:error', `Textarea not found: ${textareaId}`);
+        log('Textarea not found', textareaId);
         return false;
       }
 
       if (button) {
         button.disabled = true;
       }
-      setStateStatus(stateKey, 'saving');
 
       try {
         const responseText = textarea.value.trim();
-        
-        const payload = {
-          state_key: stateKey,
-          response_text: responseText,
-          description: '',
-        };
-
-        const requestUrl = `${BACKEND}/markov/response`;
-        logUI('save:request', payload);
-
-        const res = await fetch(requestUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-
-        logUI('save:response', res.status);
-
-        // MUST consume response body - browsers won't complete lifecycle until consumed
-        const data = await res.json();
-        logUI('save:done', data);
-
-        if (!res.ok) {
-          throw new Error(data.detail || data.message || `HTTP ${res.status}`);
-        }
-
-        setStateStatus(stateKey, 'success');
-        return true;
-
-      } catch (error) {
-        logUI('save:error', error.message);
-        console.error('SAVE STATE ERROR:', error);
-        setStateStatus(stateKey, 'error', error.message);
-        return false;
+        const success = await saveState(stateKey, { response_text: responseText });
+        return success;
       } finally {
         if (button) {
           button.disabled = false;
@@ -288,8 +290,13 @@
     }
 
 
+    function log(...args) {
+      console.log('[MARKOV_UI]', ...args);
+    }
+    
+    // Keep logUI for backward compatibility
     function logUI(event, data = '') {
-      console.log(`[UI] ${event}`, data);
+      log(event, data);
     }
 
     function hydrateUIFromJSON(payload) {
@@ -363,22 +370,21 @@
         event.stopPropagation();
       }
 
-      logUI('import:start');
+      log('Import clicked');
       
-      // Immediate visual feedback
+      const importBtn = document.getElementById('importBtn');
+      const originalText = importBtn ? importBtn.textContent : 'Import JSON';
+      if (importBtn) {
+        importBtn.disabled = true;
+        importBtn.textContent = 'Importing...';
+      }
+
       const statusEl = document.getElementById('importStatus');
       if (statusEl) {
         statusEl.style.display = 'block';
         statusEl.classList.remove('success', 'warning', 'error');
         statusEl.classList.add('warning');
         statusEl.textContent = 'Parsing JSON…';
-      }
-
-      const importBtn = document.getElementById('importBtn');
-      const originalText = importBtn ? importBtn.textContent : 'Import JSON';
-      if (importBtn) {
-        importBtn.disabled = true;
-        importBtn.textContent = 'Importing...';
       }
 
       let ok = 0;
@@ -388,7 +394,7 @@
       try {
         const jsonText = document.getElementById('jsonInput').value.trim();
         if (!jsonText) {
-          logUI('import:error', 'Empty JSON');
+          log('JSON parse error', 'Empty JSON');
           if (statusEl) {
             statusEl.style.display = 'block';
             statusEl.classList.remove('warning');
@@ -398,64 +404,66 @@
           return;
         }
 
-        logUI('import:parsing');
-        const payload = JSON.parse(jsonText);
-        logUI('import:parsed', Object.keys(payload));
-        
-        if (statusEl) {
-          statusEl.textContent = 'Saving to backend…';
+        let parsed;
+        try {
+          parsed = JSON.parse(jsonText);
+          log('Parsed JSON', parsed);
+        } catch (e) {
+          log('JSON parse error', e);
+          if (statusEl) {
+            statusEl.style.display = 'block';
+            statusEl.classList.remove('warning');
+            statusEl.classList.add('error');
+            statusEl.textContent = '✕ Invalid JSON';
+          }
+          return;
         }
 
-        // Validate structure
-        if (typeof payload !== 'object' || payload === null) {
-          throw new Error('JSON must be an object');
-        }
-
-        // STEP 1: POST to backend
-        logUI('import:request', payload);
-        const requestUrl = `${BACKEND}/markov/responses`;
-        const res = await fetch(requestUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-
-        logUI('import:response', res.status);
-
-        if (!res.ok) {
-          const errorText = await res.text();
-          logUI('import:error', `HTTP ${res.status}: ${errorText}`);
-          throw new Error(`HTTP ${res.status}: ${errorText}`);
-        }
-
-        // MUST consume response body - browsers require this
-        const responseData = await res.json();
-        logUI('import:saved', responseData);
-
-        // STEP 2: Hydrate UI state immediately from payload we just saved
-        hydrateUIFromJSON(payload);
-
-        // Count what was imported
-        if (payload.initial_outreach) {
-          ok++;
-        }
-        if (payload.responses) {
-          Object.keys(payload.responses).forEach(stateKey => {
-            const textarea = document.getElementById(`state-${stateKey}`);
-            if (textarea) {
+        // 1️⃣ Initial outreach
+        if (parsed.initial_outreach) {
+          log('Saving initial_outreach');
+          const initialTextarea = document.getElementById('initialOutreach');
+          if (initialTextarea) {
+            initialTextarea.value = parsed.initial_outreach;
+            const success = await saveState('__initial_outreach__', { response_text: parsed.initial_outreach });
+            if (success) {
               ok++;
             } else {
-              skipped++;
+              failed++;
             }
-          });
+          }
         }
 
-        // Show aggregate summary
+        // 2️⃣ Per-state propagation
+        if (parsed.responses && typeof parsed.responses === 'object') {
+          for (const [stateKey, cfg] of Object.entries(parsed.responses)) {
+            log('Saving state', stateKey, cfg);
+
+            const textarea = document.querySelector(`textarea[data-state="${stateKey}"]`) || 
+                           document.getElementById(`state-${stateKey}`);
+
+            if (!textarea) {
+              log('STATE NOT FOUND IN UI', stateKey);
+              setStateStatus(stateKey, 'error', 'State not found in UI');
+              skipped++;
+              continue;
+            }
+
+            textarea.value = cfg.response_text || cfg.responseText || '';
+            const success = await saveState(stateKey, cfg);
+            if (success) {
+              ok++;
+            } else {
+              failed++;
+            }
+          }
+        }
+
+        log('Import complete', { ok, skipped, failed });
         showImportSummary(ok, skipped, failed);
-        logUI('import:complete', { ok, skipped, failed });
 
       } catch (error) {
-        logUI('import:error', error.message);
+        log('Import error', error);
         console.error('IMPORT ERROR:', error);
         if (statusEl) {
           statusEl.style.display = 'block';
@@ -463,7 +471,6 @@
           statusEl.classList.add('error');
           statusEl.textContent = `✕ Import error: ${error.message}`;
         }
-        showStatus(`Error importing JSON: ${error.message}`, 'error');
       } finally {
         if (importBtn) {
           importBtn.disabled = false;
