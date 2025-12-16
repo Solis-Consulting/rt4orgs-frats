@@ -93,7 +93,6 @@ def run_migration() -> Tuple[bool, Optional[str]]:
     # Also try resolving from main.py location (project root)
     try:
         import sys
-        import os
         # Find project root by looking for main.py in parent directories
         current = Path(__file__).resolve().parent
         for _ in range(5):  # Check up to 5 levels up
