@@ -31,10 +31,22 @@
     .save-state-btn { background: #0ea5e9; color: #0f172a; border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
     .save-state-btn:hover { background: #38bdf8; }
     .save-state-btn:disabled { background: #374151; color: #6b7280; cursor: not-allowed; }
-    .state-status { font-size: 12px; font-weight: 500; margin-left: 8px; min-width: 80px; }
-    .state-status.saving { color: #9ca3af; }
-    .state-status.success { color: #22c55e; }
-    .state-status.error { color: #f87171; }
+    .state-status { 
+      font-size: 12px; 
+      font-weight: 600; 
+      margin-left: 8px; 
+      min-width: 80px;
+      display: inline-block;
+    }
+    .state-status.saving { 
+      color: #3b82f6; /* blue */
+    }
+    .state-status.success { 
+      color: #22c55e; /* green */
+    }
+    .state-status.error { 
+      color: #ef4444; /* red */
+    }
     .import-status { font-size: 13px; font-weight: 500; margin-top: 8px; padding: 8px; border-radius: 6px; }
     .import-status.success { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #22c55e; }
     .import-status.warning { background: rgba(251,191,36,0.15); border: 1px solid rgba(251,191,36,0.3); color: #fbbf24; }
