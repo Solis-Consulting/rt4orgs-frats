@@ -146,6 +146,18 @@ def run_blast_for_cards(
     - Sends via Twilio (using scripts.blast.send_sms)
     - Records conversations and blast_run summary
     """
+    # High-level run visibility
+    print(
+        "[BLAST_RUN]",
+        {
+            "card_ids": card_ids,
+            "limit": limit,
+            "owner": owner,
+            "source": source,
+        },
+        flush=True,
+    )
+
     if not card_ids:
         return {
             "ok": False,
@@ -184,7 +196,24 @@ def run_blast_for_cards(
         data = card["card_data"] or {}
         phone = data.get("phone")
 
+        # Decision visibility: log what we know before eligibility checks
+        print(
+            "[BLAST_CHECK]",
+            {
+                "card_id": card_id,
+                "type": card.get("type"),
+                "phone": phone,
+                "sales_state": card.get("sales_state"),
+                "owner": card.get("owner"),
+            },
+            flush=True,
+        )
+
         if not phone:
+            print(
+                f"[BLAST_SKIP] card_id={card_id} reason=NO_PHONE",
+                flush=True,
+            )
             skipped_count += 1
             results.append(
                 {
@@ -209,6 +238,10 @@ def run_blast_for_cards(
         message = generate_message(data, purchased_example, ARCHIVE_DIR / "templates" / "messages.txt")
 
         try:
+            print(
+                f"[BLAST_SEND_ATTEMPT] card_id={card_id} phone={phone}",
+                flush=True,
+            )
             sms_result = send_sms(phone, message)
 
             # Create legacy contact event folder for archive_intelligence compatibility
@@ -253,6 +286,10 @@ def run_blast_for_cards(
             )
         except Exception as e:
             skipped_count += 1
+            print(
+                f"[BLAST_ERROR] card_id={card_id} phone={phone} error={e}",
+                flush=True,
+            )
             results.append(
                 {
                     "card_id": card_id,
