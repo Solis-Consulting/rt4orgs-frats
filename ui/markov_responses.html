@@ -84,6 +84,12 @@
   <script type="module">
     import { BACKEND_URL } from '/config.js';
     const BACKEND = BACKEND_URL;
+    
+    // Log backend URL on load for debugging
+    console.log('Markov Response Editor initialized');
+    console.log('BACKEND_URL from config:', BACKEND_URL);
+    console.log('BACKEND constant:', BACKEND);
+    console.log('Location:', window.location.href);
 
     // States will be loaded from the registry endpoint
     let MARKOV_STATES = [];
@@ -100,19 +106,29 @@
 
     async function loadResponses() {
       try {
+        console.log('LOAD: BACKEND URL =', BACKEND);
+        
         // Step 1: Fetch all states from the registry (authoritative source)
-        const statesRes = await fetch(`${BACKEND}/markov/states`);
+        const statesUrl = `${BACKEND}/markov/states`;
+        console.log('LOAD: Fetching states from', statesUrl);
+        const statesRes = await fetch(statesUrl);
+        console.log('LOAD: States response status =', statesRes.status);
         if (!statesRes.ok) {
           throw new Error(`Failed to load states: ${statesRes.status}`);
         }
         MARKOV_STATES = await statesRes.json();
+        console.log('LOAD: Loaded', MARKOV_STATES.length, 'states');
 
         // Step 2: Fetch configured responses from DB
-        const responsesRes = await fetch(`${BACKEND}/markov/responses`);
+        const responsesUrl = `${BACKEND}/markov/responses`;
+        console.log('LOAD: Fetching responses from', responsesUrl);
+        const responsesRes = await fetch(responsesUrl);
+        console.log('LOAD: Responses response status =', responsesRes.status);
         if (!responsesRes.ok) {
           throw new Error(`Failed to load responses: ${responsesRes.status}`);
         }
         const responsesData = await responsesRes.json();
+        console.log('LOAD: Loaded responses data', Object.keys(responsesData.responses || {}).length, 'configured states');
 
         // Load initial outreach
         if (responsesData.initial_outreach) {
@@ -156,11 +172,14 @@
     }
 
     async function saveResponses() {
+      console.log('SAVE CLICKED - saveResponses() called');
       const saveBtn = document.getElementById('saveBtn');
       saveBtn.disabled = true;
       saveBtn.textContent = 'Saving...';
 
       try {
+        console.log('SAVE: BACKEND URL =', BACKEND);
+        
         // Collect initial outreach
         const initialOutreach = document.getElementById('initialOutreach').value.trim();
 
@@ -182,20 +201,29 @@
           responses: responses,
         };
 
-        const res = await fetch(`${BACKEND}/markov/responses`, {
+        const requestUrl = `${BACKEND}/markov/responses`;
+        console.log('SAVE: Request URL =', requestUrl);
+        console.log('SAVE: Payload =', JSON.stringify(payload, null, 2));
+
+        const res = await fetch(requestUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
 
+        console.log('SAVE: Response status =', res.status);
+        console.log('SAVE: Response ok =', res.ok);
+
         const data = await res.json();
+        console.log('SAVE: Response data =', data);
 
         if (!res.ok || !data.ok) {
-          throw new Error(data.error || `HTTP ${res.status}`);
+          throw new Error(data.error || data.message || `HTTP ${res.status}`);
         }
 
         showStatus('All responses saved successfully', 'success');
       } catch (error) {
+        console.error('SAVE ERROR:', error);
         showStatus(`Error saving: ${error.message}`, 'error');
       } finally {
         saveBtn.disabled = false;
@@ -204,6 +232,7 @@
     }
 
     function exportToJSON() {
+      console.log('EXPORT CLICKED - exportToJSON() called');
       try {
         // Collect initial outreach
         const initialOutreach = document.getElementById('initialOutreach').value.trim();
@@ -227,14 +256,18 @@
         };
 
         // Format and display in JSON textarea
-        document.getElementById('jsonInput').value = JSON.stringify(exportData, null, 2);
+        const jsonString = JSON.stringify(exportData, null, 2);
+        document.getElementById('jsonInput').value = jsonString;
+        console.log('EXPORT: Exported', Object.keys(responses).length, 'state responses');
         showStatus('JSON exported to textarea below', 'success');
       } catch (error) {
+        console.error('EXPORT ERROR:', error);
         showStatus(`Error exporting JSON: ${error.message}`, 'error');
       }
     }
 
     function importFromJSON() {
+      console.log('IMPORT CLICKED - importFromJSON() called');
       try {
         const jsonText = document.getElementById('jsonInput').value.trim();
         if (!jsonText) {
@@ -242,16 +275,22 @@
           return;
         }
 
+        console.log('IMPORT: Parsing JSON...');
         const data = JSON.parse(jsonText);
+        console.log('IMPORT: Parsed data', Object.keys(data));
 
         // Validate structure
         if (typeof data !== 'object' || data === null) {
           throw new Error('JSON must be an object');
         }
 
+        let importedCount = 0;
+
         // Import initial outreach
         if (data.initial_outreach !== undefined && data.initial_outreach !== null) {
           document.getElementById('initialOutreach').value = data.initial_outreach;
+          console.log('IMPORT: Set initial_outreach');
+          importedCount++;
         }
 
         // Import state responses
@@ -262,14 +301,16 @@
               const stateData = data.responses[stateKey];
               const responseText = stateData.response_text || stateData.responseText || '';
               textarea.value = responseText;
+              importedCount++;
             }
           });
+          console.log('IMPORT: Imported', Object.keys(data.responses).length, 'state responses');
         }
 
-        showStatus('JSON imported successfully. Click "Save All Changes" to persist.', 'success');
+        showStatus(`JSON imported successfully (${importedCount} fields). Click "Save All Changes" to persist.`, 'success');
       } catch (error) {
+        console.error('IMPORT ERROR:', error);
         showStatus(`Error importing JSON: ${error.message}`, 'error');
-        console.error('JSON import error:', error);
       }
     }
 
