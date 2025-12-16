@@ -565,18 +565,30 @@ async def twilio_inbound(request: Request):
     Receives form-encoded data from Twilio and processes through intelligence layer.
     Gated by webhook configuration (enabled, mode, logging).
     """
-    print("=" * 60)
+    # CRITICAL: Log raw body FIRST to catch requests even if form parsing fails
+    try:
+        raw_body = await request.body()
+        print("=" * 60)
+        print("[TWILIO_INBOUND] RAW INBOUND BODY:", raw_body.decode('utf-8', errors='replace'))
+        print("=" * 60)
+    except Exception as e:
+        print(f"[TWILIO_INBOUND] ERROR reading raw body: {e}")
+    
     print("[TWILIO_INBOUND] Webhook hit")
-    print("=" * 60)
     
     # Check if webhook is enabled
     if not WEBHOOK_CONFIG.enabled:
         print("[TWILIO_INBOUND] Webhook disabled in config")
         return PlainTextResponse("Webhook disabled", status_code=200)
     
-    # Parse form data
-    payload = await request.form()
-    payload_dict = dict(payload)
+    # Parse form data (requires python-multipart)
+    try:
+        payload = await request.form()
+        payload_dict = dict(payload)
+    except Exception as e:
+        print(f"[TWILIO_INBOUND] ERROR parsing form data: {e}")
+        print(f"[TWILIO_INBOUND] This usually means python-multipart is missing from requirements.txt")
+        return PlainTextResponse("OK", status_code=200)
     
     # Always log payload for debugging
     print(f"[TWILIO_INBOUND] Payload: {payload_dict}")

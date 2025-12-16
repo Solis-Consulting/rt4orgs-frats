@@ -3,3 +3,4 @@ uvicorn
 psycopg2-binary
 python-dotenv
 twilio>=8.0.0
+python-multipart
