@@ -264,14 +264,15 @@
         });
 
         console.log('SAVE STATE: Response status =', res.status);
+        console.log('SAVE STATE: Response ok =', res.ok);
 
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({}));
-          throw new Error(errorData.detail || errorData.message || `HTTP ${res.status}`);
-        }
-
+        // MUST consume response body - browsers won't complete lifecycle until consumed
         const data = await res.json();
         console.log('SAVE STATE: Response data =', data);
+
+        if (!res.ok) {
+          throw new Error(data.detail || data.message || `HTTP ${res.status}`);
+        }
 
         setStateStatus(stateKey, 'success');
         return true;
