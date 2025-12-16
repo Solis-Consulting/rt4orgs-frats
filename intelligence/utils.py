@@ -77,6 +77,26 @@ def _normalize_institution_name(inst: str) -> str:
     return inst
 
 
+def _normalize_fraternity_key(key: str) -> str:
+    """
+    Normalize fraternity key for case-insensitive matching.
+    Converts to uppercase for consistent matching.
+    """
+    return key.strip().upper() if key else ""
+
+
+def _find_case_insensitive_key(d: Dict[str, Any], target_key: str) -> Optional[str]:
+    """
+    Find a key in a dictionary case-insensitively.
+    Returns the actual key if found, None otherwise.
+    """
+    target_normalized = _normalize_fraternity_key(target_key)
+    for key in d.keys():
+        if _normalize_fraternity_key(key) == target_normalized:
+            return key
+    return None
+
+
 def find_matching_fraternity(
     contact: Dict[str, Any],
     sales_history: Dict[str, List[Dict[str, Any]]],
@@ -91,38 +111,50 @@ def find_matching_fraternity(
     
     Pure function: no side effects, returns matched deal or None.
     """
-    target_frat = contact.get("fraternity", "").strip().upper()
+    target_frat = contact.get("fraternity", "").strip()
+    target_frat_normalized = _normalize_fraternity_key(target_frat)
     target_inst_raw = (contact.get("institution") or contact.get("location") or "").strip()
     target_inst = _normalize_institution_name(target_inst_raw)
     
     # Debug logging
     print(
-        f"[MATCH] Target: fraternity='{target_frat}' institution='{target_inst_raw}' (normalized: '{target_inst}')",
+        f"[MATCH] Target: fraternity='{target_frat}' (normalized: '{target_frat_normalized}') institution='{target_inst_raw}' (normalized: '{target_inst}')",
         flush=True,
     )
     
     # Collect all deals and match by abbreviation
     all_deals: List[Dict[str, Any]] = []
+    available_frat_keys = []
     for frat_key, deal_list in sales_history.items():
+        available_frat_keys.append(frat_key)
         if isinstance(deal_list, list):
             all_deals.extend(deal_list)
     
     print(f"[MATCH] Total deals in sales history: {len(all_deals)}", flush=True)
+    print(f"[MATCH] Available fraternity keys: {available_frat_keys}", flush=True)
     
-    # Normalize: also handle direct fraternity key matches
-    deals_for_frat = sales_history.get(target_frat, [])
-    if isinstance(deals_for_frat, list) and deals_for_frat:
-        print(f"[MATCH] Found {len(deals_for_frat)} deals for fraternity key '{target_frat}'", flush=True)
+    # Normalize: also handle direct fraternity key matches (case-insensitive)
+    # First try exact key match (case-insensitive)
+    actual_key = _find_case_insensitive_key(sales_history, target_frat)
+    if actual_key:
+        deals_for_frat = sales_history.get(actual_key, [])
+        if isinstance(deals_for_frat, list) and deals_for_frat:
+            print(f"[MATCH] Found {len(deals_for_frat)} deals for fraternity key '{actual_key}' (matched '{target_frat}')", flush=True)
+        else:
+            deals_for_frat = []
     else:
-        # Try to find deals by abbreviation matching
+        deals_for_frat = []
+    
+    # If no direct key match, try to find deals by abbreviation matching
+    if not deals_for_frat:
         deals_for_frat = [
             deal for deal in all_deals
-            if _get_deal_abbreviation(deal) == target_frat
+            if _normalize_fraternity_key(_get_deal_abbreviation(deal)) == target_frat_normalized
         ]
         if deals_for_frat:
-            print(f"[MATCH] Found {len(deals_for_frat)} deals by abbreviation matching for '{target_frat}'", flush=True)
+            print(f"[MATCH] Found {len(deals_for_frat)} deals by abbreviation matching for '{target_frat}' (normalized: '{target_frat_normalized}')", flush=True)
         else:
-            print(f"[MATCH] No deals found for fraternity '{target_frat}'", flush=True)
+            print(f"[MATCH] No deals found for fraternity '{target_frat}' (normalized: '{target_frat_normalized}')", flush=True)
     
     # -------------------------------------------------------
     # 1) PRIMARY MATCH: Same fraternity + same institution
@@ -187,7 +219,7 @@ def find_matching_fraternity(
     # 4) FALLBACK: TKE at University of Colorado Boulder (708 names)
     # -------------------------------------------------------
     for deal in all_deals:
-        abbrev = _get_deal_abbreviation(deal)
+        abbrev = _normalize_fraternity_key(_get_deal_abbreviation(deal))
         inst = _normalize_institution_name(_get_deal_institution(deal))
         if abbrev == "TKE" and "colorado boulder" in inst:
             print(
@@ -197,7 +229,7 @@ def find_matching_fraternity(
             return deal
     
     # If TKE Boulder not found, try any TKE deal
-    tke_deals = [deal for deal in all_deals if _get_deal_abbreviation(deal) == "TKE"]
+    tke_deals = [deal for deal in all_deals if _normalize_fraternity_key(_get_deal_abbreviation(deal)) == "TKE"]
     if tke_deals:
         tke_deals.sort(key=_get_deal_names_given, reverse=True)
         matched = tke_deals[0]

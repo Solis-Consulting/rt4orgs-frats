@@ -37,6 +37,7 @@ from intelligence.utils import (
     _get_deal_chapter,
     _get_deal_institution,
     _get_deal_field,
+    _normalize_fraternity_key,
 )
 
 
@@ -292,11 +293,12 @@ def run_blast_for_cards(
         # Find matching deal using new relational proof-point selector
         purchased_example = None
         
-        # Log what we're matching
-        contact_frat = data.get("fraternity", "").strip().upper()
-        contact_inst = (data.get("institution") or data.get("location") or "").strip().lower()
+        # Log what we're matching (preserve original case for display)
+        contact_frat = data.get("fraternity", "").strip()
+        contact_frat_normalized = _normalize_fraternity_key(contact_frat) if contact_frat else ""
+        contact_inst = (data.get("institution") or data.get("location") or "").strip()
         print(
-            f"[BLAST_MATCH] Looking for match: fraternity='{contact_frat}' institution='{contact_inst}'",
+            f"[BLAST_MATCH] Looking for match: fraternity='{contact_frat}' (normalized: '{contact_frat_normalized}') institution='{contact_inst}'",
             flush=True,
         )
         
@@ -304,13 +306,16 @@ def run_blast_for_cards(
             purchased_example = find_matching_fraternity(data, sales_history)
         elif isinstance(sales_history, list):
             # Legacy format - convert to dict format for matching
+            # Preserve original key format (case-sensitive) for proper matching
             sales_dict = {}
             for row in sales_history:
                 if isinstance(row, dict):
                     # Try various field name variations to find fraternity/abbreviation
+                    # Keep original case to match JSON structure (e.g., "SigChi", "PhiDelt")
                     frat_key = (row.get("Abbreviation") or row.get("abbreviation") or 
-                               row.get("fraternity") or row.get("Fraternity") or "").strip().upper()
+                               row.get("fraternity") or row.get("Fraternity") or "").strip()
                     if frat_key:
+                        # Use original case as key (matching will be case-insensitive)
                         if frat_key not in sales_dict:
                             sales_dict[frat_key] = []
                         sales_dict[frat_key].append(row)
