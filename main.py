@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 from starlette.requests import Request
 from datetime import datetime
+from contextlib import asynccontextmanager
 import psycopg2
 import os
 import json
@@ -38,6 +39,24 @@ from backend.query import build_list_query
 from backend.resolve import resolve_target, extract_phones_from_cards
 from backend.webhook_config import WEBHOOK_CONFIG, WebhookConfig
 
+# Module-level verification - this will ALWAYS print
+print("=" * 60)
+print("📦 MAIN.PY MODULE LOADING")
+print("=" * 60)
+
+# Import migration function with error handling
+try:
+    from backend.db.migrate import run_migration
+    print("✅ Migration module imported successfully")
+    print(f"✅ run_migration function: {run_migration}")
+except ImportError as e:
+    print(f"❌ Failed to import migration module: {e}")
+    import traceback
+    traceback.print_exc()
+    # Create a stub function if import fails
+    def run_migration():
+        return False, f"Migration module import failed: {e}"
+
 # Import blast function lazily to prevent startup crashes if dependencies are missing
 # Will be imported only when /admin/blast endpoint is called
 run_blast = None
@@ -56,7 +75,189 @@ def _get_run_blast():
             run_blast = _stub_blast
     return run_blast
 
-app = FastAPI()
+# #region agent log - Lifespan definition
+_log_file = Path(__file__).resolve().parent / ".cursor" / "debug.log"
+try:
+    import json as _json
+    with open(_log_file, "a") as f:
+        f.write(_json.dumps({
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "timestamp": int(__import__("time").time() * 1000),
+            "location": f"{__file__}:LIFESPAN_DEFINITION",
+            "message": "Defining lifespan function",
+            "data": {"migration_function": str(run_migration)},
+            "hypothesisId": "A"
+        }) + "\n")
+except:
+    pass
+# #endregion
+
+# Lifespan context manager for startup/shutdown events
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for FastAPI app.
+    Runs database migration on startup.
+    """
+    # #region agent log - Lifespan start
+    try:
+        with open(_log_file, "a") as f:
+            f.write(_json.dumps({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "timestamp": int(__import__("time").time() * 1000),
+                "location": f"{__file__}:LIFESPAN_START",
+                "message": "Lifespan function entered",
+                "data": {"app": str(app)},
+                "hypothesisId": "A"
+            }) + "\n")
+    except:
+        pass
+    # #endregion
+    
+    print("=" * 60)
+    print("🚀 LIFESPAN START: Running database migration...")
+    print("=" * 60)
+    try:
+        # #region agent log - Before migration call
+        try:
+            with open(_log_file, "a") as f:
+                f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "timestamp": int(__import__("time").time() * 1000),
+                    "location": f"{__file__}:BEFORE_MIGRATION",
+                    "message": "About to call run_migration",
+                    "data": {"migration_function": str(run_migration), "has_database_url": bool(os.getenv("DATABASE_URL"))},
+                    "hypothesisId": "C"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
+        
+        print(f"🔍 Calling run_migration function: {run_migration}")
+        
+        # Run migration synchronously - CRITICAL: This must complete before app serves requests
+        # We're in an async context, but migration is sync. We need to run it in a way that blocks startup.
+        # Using asyncio.to_thread (Python 3.9+) or run_in_executor to avoid blocking event loop setup
+        import asyncio
+        import sys
+        
+        # For Python 3.9+, use to_thread; otherwise use run_in_executor
+        if sys.version_info >= (3, 9):
+            success, message = await asyncio.to_thread(run_migration)
+        else:
+            loop = asyncio.get_event_loop()
+            success, message = await loop.run_in_executor(None, run_migration)
+        
+        # #region agent log - After migration call
+        try:
+            with open(_log_file, "a") as f:
+                f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "timestamp": int(__import__("time").time() * 1000),
+                    "location": f"{__file__}:AFTER_MIGRATION",
+                    "message": "Migration call completed",
+                    "data": {"success": success, "message": message},
+                    "hypothesisId": "C"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
+        
+        if success:
+            print(f"✅ Database migration: {message}")
+            
+            # Verify tables were created
+            try:
+                conn = get_conn()
+                with conn.cursor() as verify_cur:
+                    verify_cur.execute("""
+                        SELECT EXISTS (
+                            SELECT FROM information_schema.tables 
+                            WHERE table_schema = 'public' 
+                            AND table_name = 'cards'
+                        );
+                    """)
+                    table_exists = verify_cur.fetchone()[0]
+                    print(f"✅ Verification: cards table exists = {table_exists}")
+            except Exception as verify_e:
+                print(f"⚠️  Could not verify table creation: {verify_e}")
+        else:
+            print(f"⚠️  Database migration warning: {message}")
+            # Don't crash the app if migration fails - it might be a transient issue
+            # But log it prominently
+            print("=" * 60)
+            print("⚠️  WARNING: Migration did not complete successfully!")
+            print(f"⚠️  Message: {message}")
+            print("⚠️  Tables may not exist. Endpoints may fail.")
+            print("⚠️  Run migration manually via: POST /admin/migrate")
+            print("=" * 60)
+    except Exception as e:
+        # #region agent log - Migration exception
+        try:
+            import traceback as _tb
+            with open(_log_file, "a") as f:
+                f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "timestamp": int(__import__("time").time() * 1000),
+                    "location": f"{__file__}:MIGRATION_EXCEPTION",
+                    "message": "Exception in migration",
+                    "data": {"error": str(e), "error_type": type(e).__name__, "traceback": _tb.format_exc()},
+                    "hypothesisId": "C"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
+        print(f"⚠️  Database migration error (non-fatal): {str(e)}")
+        import traceback
+        print(f"📋 Traceback: {traceback.format_exc()}")
+        # Continue startup even if migration fails
+    print("=" * 60)
+    print("✅ LIFESPAN STARTUP COMPLETE")
+    print("=" * 60)
+    
+    # Yield control to the app
+    yield
+    
+    # Shutdown logic (if needed in the future)
+    print("=" * 60)
+    print("🛑 LIFESPAN SHUTDOWN")
+    print("=" * 60)
+
+# #region agent log - App initialization
+try:
+    with open(_log_file, "a") as f:
+        f.write(_json.dumps({
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "timestamp": int(__import__("time").time() * 1000),
+            "location": f"{__file__}:APP_INIT",
+            "message": "Creating FastAPI app with lifespan",
+            "data": {"lifespan_function": str(lifespan), "has_lifespan": True},
+            "hypothesisId": "B"
+        }) + "\n")
+except:
+    pass
+# #endregion
+
+# Module-level verification before app creation
+print("=" * 60)
+print("📦 CREATING FASTAPI APP")
+print(f"📦 Lifespan function exists: {lifespan is not None}")
+print(f"📦 Lifespan function: {lifespan}")
+print(f"📦 run_migration function: {run_migration}")
+print("=" * 60)
+
+app = FastAPI(lifespan=lifespan)
+
+print("=" * 60)
+print("📦 FASTAPI APP CREATED")
+print(f"📦 App instance: {app}")
+print("=" * 60)
 
 # Add CORS middleware to allow requests from Vercel
 app.add_middleware(
@@ -73,16 +274,113 @@ if not UI_DIR.exists():
     raise RuntimeError(f"UI directory does not exist: {UI_DIR}")
 app.mount("/ui", StaticFiles(directory=str(UI_DIR), html=True), name="ui")
 
+# Module-level verification
+print("=" * 60)
+print("📦 main.py module loaded")
+print(f"📦 FastAPI app instance: {app}")
+print("=" * 60)
+
 _conn = None
 
 def get_conn():
     global _conn
+    # #region agent log - Get conn entry
+    try:
+        import time
+        with open(_log_file, "a") as f:
+            f.write(_json.dumps({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "timestamp": int(time.time() * 1000),
+                "location": f"{__file__}:GET_CONN_ENTRY",
+                "message": "get_conn called",
+                "data": {"conn_exists": _conn is not None},
+                "hypothesisId": "G"
+            }) + "\n")
+    except:
+        pass
+    # #endregion
+    
     if _conn is None:
+        # #region agent log - Creating new connection
+        try:
+            import time
+            conn_start = time.time()
+            with open(_log_file, "a") as f:
+                f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "timestamp": int(time.time() * 1000),
+                    "location": f"{__file__}:CREATING_CONN",
+                    "message": "Creating new database connection",
+                    "data": {"has_database_url": bool(os.getenv("DATABASE_URL"))},
+                    "hypothesisId": "G"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
+        
         database_url = os.getenv("DATABASE_URL")
         if not database_url:
             raise ValueError("DATABASE_URL environment variable is not set")
-        _conn = psycopg2.connect(database_url)
-        _conn.autocommit = True
+        
+        try:
+            _conn = psycopg2.connect(database_url, connect_timeout=10)
+            _conn.autocommit = True
+            
+            # #region agent log - Connection created
+            try:
+                import time
+                conn_duration = time.time() - conn_start
+                with open(_log_file, "a") as f:
+                    f.write(_json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "timestamp": int(time.time() * 1000),
+                        "location": f"{__file__}:CONN_CREATED",
+                        "message": "Database connection created",
+                        "data": {"duration_ms": int(conn_duration * 1000)},
+                        "hypothesisId": "G"
+                    }) + "\n")
+            except:
+                pass
+            # #endregion
+        except Exception as conn_e:
+            # #region agent log - Connection error
+            try:
+                import time
+                with open(_log_file, "a") as f:
+                    f.write(_json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "timestamp": int(time.time() * 1000),
+                        "location": f"{__file__}:CONN_ERROR",
+                        "message": "Database connection failed",
+                        "data": {"error": str(conn_e), "error_type": type(conn_e).__name__},
+                        "hypothesisId": "G"
+                    }) + "\n")
+            except:
+                pass
+            # #endregion
+            raise
+    
+    # #region agent log - Returning connection
+    try:
+        import time
+        with open(_log_file, "a") as f:
+            f.write(_json.dumps({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "timestamp": int(time.time() * 1000),
+                "location": f"{__file__}:RETURNING_CONN",
+                "message": "Returning database connection",
+                "data": {},
+                "hypothesisId": "G"
+            }) + "\n")
+    except:
+        pass
+    # #endregion
+    
     return _conn
 
 
@@ -574,6 +872,98 @@ async def trigger_blast(request: Request, payload: Dict[str, Any] = Body(...)):
 
 
 # ============================================================================
+# Admin Migration Endpoint
+# ============================================================================
+
+@app.get("/admin/migrate/status")
+async def migration_status():
+    """
+    Check migration status - verify if tables exist and migration ran.
+    """
+    try:
+        conn = get_conn()
+        with conn.cursor() as cur:
+            # Check if cards table exists
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'cards'
+                );
+            """)
+            cards_exists = cur.fetchone()[0]
+            
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'card_relationships'
+                );
+            """)
+            relationships_exists = cur.fetchone()[0]
+            
+            # Check if we can query cards table
+            can_query = False
+            card_count = 0
+            if cards_exists:
+                try:
+                    cur.execute("SELECT COUNT(*) FROM cards;")
+                    card_count = cur.fetchone()[0]
+                    can_query = True
+                except Exception as e:
+                    can_query = False
+            
+        return JSONResponse(
+            content={
+                "ok": True,
+                "cards_table_exists": cards_exists,
+                "relationships_table_exists": relationships_exists,
+                "can_query_cards": can_query,
+                "card_count": card_count,
+                "migration_needed": not cards_exists
+            },
+            status_code=200
+        )
+    except Exception as e:
+        return JSONResponse(
+            content={
+                "ok": False,
+                "error": str(e),
+                "error_type": e.__class__.__name__
+            },
+            status_code=500
+        )
+
+@app.post("/admin/migrate")
+async def admin_migrate():
+    """
+    Manually trigger database migration.
+    Useful for verifying migration status or re-running if needed.
+    """
+    try:
+        success, message = run_migration()
+        if success:
+            return JSONResponse(
+                content={"ok": True, "message": message},
+                status_code=200
+            )
+        else:
+            return JSONResponse(
+                content={"ok": False, "error": message},
+                status_code=500
+            )
+    except Exception as e:
+        return JSONResponse(
+            content={
+                "ok": False,
+                "error": str(e),
+                "error_type": e.__class__.__name__
+            },
+            status_code=500
+        )
+
+
+# ============================================================================
 # Card API Endpoints
 # ============================================================================
 
@@ -670,8 +1060,280 @@ async def list_cards(
     List cards with optional filters.
     Supports type, sales_state, owner filters, or complex where clause.
     """
+    # #region agent log - Cards endpoint entry
     try:
+        import time
+        with open(_log_file, "a") as f:
+            f.write(_json.dumps({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "timestamp": int(time.time() * 1000),
+                "location": f"{__file__}:CARDS_ENDPOINT_ENTRY",
+                "message": "Cards endpoint called",
+                "data": {"type": type, "sales_state": sales_state, "owner": owner, "limit": limit},
+                "hypothesisId": "F"
+            }) + "\n")
+    except:
+        pass
+    # #endregion
+    
+    try:
+        # #region agent log - Before get_conn
+        try:
+            import time
+            with open(_log_file, "a") as f:
+                f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "timestamp": int(time.time() * 1000),
+                    "location": f"{__file__}:BEFORE_GET_CONN",
+                    "message": "About to get database connection",
+                    "data": {},
+                    "hypothesisId": "F"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
+        
         conn = get_conn()
+        
+        # #region agent log - After get_conn
+        try:
+            import time
+            with open(_log_file, "a") as f:
+                f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "timestamp": int(time.time() * 1000),
+                    "location": f"{__file__}:AFTER_GET_CONN",
+                    "message": "Database connection obtained",
+                    "data": {"connection_status": "success"},
+                    "hypothesisId": "F"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
+        
+        # Quick check: Try a simple query first - if it fails with UndefinedTable, we know table doesn't exist
+        # This is faster than checking information_schema
+        # #region agent log - Quick table check
+        table_exists = False
+        try:
+            import time
+            check_start = time.time()
+            with conn.cursor() as check_cur:
+                # Set a short timeout for the check
+                check_cur.execute("SET statement_timeout = '5s'")
+                # Try a simple query - this will fail fast if table doesn't exist
+                try:
+                    check_cur.execute("SELECT 1 FROM cards LIMIT 1")
+                    table_exists = True
+                except psycopg2.errors.UndefinedTable:
+                    table_exists = False
+                except Exception as check_inner_e:
+                    # Any other error means table probably doesn't exist
+                    print(f"⚠️  Table check error: {check_inner_e}")
+                    table_exists = False
+            
+            check_duration = time.time() - check_start
+            
+            with open(_log_file, "a") as f:
+                f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "timestamp": int(time.time() * 1000),
+                    "location": f"{__file__}:TABLE_EXISTS_CHECK",
+                    "message": "Checked if cards table exists",
+                    "data": {"table_exists": table_exists, "check_duration_ms": int(check_duration * 1000)},
+                    "hypothesisId": "F"
+                }) + "\n")
+        except Exception as check_outer_e:
+            # If the check itself fails, assume table doesn't exist and try migration
+            import time
+            print(f"⚠️  Table check failed: {check_outer_e}")
+            try:
+                with open(_log_file, "a") as f:
+                    f.write(_json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "timestamp": int(time.time() * 1000),
+                        "location": f"{__file__}:TABLE_CHECK_EXCEPTION",
+                        "message": "Table check threw exception",
+                        "data": {"error": str(check_outer_e), "error_type": type(check_outer_e).__name__},
+                        "hypothesisId": "F"
+                    }) + "\n")
+            except:
+                pass
+            table_exists = False
+        
+        # If table doesn't exist, try auto-migration BEFORE building query
+        if not table_exists:
+            # #region agent log - Table missing, attempting auto-migration
+            try:
+                import time
+                with open(_log_file, "a") as f:
+                    f.write(_json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "timestamp": int(time.time() * 1000),
+                        "location": f"{__file__}:AUTO_MIGRATION_TRIGGER",
+                        "message": "Table missing, attempting auto-migration",
+                        "data": {},
+                        "hypothesisId": "H"
+                    }) + "\n")
+            except:
+                pass
+            # #endregion
+            
+            # Auto-run migration as fallback
+            print("⚠️  Cards table not found - running migration automatically...")
+            try:
+                success, message = run_migration()
+                if success:
+                    print(f"✅ Auto-migration successful: {message}")
+                    # Verify table was created
+                    try:
+                        with conn.cursor() as verify_cur:
+                            verify_cur.execute("SELECT 1 FROM cards LIMIT 1")
+                            table_exists = True
+                            print("✅ Verified: cards table now exists")
+                    except psycopg2.errors.UndefinedTable:
+                        table_exists = False
+                        print("❌ Warning: Migration reported success but table still doesn't exist")
+                else:
+                    print(f"❌ Auto-migration failed: {message}")
+                    return JSONResponse(
+                        content={
+                            "ok": False,
+                            "error": f"cards table does not exist and auto-migration failed: {message}",
+                            "error_type": "MigrationFailed",
+                            "suggestion": "Run migration manually via POST /admin/migrate"
+                        },
+                        status_code=500
+                    )
+            except Exception as migration_error:
+                print(f"❌ Auto-migration error: {migration_error}")
+                import traceback
+                print(f"📋 Traceback: {traceback.format_exc()}")
+                return JSONResponse(
+                    content={
+                        "ok": False,
+                        "error": f"cards table does not exist and auto-migration error: {str(migration_error)}",
+                        "error_type": "MigrationError",
+                        "suggestion": "Run migration manually via POST /admin/migrate"
+                    },
+                    status_code=500
+                )
+            
+            # If table still doesn't exist after migration, return error
+            if not table_exists:
+                return JSONResponse(
+                    content={
+                        "ok": False,
+                        "error": "cards table does not exist after auto-migration attempt",
+                        "error_type": "MissingTable",
+                        "suggestion": "Run migration manually via POST /admin/migrate and check logs"
+                    },
+                    status_code=500
+                )
+        
+        except psycopg2.errors.QueryCanceled:
+            # Check timed out - table might not exist or DB is slow
+            import time
+            try:
+                with open(_log_file, "a") as f:
+                    f.write(_json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "timestamp": int(time.time() * 1000),
+                        "location": f"{__file__}:TABLE_CHECK_TIMEOUT",
+                        "message": "Table check timed out",
+                        "data": {},
+                        "hypothesisId": "F"
+                    }) + "\n")
+            except:
+                pass
+            return JSONResponse(
+                content={
+                    "ok": False,
+                    "error": "Database check timed out - table may not exist or database is slow",
+                    "error_type": "CheckTimeout",
+                    "suggestion": "Run migration via POST /admin/migrate"
+                },
+                status_code=500
+            )
+        except Exception as check_e:
+            import time
+            try:
+                with open(_log_file, "a") as f:
+                    f.write(_json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "timestamp": int(time.time() * 1000),
+                        "location": f"{__file__}:TABLE_CHECK_ERROR",
+                        "message": "Error checking table existence",
+                        "data": {"error": str(check_e), "error_type": type(check_e).__name__},
+                        "hypothesisId": "F"
+                    }) + "\n")
+            except:
+                pass
+            # If check failed, assume table doesn't exist and try migration
+            table_exists = False
+            print(f"⚠️  Table check failed with error: {check_e}")
+        # #endregion
+        
+        # If table doesn't exist, try auto-migration BEFORE building query
+        if not table_exists:
+            print("⚠️  Cards table not found - running migration automatically...")
+            try:
+                success, message = run_migration()
+                if success:
+                    print(f"✅ Auto-migration successful: {message}")
+                    # Verify table was created
+                    try:
+                        with conn.cursor() as verify_cur:
+                            verify_cur.execute("SELECT 1 FROM cards LIMIT 1")
+                            table_exists = True
+                            print("✅ Verified: cards table now exists")
+                    except psycopg2.errors.UndefinedTable:
+                        table_exists = False
+                        print("❌ Warning: Migration reported success but table still doesn't exist")
+                else:
+                    print(f"❌ Auto-migration failed: {message}")
+                    return JSONResponse(
+                        content={
+                            "ok": False,
+                            "error": f"cards table does not exist and auto-migration failed: {message}",
+                            "error_type": "MigrationFailed",
+                            "suggestion": "Run migration manually via POST /admin/migrate"
+                        },
+                        status_code=500
+                    )
+            except Exception as migration_error:
+                print(f"❌ Auto-migration error: {migration_error}")
+                import traceback
+                print(f"📋 Traceback: {traceback.format_exc()}")
+                return JSONResponse(
+                    content={
+                        "ok": False,
+                        "error": f"cards table does not exist and auto-migration error: {str(migration_error)}",
+                        "error_type": "MigrationError",
+                        "suggestion": "Run migration manually via POST /admin/migrate"
+                    },
+                    status_code=500
+                )
+            
+            # If table still doesn't exist after migration, return error
+            if not table_exists:
+                return JSONResponse(
+                    content={
+                        "ok": False,
+                        "error": "cards table does not exist after auto-migration attempt",
+                        "error_type": "MissingTable",
+                        "suggestion": "Run migration manually via POST /admin/migrate and check logs"
+                    },
+                    status_code=500
+                )
         
         # Build where clause
         where_dict = {}
@@ -693,36 +1355,232 @@ async def list_cards(
         # Build query
         query, params = build_list_query(where=where_dict if where_dict else None, limit=limit, offset=offset)
         
-        # Execute query
+        # Execute query with timeout protection and immediate error handling
         cards = []
-        with conn.cursor() as cur:
-            cur.execute(query, params)
-            
-            for row in cur.fetchall():
-                # Handle JSONB data - convert to dict if needed
-                card_data = row[2]
-                if isinstance(card_data, str):
-                    try:
-                        card_data = json.loads(card_data)
-                    except:
-                        pass
-                elif hasattr(card_data, 'dict'):  # psycopg2.extras.Json object
-                    card_data = card_data.dict()
+        
+        # #region agent log - Before query execution
+        try:
+            import time
+            query_start = time.time()
+            with open(_log_file, "a") as f:
+                f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "timestamp": int(time.time() * 1000),
+                    "location": f"{__file__}:BEFORE_QUERY_EXEC_DETAILED",
+                    "message": "About to execute SELECT query",
+                    "data": {"query_preview": query[:100], "params_count": len(params)},
+                    "hypothesisId": "F"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
+        
+        try:
+            with conn.cursor() as cur:
+                # Set statement timeout to prevent hanging (10 seconds - fail fast)
+                cur.execute("SET statement_timeout = '10s'")
                 
-                cards.append({
-                    "id": row[0],
-                    "type": row[1],
-                    "card_data": card_data,
-                    "sales_state": row[3],
-                    "owner": row[4],
-                    "created_at": row[5].isoformat() if row[5] else None,
-                    "updated_at": row[6].isoformat() if row[6] else None,
-                })
+                # Execute query - this will fail immediately if table doesn't exist
+                cur.execute(query, params)
+                
+                # #region agent log - After query execution
+                try:
+                    import time
+                    query_duration = time.time() - query_start
+                    with open(_log_file, "a") as f:
+                        f.write(_json.dumps({
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "timestamp": int(time.time() * 1000),
+                            "location": f"{__file__}:AFTER_QUERY_EXEC",
+                            "message": "Query executed successfully",
+                            "data": {"duration_ms": int(query_duration * 1000)},
+                            "hypothesisId": "F"
+                        }) + "\n")
+                except:
+                    pass
+                # #endregion
+                
+                rows = cur.fetchall()
+                
+                # #region agent log - After fetchall
+                try:
+                    import time
+                    with open(_log_file, "a") as f:
+                        f.write(_json.dumps({
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "timestamp": int(time.time() * 1000),
+                            "location": f"{__file__}:AFTER_FETCHALL",
+                            "message": "Fetched rows from query",
+                            "data": {"row_count": len(rows)},
+                            "hypothesisId": "F"
+                        }) + "\n")
+                except:
+                    pass
+                # #endregion
+                
+                for row in rows:
+                    # Handle JSONB data - convert to dict if needed
+                    card_data = row[2]
+                    if isinstance(card_data, str):
+                        try:
+                            card_data = json.loads(card_data)
+                        except:
+                            pass
+                    elif hasattr(card_data, 'dict'):  # psycopg2.extras.Json object
+                        card_data = card_data.dict()
+                    
+                    cards.append({
+                        "id": row[0],
+                        "type": row[1],
+                        "card_data": card_data,
+                        "sales_state": row[3],
+                        "owner": row[4],
+                        "created_at": row[5].isoformat() if row[5] else None,
+                        "updated_at": row[6].isoformat() if row[6] else None,
+                    })
+        except psycopg2.errors.UndefinedTable as table_error:
+            # #region agent log - Table missing error from query
+            try:
+                import time
+                with open(_log_file, "a") as f:
+                    f.write(_json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "timestamp": int(time.time() * 1000),
+                        "location": f"{__file__}:TABLE_MISSING_ERROR",
+                        "message": "Table does not exist error from query - attempting auto-migration",
+                        "data": {"error": str(table_error)},
+                        "hypothesisId": "F"
+                    }) + "\n")
+            except:
+                pass
+            # #endregion
+            
+            # Table doesn't exist - try auto-migration as last resort
+            print("⚠️  Query failed: cards table does not exist - running migration automatically...")
+            try:
+                success, message = run_migration()
+                if success:
+                    print(f"✅ Auto-migration successful: {message}")
+                    # Retry the query after migration
+                    try:
+                        with conn.cursor() as retry_cur:
+                            retry_cur.execute("SET statement_timeout = '10s'")
+                            retry_cur.execute(query, params)
+                            rows = retry_cur.fetchall()
+                            cards = []
+                            for row in rows:
+                                card_data = row[2]
+                                if isinstance(card_data, str):
+                                    try:
+                                        card_data = json.loads(card_data)
+                                    except:
+                                        pass
+                                elif hasattr(card_data, 'dict'):
+                                    card_data = card_data.dict()
+                                
+                                cards.append({
+                                    "id": row[0],
+                                    "type": row[1],
+                                    "card_data": card_data,
+                                    "sales_state": row[3],
+                                    "owner": row[4],
+                                    "created_at": row[5].isoformat() if row[5] else None,
+                                    "updated_at": row[6].isoformat() if row[6] else None,
+                                })
+                            
+                            result = {
+                                "cards": cards,
+                                "count": len(cards)
+                            }
+                            return JSONResponse(
+                                content=jsonable_encoder(result),
+                                status_code=200
+                            )
+                    except Exception as retry_error:
+                        return JSONResponse(
+                            content={
+                                "ok": False,
+                                "error": f"Migration succeeded but query retry failed: {str(retry_error)}",
+                                "error_type": "RetryFailed",
+                                "migration_message": message
+                            },
+                            status_code=500
+                        )
+                else:
+                    return JSONResponse(
+                        content={
+                            "ok": False,
+                            "error": f"cards table does not exist and auto-migration failed: {message}",
+                            "error_type": "MigrationFailed",
+                            "suggestion": "Run migration manually via POST /admin/migrate"
+                        },
+                        status_code=500
+                    )
+            except Exception as migration_error:
+                import traceback
+                print(f"❌ Auto-migration error: {migration_error}")
+                print(f"📋 Traceback: {traceback.format_exc()}")
+                return JSONResponse(
+                    content={
+                        "ok": False,
+                        "error": f"cards table does not exist and auto-migration error: {str(migration_error)}",
+                        "error_type": "MigrationError",
+                        "suggestion": "Run migration manually via POST /admin/migrate"
+                    },
+                    status_code=500
+                )
+        except psycopg2.errors.QueryCanceled as timeout_error:
+            # #region agent log - Query timeout
+            try:
+                import time
+                with open(_log_file, "a") as f:
+                    f.write(_json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "timestamp": int(time.time() * 1000),
+                        "location": f"{__file__}:QUERY_TIMEOUT",
+                        "message": "Query timed out",
+                        "data": {"error": str(timeout_error)},
+                        "hypothesisId": "F"
+                    }) + "\n")
+            except:
+                pass
+            # #endregion
+            return JSONResponse(
+                content={
+                    "ok": False,
+                    "error": "Query timed out - database may be slow or table may not exist",
+                    "error_type": "QueryTimeout",
+                    "detail": str(timeout_error)
+                },
+                status_code=500
+            )
         
         result = {
             "cards": cards,
             "count": len(cards)
         }
+        
+        # #region agent log - Before JSON response
+        try:
+            import time
+            with open(_log_file, "a") as f:
+                f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "timestamp": int(time.time() * 1000),
+                    "location": f"{__file__}:BEFORE_JSON_RESPONSE",
+                    "message": "About to return JSON response",
+                    "data": {"card_count": len(cards)},
+                    "hypothesisId": "F"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
         
         # Force JSON serialization to handle any non-serializable types
         return JSONResponse(
