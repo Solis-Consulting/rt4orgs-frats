@@ -24,26 +24,44 @@
     .badge.red { background: rgba(248,113,113,0.15); color: #fecaca; }
     .badge.amber { background: rgba(245,158,11,0.15); color: #fed7aa; }
     .badge.gray { background: rgba(75,85,99,0.4); color: #e5e7eb; }
+    .badge.person { background: rgba(59,130,246,0.15); color: #bfdbfe; }
+    .badge.fraternity { background: rgba(168,85,247,0.15); color: #e9d5ff; }
+    .badge.team { background: rgba(34,197,94,0.15); color: #bbf7d0; }
+    .badge.business { background: rgba(245,158,11,0.15); color: #fed7aa; }
     .link { color: #38bdf8; text-decoration: none; font-weight: 500; }
     .link:hover { text-decoration: underline; }
     .meta { display: flex; gap: 16px; font-size: 12px; color: #9ca3af; margin-bottom: 8px; }
     .meta strong { color: #e5e7eb; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid #1f2937; }
+    .tab { padding: 8px 16px; cursor: pointer; color: #9ca3af; border-bottom: 2px solid transparent; }
+    .tab.active { color: #38bdf8; border-bottom-color: #38bdf8; }
+    button { background: #0ea5e9; color: #0f172a; border: none; border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    button:hover { background: #38bdf8; }
   </style>
 </head>
 <body>
   <div class="shell">
     <div class="card">
       <h1>RT4 Lead Console</h1>
-      <div class="sub">Live state view of all current conversations.</div>
+      <div class="sub">Live state view of all current conversations and cards.</div>
 
-      <div class="toolbar">
-        <input id="search" placeholder="Search by name or phone">
-        <select id="stateFilter">
-          <option value="all">All states</option>
-          <option value="active">Active (not dead/not_interested/no_time)</option>
-          <option value="initial_outreach">Initial outreach only</option>
-        </select>
+      <div class="tabs">
+        <div class="tab active" data-view="leads">Leads</div>
+        <div class="tab" data-view="cards">Cards</div>
+        <div style="flex: 1;"></div>
+        <a href="upload.html" class="link" style="padding: 8px 0;">Upload Cards</a>
       </div>
+
+      <!-- Leads View -->
+      <div id="leadsView">
+        <div class="toolbar">
+          <input id="search" placeholder="Search by name or phone">
+          <select id="stateFilter">
+            <option value="all">All states</option>
+            <option value="active">Active (not dead/not_interested/no_time)</option>
+            <option value="initial_outreach">Initial outreach only</option>
+          </select>
+        </div>
 
       <div class="pill-row">
         <div class="pill active" data-sort="state">Sort by state</div>
@@ -51,16 +69,43 @@
         <div class="pill" data-sort="folders_desc">Sort by folders</div>
       </div>
 
-      <div class="meta" id="summary"></div>
+        <div class="meta" id="summary"></div>
+        <div id="tableWrap"></div>
+      </div>
 
-      <div id="tableWrap"></div>
+      <!-- Cards View -->
+      <div id="cardsView" style="display: none;">
+        <div class="toolbar">
+          <input id="cardSearch" placeholder="Search by name or ID">
+          <select id="cardTypeFilter">
+            <option value="">All types</option>
+            <option value="person">Person</option>
+            <option value="fraternity">Fraternity</option>
+            <option value="team">Team</option>
+            <option value="business">Business</option>
+          </select>
+          <select id="cardStateFilter">
+            <option value="">All sales states</option>
+            <option value="cold">Cold</option>
+            <option value="qualified">Qualified</option>
+            <option value="negotiating">Negotiating</option>
+            <option value="won">Won</option>
+            <option value="lost">Lost</option>
+          </select>
+        </div>
+        <div class="meta" id="cardSummary"></div>
+        <div id="cardTableWrap"></div>
+      </div>
     </div>
   </div>
 
-  <script>
-    const BACKEND = "https://YOUR-RAILWAY-DOMAIN.up.railway.app";
+  <script type="module">
+    import { BACKEND_URL } from '/config.js';
+    const BACKEND = BACKEND_URL;
     let allLeads = [];
+    let allCards = [];
     let currentSort = "state";
+    let currentView = "leads";
 
     function stateBadgeClass(s) {
       if (!s) return "gray";
@@ -151,8 +196,97 @@
       }
     }
 
+    // Cards view functions
+    async function loadCards() {
+      try {
+        const typeFilter = document.getElementById("cardTypeFilter").value;
+        const stateFilter = document.getElementById("cardStateFilter").value;
+        
+        let url = `${BACKEND}/cards?limit=1000`;
+        if (typeFilter) url += `&type=${encodeURIComponent(typeFilter)}`;
+        if (stateFilter) url += `&sales_state=${encodeURIComponent(stateFilter)}`;
+        
+        const res = await fetch(url);
+        const data = await res.json();
+        allCards = data.cards || [];
+        renderCards();
+      } catch (error) {
+        document.getElementById("cardTableWrap").innerHTML = `<div style='color: #fecaca; padding: 20px;'>Error loading cards: ${error.message}</div>`;
+      }
+    }
+
+    function renderCards() {
+      const search = document.getElementById("cardSearch").value.toLowerCase();
+      
+      let rows = allCards.filter(card => {
+        if (!search) return true;
+        const name = card.card_data?.name || '';
+        const id = card.id || '';
+        return name.toLowerCase().includes(search) || id.toLowerCase().includes(search);
+      });
+
+      // Sort by updated_at desc
+      rows.sort((a, b) => {
+        const aTime = a.updated_at || '';
+        const bTime = b.updated_at || '';
+        return bTime.localeCompare(aTime);
+      });
+
+      const total = allCards.length;
+      const shown = rows.length;
+
+      document.getElementById("cardSummary").innerHTML =
+        `<div><strong>${total}</strong> cards</div>` +
+        `<div><strong>${shown}</strong> shown</div>`;
+
+      let html = "<table><thead><tr>";
+      html += "<th>Name</th><th>Type</th><th>Sales State</th><th>Owner</th><th>Updated</th><th>View</th>";
+      html += "</tr></thead><tbody>";
+
+      rows.forEach(card => {
+        const name = card.card_data?.name || card.id;
+        const type = card.type || 'person';
+        const salesState = card.sales_state || 'cold';
+        const owner = card.owner || '-';
+        const updated = card.updated_at ? new Date(card.updated_at).toLocaleDateString() : '-';
+        
+        html += "<tr>";
+        html += `<td>${name}</td>`;
+        html += `<td><span class='badge ${type}'>${type}</span></td>`;
+        html += `<td><span class='badge gray'>${salesState}</span></td>`;
+        html += `<td>${owner}</td>`;
+        html += `<td>${updated}</td>`;
+        html += `<td><a class='link' href='card.html?id=${encodeURIComponent(card.id)}'>View</a></td>`;
+        html += "</tr>";
+      });
+
+      html += "</tbody></table>";
+      document.getElementById("cardTableWrap").innerHTML = html;
+    }
+
+    // Tab switching
+    document.querySelectorAll(".tab").forEach(tab => {
+      tab.addEventListener("click", () => {
+        const view = tab.getAttribute("data-view");
+        currentView = view;
+        
+        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+        tab.classList.add("active");
+        
+        document.getElementById("leadsView").style.display = view === "leads" ? "block" : "none";
+        document.getElementById("cardsView").style.display = view === "cards" ? "block" : "none";
+        
+        if (view === "cards") {
+          loadCards();
+        }
+      });
+    });
+
     document.getElementById("search").addEventListener("input", render);
     document.getElementById("stateFilter").addEventListener("change", render);
+    document.getElementById("cardSearch").addEventListener("input", renderCards);
+    document.getElementById("cardTypeFilter").addEventListener("change", loadCards);
+    document.getElementById("cardStateFilter").addEventListener("change", loadCards);
 
     document.querySelectorAll(".pill").forEach(p => {
       p.addEventListener("click", () => {
@@ -165,7 +299,13 @@
 
     load();
     // Auto-refresh every 30 seconds
-    setInterval(load, 30000);
+    setInterval(() => {
+      if (currentView === "leads") {
+        load();
+      } else {
+        loadCards();
+      }
+    }, 30000);
   </script>
 </body>
 </html>

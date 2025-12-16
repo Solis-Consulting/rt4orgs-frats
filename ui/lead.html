@@ -29,8 +29,9 @@
     </div>
   </div>
 
-  <script>
-    const BACKEND = "https://YOUR-RAILWAY-DOMAIN.up.railway.app";
+  <script type="module">
+    import { BACKEND_URL } from '/config.js';
+    const BACKEND = BACKEND_URL;
 
     function stateBadgeClass(s) {
       if (!s) return "gray";
