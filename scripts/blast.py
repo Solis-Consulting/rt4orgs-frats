@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 import random
+import json
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -10,13 +11,35 @@ from twilio.rest import Client
 import requests
 
 import sys
-from pathlib import Path
 
-# Add backend to path for imports
-BACKEND_DIR = Path(__file__).resolve().parent.parent / "backend"
-sys.path.insert(0, str(BACKEND_DIR))
+# #region agent log - Module load verification
+_log_file = Path(__file__).resolve().parent.parent / ".cursor" / "debug.log"
+def _debug_log(location, message, data=None, hypothesis_id=None):
+    try:
+        import json as _json
+        from datetime import datetime
+        payload = {
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "timestamp": int(datetime.now().timestamp() * 1000),
+            "location": location,
+            "message": message,
+            "data": data or {},
+            "hypothesisId": hypothesis_id
+        }
+        with open(_log_file, "a") as f:
+            f.write(_json.dumps(payload) + "\n")
+    except:
+        pass
 
-from message_processor.utils import (
+_debug_log(f"{__file__}:MODULE_LOAD", "🔥🔥🔥 NEW BLAST LOGIC LOADED 🔥🔥🔥", {"file": str(__file__), "resolved": str(Path(__file__).resolve())}, "C")
+# #endregion
+
+# Add archive_intelligence to path for imports
+ARCHIVE_DIR = Path(__file__).resolve().parent.parent / "archive_intelligence"
+sys.path.insert(0, str(ARCHIVE_DIR))
+
+from archive_intelligence.message_processor.utils import (
     load_leads,
     save_leads,
     load_sales_history,
@@ -25,27 +48,115 @@ from message_processor.utils import (
     ensure_parent_dir,
     save_json,
 )
-from message_processor.generate_message import generate_message
-from config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
+from archive_intelligence.message_processor.generate_message import generate_message
 
-BASE_DIR = BACKEND_DIR
+# Try to import config from multiple possible locations
+try:
+    from config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
+except ImportError:
+    # Fallback: try importing from backend or root
+    import os
+    TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+    TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+    TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
+
+BASE_DIR = ARCHIVE_DIR
 TEMPLATE_PATH = BASE_DIR / "templates" / "messages.txt"
-CONTACTS_DIR = BASE_DIR / "contacts"
+# Contacts directory is in backend/, not archive_intelligence/
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CONTACTS_DIR = PROJECT_ROOT / "backend" / "contacts"
 
 
 def _contact_has_been_blasted(contact_name: str) -> bool:
-    if not CONTACTS_DIR.exists():
+    """
+    Check if a contact has already received an outbound SMS blast.
+    Only considers contacts 'blasted' if they have a state.json file
+    with next_state == "initial_outreach" (indicating outbound was sent).
+    """
+    # #region agent log - Function entry
+    _debug_log(f"{__file__}:47:ENTRY", "CHECKING BLAST STATE FOR", {"contact_name": contact_name, "contacts_dir": str(CONTACTS_DIR)}, "D")
+    # #endregion
+    
+    # #region agent log - Directory check
+    dir_exists = CONTACTS_DIR.exists()
+    _debug_log(f"{__file__}:53:DIR_CHECK", "CONTACTS_DIR exists check", {"path": str(CONTACTS_DIR), "exists": dir_exists}, "D")
+    # #endregion
+    
+    if not dir_exists:
+        # #region agent log - Early return
+        _debug_log(f"{__file__}:54:RETURN", "Returning False (dir not exists)", {"contact_name": contact_name}, "D")
+        # #endregion
         return False
 
     prefix = contact_name.replace(" ", "_")
+    # #region agent log - Before iteration
+    _debug_log(f"{__file__}:57:PREFIX", "Contact prefix generated", {"contact_name": contact_name, "prefix": prefix}, "D")
+    # #endregion
+    
+    folders_found = []
     for folder in CONTACTS_DIR.iterdir():
         if folder.is_dir() and folder.name.startswith(prefix):
-            return True
+            folders_found.append(str(folder))
+            # #region agent log - Folder match
+            _debug_log(f"{__file__}:58:FOLDER_MATCH", "Found matching folder", {"folder": folder.name, "prefix": prefix}, "B")
+            # #endregion
+            
+            # Check if this folder has a state.json indicating outbound was sent
+            state_file = folder / "state.json"
+            state_file_exists = state_file.exists()
+            
+            # #region agent log - State file check
+            _debug_log(f"{__file__}:60:STATE_FILE", "Checking state.json", {"folder": folder.name, "state_file_exists": state_file_exists}, "B")
+            # #endregion
+            
+            if state_file_exists:
+                try:
+                    with open(state_file, 'r', encoding='utf-8') as f:
+                        state = json.load(f)
+                    
+                    # #region agent log - State content
+                    next_state = state.get("next_state")
+                    _debug_log(f"{__file__}:67:STATE_CONTENT", "Read state.json", {"folder": folder.name, "next_state": next_state, "full_state": state}, "B")
+                    # #endregion
+                    
+                    # Only mark as blasted if it's an outbound event (initial_outreach)
+                    if next_state == "initial_outreach":
+                        # #region agent log - Blasted confirmed
+                        _debug_log(f"{__file__}:70:RETURN", "Returning True (blasted)", {"contact_name": contact_name, "folder": folder.name, "next_state": next_state}, "B")
+                        # #endregion
+                        return True
+                except (json.JSONDecodeError, IOError) as e:
+                    # #region agent log - State read error
+                    _debug_log(f"{__file__}:73:ERROR", "Error reading state.json", {"folder": folder.name, "error": str(e)}, "B")
+                    # #endregion
+                    # If we can't read the state file, skip this folder
+                    continue
+    
+    # #region agent log - Final return
+    _debug_log(f"{__file__}:77:RETURN", "Returning False (not blasted)", {"contact_name": contact_name, "folders_checked": folders_found}, "B")
+    # #endregion
     return False
 
 
 def find_unblasted_contacts(leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    return [c for c in leads if not _contact_has_been_blasted(c.get("name", ""))]
+    # #region agent log - Find unblasted entry
+    _debug_log(f"{__file__}:58:FIND_UNBLASTED_ENTRY", "find_unblasted_contacts called", {"leads_count": len(leads)}, "D")
+    # #endregion
+    
+    unblasted = []
+    for c in leads:
+        contact_name = c.get("name", "")
+        is_blasted = _contact_has_been_blasted(contact_name)
+        # #region agent log - Contact check result
+        _debug_log(f"{__file__}:65:CONTACT_CHECK", "Contact blast status", {"contact_name": contact_name, "is_blasted": is_blasted}, "D")
+        # #endregion
+        if not is_blasted:
+            unblasted.append(c)
+    
+    # #region agent log - Find unblasted result
+    _debug_log(f"{__file__}:70:FIND_UNBLASTED_RESULT", "find_unblasted_contacts result", {"total_leads": len(leads), "unblasted_count": len(unblasted)}, "D")
+    # #endregion
+    return unblasted
 
 
 def send_sms(to_number: str, body: str) -> Dict[str, Any]:
@@ -79,42 +190,123 @@ def write_initial_message(folder: Path, message: str):
         f.write(message)
 
 
-def run_blast():
-    print("\n--- RT4ORGS OUTBOUND BLAST ENGINE ---\n")
+def run_blast(
+    limit: int = None,
+    auto_confirm: bool = False,
+    base_url: str = None,
+    owner: str = "system",
+    source_batch_id: str = None
+) -> Dict[str, Any]:
+    """
+    Run outbound blast to unblasted contacts.
+    
+    Args:
+        limit: Maximum number of messages to send (None = all)
+        auto_confirm: If True, skip confirmation prompt (for API use)
+        base_url: Base URL for /events/outbound endpoint (if None, skips API call)
+        owner: Owner name for outbound events
+        source_batch_id: Batch ID for tracking
+    
+    Returns:
+        Dict with results: {
+            "ok": bool,
+            "sent": int,
+            "skipped": int,
+            "total_time": float,
+            "messages_per_sec": float,
+            "results": List[Dict]  # Individual message results
+        }
+    """
+    if not auto_confirm:
+        print("\n--- RT4ORGS OUTBOUND BLAST ENGINE ---\n")
 
+    # #region agent log - Run blast entry
+    _debug_log(f"{__file__}:RUN_BLAST_ENTRY", "run_blast function called", {"limit": limit, "auto_confirm": auto_confirm, "base_url": base_url}, "D")
+    # #endregion
+    
     leads = load_leads()
+    # #region agent log - Leads loaded
+    _debug_log(f"{__file__}:LEADS_LOADED", "Leads loaded from file", {"leads_count": len(leads), "sample_names": [l.get("name") for l in leads[:3]] if leads else []}, "D")
+    # #endregion
+    
     sales_history = load_sales_history()
+    # #region agent log - Before find_unblasted
+    _debug_log(f"{__file__}:BEFORE_FIND", "About to call find_unblasted_contacts", {"leads_count": len(leads)}, "D")
+    # #endregion
 
     unblasted = find_unblasted_contacts(leads)
+    # #region agent log - After find_unblasted
+    _debug_log(f"{__file__}:AFTER_FIND", "After find_unblasted_contacts", {"unblasted_count": len(unblasted)}, "D")
+    # #endregion
 
     if not unblasted:
-        print("All contacts have already been blasted.\n")
-        return
+        msg = "All contacts have already been blasted."
+        if not auto_confirm:
+            print(msg + "\n")
+        return {
+            "ok": False,
+            "error": msg,
+            "sent": 0,
+            "skipped": 0,
+            "total_time": 0.0,
+            "messages_per_sec": 0.0,
+            "results": []
+        }
 
-    print("These contacts have NOT been blasted yet:\n")
-    for i, c in enumerate(unblasted, 1):
-        print(f"{i}. {c.get('name')} ({c.get('phone')}) – {c.get('fraternity')} {c.get('chapter')}")
-    print("\nTotal:", len(unblasted))
+    # Apply limit if specified
+    if limit and limit > 0:
+        unblasted = unblasted[:limit]
 
-    choice = input("\nBlast ALL unblasted contacts now? (y/n): ").strip().lower()
-    if choice != "y":
-        print("Aborting. No messages sent.\n")
-        return
+    if not auto_confirm:
+        print("These contacts have NOT been blasted yet:\n")
+        for i, c in enumerate(unblasted, 1):
+            print(f"{i}. {c.get('name')} ({c.get('phone')}) – {c.get('fraternity')} {c.get('chapter')}")
+        print("\nTotal:", len(unblasted))
 
-    print("\n--- SENDING MESSAGES ---\n")
+        choice = input("\nBlast these contacts now? (y/n): ").strip().lower()
+        if choice != "y":
+            msg = "Aborting. No messages sent."
+            print(msg + "\n")
+            return {
+                "ok": False,
+                "error": msg,
+                "sent": 0,
+                "skipped": 0,
+                "total_time": 0.0,
+                "messages_per_sec": 0.0,
+                "results": []
+            }
+
+    if not auto_confirm:
+        print("\n--- SENDING MESSAGES ---\n")
 
     TARGET_MSGS_PER_MIN = 100
     BASE_DELAY = 60 / TARGET_MSGS_PER_MIN
 
     sent_count = 0
+    skipped_count = 0
     start_time = time.time()
+    results = []
+
+    # Generate batch ID if not provided
+    if not source_batch_id:
+        from datetime import datetime
+        source_batch_id = f"blast_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     for contact in unblasted:
-
         # 🚨 SKIP CONTACTS WITH NO PHONE NUMBER
         phone = contact.get("phone")
         if not phone or phone in ["", None]:
-            print(f"Skipping {contact.get('name')} — missing phone number.\n")
+            skipped_count += 1
+            result = {
+                "contact": contact.get("name"),
+                "phone": phone,
+                "status": "skipped",
+                "reason": "missing phone number"
+            }
+            results.append(result)
+            if not auto_confirm:
+                print(f"Skipping {contact.get('name')} — missing phone number.\n")
             continue
 
         purchased_example = next(
@@ -128,36 +320,81 @@ def run_blast():
 
         message = generate_message(contact, purchased_example, TEMPLATE_PATH)
 
-        print(f"Sending to {contact.get('name')} ({phone}):")
-        sms_result = send_sms(phone, message)
-        print(" → Twilio SID:", sms_result["sid"], "| Status:", sms_result["status"])
+        try:
+            if not auto_confirm:
+                print(f"Sending to {contact.get('name')} ({phone}):")
+            sms_result = send_sms(phone, message)
+            
+            if not auto_confirm:
+                print(" → Twilio SID:", sms_result["sid"], "| Status:", sms_result["status"])
 
-        requests.post(
-          "https://YOUR_RAILWAY_URL/events/outbound",
-          json={
-            "phone": phone,
-            "contact_id": contact.get("contact_id"),
-            "owner": "david",
-            "source_batch_id": "david_2025_12_08"
-          }
-        )
+            # Post to /events/outbound if base_url provided
+            if base_url:
+                try:
+                    outbound_url = f"{base_url.rstrip('/')}/events/outbound"
+                    requests.post(
+                        outbound_url,
+                        json={
+                            "phone": phone,
+                            "contact_id": contact.get("contact_id"),
+                            "owner": owner,
+                            "source_batch_id": source_batch_id
+                        },
+                        timeout=5
+                    )
+                except Exception as e:
+                    # Log but don't fail the blast
+                    if not auto_confirm:
+                        print(f"  Warning: Failed to post to {outbound_url}: {e}")
 
-        folder = make_contact_event_folder(contact.get("name", "Unknown"))
-        write_initial_state(folder, contact, purchased_example)
-        write_initial_message(folder, message)
+            folder = make_contact_event_folder(contact.get("name", "Unknown"))
+            write_initial_state(folder, contact, purchased_example)
+            write_initial_message(folder, message)
 
-        save_leads(leads)
+            save_leads(leads)
 
-        jitter = random.uniform(-0.05, 0.05)
-        delay = max(0.15, BASE_DELAY + jitter)
-        time.sleep(delay)
+            result = {
+                "contact": contact.get("name"),
+                "phone": phone,
+                "status": "sent",
+                "twilio_sid": sms_result["sid"],
+                "twilio_status": sms_result["status"]
+            }
+            results.append(result)
+            sent_count += 1
 
-        sent_count += 1
+            jitter = random.uniform(-0.05, 0.05)
+            delay = max(0.15, BASE_DELAY + jitter)
+            time.sleep(delay)
+
+        except Exception as e:
+            skipped_count += 1
+            result = {
+                "contact": contact.get("name"),
+                "phone": phone,
+                "status": "error",
+                "error": str(e)
+            }
+            results.append(result)
+            if not auto_confirm:
+                print(f"  Error: {e}")
 
     total_time = time.time() - start_time
-    print(f"\n--- BLAST COMPLETE ---")
-    print(f"Sent: {sent_count} messages in {total_time:.1f} seconds "
-          f"({sent_count / total_time:.1f} msg/sec)\n")
+    messages_per_sec = sent_count / total_time if total_time > 0 else 0.0
+
+    if not auto_confirm:
+        print(f"\n--- BLAST COMPLETE ---")
+        print(f"Sent: {sent_count} messages in {total_time:.1f} seconds "
+              f"({messages_per_sec:.1f} msg/sec)\n")
+
+    return {
+        "ok": True,
+        "sent": sent_count,
+        "skipped": skipped_count,
+        "total_time": round(total_time, 2),
+        "messages_per_sec": round(messages_per_sec, 2),
+        "results": results
+    }
 
 
 if __name__ == "__main__":
