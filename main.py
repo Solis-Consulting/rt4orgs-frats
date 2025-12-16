@@ -264,12 +264,16 @@ print(f"📦 App instance: {app}")
 print("=" * 60)
 
 # Add CORS middleware to allow requests from Vercel
+# Note: allow_credentials=True cannot be used with allow_origins=["*"]
+# Use allow_credentials=False when allowing all origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific Vercel domain
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=["*"],  # In production, replace with specific Vercel domain if needed
+    allow_credentials=False,  # Must be False when using allow_origins=["*"]
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],  # Explicitly include OPTIONS
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,  # Cache preflight for 1 hour
 )
 
 # Mount UI directory for static file serving
