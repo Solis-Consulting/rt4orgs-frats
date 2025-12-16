@@ -278,8 +278,10 @@ def run_blast_for_cards(
         # Don't fail entire response on logging issues
         pass
 
+    # Note: HTTP 200 + ok=True means "blast attempt completed",
+    # even if some or all contacts were skipped; per-Card status is in results.
     return {
-        "ok": sent_count > 0,
+        "ok": True,
         "blast_run_id": blast_id,
         "sent": sent_count,
         "skipped": skipped_count,
