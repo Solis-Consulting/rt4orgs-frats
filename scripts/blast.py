@@ -52,13 +52,19 @@ from archive_intelligence.message_processor.generate_message import generate_mes
 
 # Try to import config from multiple possible locations
 try:
-    from config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
+    from config import (
+        TWILIO_ACCOUNT_SID,
+        TWILIO_AUTH_TOKEN,
+        TWILIO_PHONE_NUMBER,
+        TWILIO_MESSAGING_SERVICE_SID,
+    )
 except ImportError:
-    # Fallback: try importing from backend or root
+    # Fallback: try importing from backend or root via env vars
     import os
     TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
     TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
     TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
+    TWILIO_MESSAGING_SERVICE_SID = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
 
 BASE_DIR = ARCHIVE_DIR
 TEMPLATE_PATH = BASE_DIR / "templates" / "messages.txt"
@@ -161,11 +167,24 @@ def find_unblasted_contacts(leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]
 
 def send_sms(to_number: str, body: str) -> Dict[str, Any]:
     client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-    msg = client.messages.create(
-        to=to_number,
-        from_=TWILIO_PHONE_NUMBER,
-        body=body,
-    )
+    if TWILIO_MESSAGING_SERVICE_SID:
+        # Preferred: send via Messaging Service for A2P / compliance
+        msg = client.messages.create(
+            to=to_number,
+            messaging_service_sid=TWILIO_MESSAGING_SERVICE_SID,
+            body=body,
+        )
+    elif TWILIO_PHONE_NUMBER:
+        # Fallback: direct From number if configured
+        msg = client.messages.create(
+            to=to_number,
+            from_=TWILIO_PHONE_NUMBER,
+            body=body,
+        )
+    else:
+        raise ValueError(
+            "Twilio configuration error: set TWILIO_MESSAGING_SERVICE_SID or TWILIO_PHONE_NUMBER"
+        )
     return {"sid": msg.sid, "status": msg.status}
 
 
