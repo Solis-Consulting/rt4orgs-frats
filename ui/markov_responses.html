@@ -62,7 +62,7 @@
         </div>
         <textarea id="initialOutreach" placeholder="Hello {name}, we would like to know how {fraternity}'s spring rush could be with a FRESH PNM list..."></textarea>
         <div class="state-actions">
-          <button class="save-state-btn" id="saveInitialOutreachBtn" onclick="saveState('__initial_outreach__', 'initialOutreach')">Save</button>
+          <button class="save-state-btn" type="button" id="saveInitialOutreachBtn" onclick="saveState('__initial_outreach__', 'initialOutreach')">Save</button>
           <span class="state-status" id="status-__initial_outreach__"></span>
         </div>
       </div>
@@ -84,7 +84,7 @@
         </div>
         <textarea id="jsonInput" placeholder='{"initial_outreach": "...", "responses": {"state_key": {"response_text": "...", "description": "..."}}}' style="min-height: 150px; font-family: 'Monaco', 'Courier New', monospace; font-size: 12px;"></textarea>
         <div style="margin-top: 12px;">
-          <button id="importBtn" onclick="importFromJSON()">Import JSON</button>
+          <button id="importBtn" type="button" onclick="importFromJSON()">Import JSON</button>
         </div>
         <div id="importStatus" class="import-status" style="display: none;"></div>
       </div>
@@ -174,7 +174,7 @@
             ${description ? `<div class="state-description">${description}</div>` : ''}
             <textarea id="${textareaId}" class="response-input" data-state="${state.state_key}" placeholder="Leave empty to skip replies for this state">${responseText}</textarea>
             <div class="state-actions">
-              <button class="save-state-btn" id="${buttonId}" onclick="saveState('${state.state_key}', '${textareaId}')">Save</button>
+              <button class="save-state-btn" type="button" id="${buttonId}" onclick="saveState('${state.state_key}', '${textareaId}')">Save</button>
               <span class="state-status" id="status-${state.state_key}"></span>
             </div>
           `;
@@ -305,17 +305,29 @@
       statusEl.textContent = parts.join(' | ');
     }
 
-    async function importFromJSON() {
-      console.log('IMPORT CLICKED - importFromJSON() called');
-      const importBtn = document.getElementById('importBtn');
-      const originalText = importBtn.textContent;
-      importBtn.disabled = true;
-      importBtn.textContent = 'Importing...';
+    async function importFromJSON(event) {
+      // Prevent any form submission
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
 
-      // Hide previous import status
+      console.log('IMPORT CLICKED - importFromJSON() called');
+      
+      // Immediate visual feedback
       const statusEl = document.getElementById('importStatus');
       if (statusEl) {
-        statusEl.style.display = 'none';
+        statusEl.style.display = 'block';
+        statusEl.classList.remove('success', 'warning', 'error');
+        statusEl.classList.add('warning');
+        statusEl.textContent = 'Parsing JSON…';
+      }
+
+      const importBtn = document.getElementById('importBtn');
+      const originalText = importBtn ? importBtn.textContent : 'Import JSON';
+      if (importBtn) {
+        importBtn.disabled = true;
+        importBtn.textContent = 'Importing...';
       }
 
       let ok = 0;
@@ -325,13 +337,25 @@
       try {
         const jsonText = document.getElementById('jsonInput').value.trim();
         if (!jsonText) {
-          showStatus('Please enter JSON to import', 'error');
+          if (statusEl) {
+            statusEl.style.display = 'block';
+            statusEl.classList.remove('warning');
+            statusEl.classList.add('error');
+            statusEl.textContent = '✕ Please enter JSON to import';
+          }
           return;
         }
 
         console.log('IMPORT: Parsing JSON...');
+        if (statusEl) {
+          statusEl.textContent = 'Parsing JSON…';
+        }
         const data = JSON.parse(jsonText);
         console.log('IMPORT: Parsed data', Object.keys(data));
+        
+        if (statusEl) {
+          statusEl.textContent = 'Applying to UI…';
+        }
 
         // Validate structure
         if (typeof data !== 'object' || data === null) {
@@ -341,8 +365,11 @@
         // STEP 1: Update UI fields FIRST (instant visual feedback)
         // Initial outreach
         if (data.initial_outreach !== undefined && data.initial_outreach !== null) {
-          document.getElementById('initialOutreach').value = data.initial_outreach;
-          console.log('IMPORT: Set initial_outreach in UI');
+          const initialTextarea = document.getElementById('initialOutreach');
+          if (initialTextarea) {
+            initialTextarea.value = data.initial_outreach;
+            console.log('IMPORT: Set initial_outreach in UI');
+          }
         }
 
         // State responses - update UI fields synchronously
@@ -362,6 +389,11 @@
               skipped++;
             }
           }
+        }
+
+        // Show UI update confirmation
+        if (statusEl) {
+          statusEl.textContent = 'UI updated, saving to backend…';
         }
 
         // STEP 2: Now persist to backend (with per-state feedback)
@@ -404,12 +436,16 @@
         console.error('IMPORT ERROR:', error);
         if (statusEl) {
           statusEl.style.display = 'block';
+          statusEl.classList.remove('success', 'warning');
           statusEl.classList.add('error');
           statusEl.textContent = `✕ Import error: ${error.message}`;
         }
+        showStatus(`Error importing JSON: ${error.message}`, 'error');
       } finally {
-        importBtn.disabled = false;
-        importBtn.textContent = originalText;
+        if (importBtn) {
+          importBtn.disabled = false;
+          importBtn.textContent = originalText;
+        }
       }
     }
 
