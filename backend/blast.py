@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Tuple
 from datetime import datetime
 from pathlib import Path
 
+import logging
 import psycopg2
 
 from scripts.blast import send_sms, write_initial_state, write_initial_message  # reuse existing engine pieces
@@ -31,6 +32,9 @@ from archive_intelligence.message_processor.utils import (  # type: ignore
     make_contact_event_folder,
 )
 from archive_intelligence.message_processor.generate_message import generate_message  # type: ignore
+
+
+logger = logging.getLogger(__name__)
 
 
 def _fetch_cards_by_ids(conn: Any, card_ids: List[str]) -> List[Dict[str, Any]]:
@@ -184,7 +188,16 @@ def run_blast_for_cards(
         data = card["card_data"] or {}
         phone = data.get("phone")
 
+        # Decision visibility: log what we know before eligibility checks
+        logger.info(
+            "[BLAST_CHECK] card_id=%s type=%s phone=%r",
+            card_id,
+            card.get("type"),
+            phone,
+        )
+
         if not phone:
+            logger.warning("[BLAST_SKIP] card_id=%s reason=NO_PHONE", card_id)
             skipped_count += 1
             results.append(
                 {
@@ -209,6 +222,7 @@ def run_blast_for_cards(
         message = generate_message(data, purchased_example, ARCHIVE_DIR / "templates" / "messages.txt")
 
         try:
+            logger.info("[BLAST_SEND_ATTEMPT] card_id=%s phone=%s", card_id, phone)
             sms_result = send_sms(phone, message)
 
             # Create legacy contact event folder for archive_intelligence compatibility
@@ -253,6 +267,12 @@ def run_blast_for_cards(
             )
         except Exception as e:
             skipped_count += 1
+            logger.error(
+                "[BLAST_ERROR] card_id=%s phone=%s error=%s",
+                card_id,
+                phone,
+                str(e),
+            )
             results.append(
                 {
                     "card_id": card_id,
