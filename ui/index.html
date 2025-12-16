@@ -271,7 +271,7 @@
         `<div><strong>${shown}</strong> shown</div>`;
 
       let html = "<table><thead><tr>";
-      html += "<th></th><th>Name</th><th>Type</th><th>Sales State</th><th>Owner</th><th>Updated</th><th>Actions</th>";
+      html += "<th><input type='checkbox' id='selectAllCheckbox' title='Select all cards'></th><th>Name</th><th>Type</th><th>Sales State</th><th>Owner</th><th>Updated</th><th>Actions</th>";
       html += "</tr></thead><tbody>";
 
       rows.forEach(card => {
@@ -296,13 +296,39 @@
       html += "</tbody></table>";
       document.getElementById("cardTableWrap").innerHTML = html;
 
+      // Select all checkbox functionality
+      const selectAllCheckbox = document.getElementById("selectAllCheckbox");
+      const cardCheckboxes = document.querySelectorAll(".card-select-checkbox");
+      
+      if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener("change", (e) => {
+          const isChecked = e.target.checked;
+          cardCheckboxes.forEach(cb => {
+            cb.checked = isChecked;
+          });
+          updateBlastButtonState();
+        });
+      }
+
+      // Update select all checkbox state when individual checkboxes change
+      const updateSelectAllState = () => {
+        if (selectAllCheckbox && cardCheckboxes.length > 0) {
+          const allChecked = Array.from(cardCheckboxes).every(cb => cb.checked);
+          const someChecked = Array.from(cardCheckboxes).some(cb => cb.checked);
+          selectAllCheckbox.checked = allChecked;
+          selectAllCheckbox.indeterminate = someChecked && !allChecked;
+        }
+      };
+
       // Enable/disable blast button based on selection
       const blastBtn = document.getElementById("blastSelectedBtn");
       const updateBlastButtonState = () => {
         const anySelected = getSelectedCardIds().length > 0;
         blastBtn.disabled = !anySelected;
+        updateSelectAllState();
       };
-      document.querySelectorAll(".card-select-checkbox").forEach(cb => {
+      
+      cardCheckboxes.forEach(cb => {
         cb.addEventListener("change", updateBlastButtonState);
       });
       updateBlastButtonState();
