@@ -18,8 +18,12 @@ from intelligence.utils import normalize_phone
 # Load environment variables from .env file
 load_dotenv()
 
+# Ensure the project root is in Python path for imports
+PROJECT_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
 # Add backend to path for imports
-BACKEND_DIR = Path(__file__).resolve().parent / "backend"
+BACKEND_DIR = PROJECT_ROOT / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from cards import (
