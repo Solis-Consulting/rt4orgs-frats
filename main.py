@@ -290,31 +290,29 @@ async def log_requests(request: Request, call_next):
     import time
     start = time.time()
     
-    # Read body for POST/PUT requests (will need to recreate request body for handler)
-    body = b""
-    if request.method in ("POST", "PUT", "PATCH"):
-        body = await request.body()
-        body_str = body.decode('utf-8')[:500] if body else None  # Limit length
-    else:
-        body_str = None
-    
+    # Log request (don't read body here - it can only be read once)
+    has_body = request.method in ("POST", "PUT", "PATCH")
     logger.info(
         f"➡️ {request.method} {request.url.path} "
-        f"body={'<present>' if body_str else None}"
-    )
-    if body_str:
-        logger.debug(f"   Request body: {body_str}")
-    
-    response = await call_next(request)
-    
-    duration = round((time.time() - start) * 1000, 2)
-    logger.info(
-        f"⬅️ {request.method} {request.url.path} "
-        f"status={response.status_code} "
-        f"{duration}ms"
+        f"has_body={'<present>' if has_body else None}"
     )
     
-    return response
+    try:
+        response = await call_next(request)
+        duration = round((time.time() - start) * 1000, 2)
+        logger.info(
+            f"⬅️ {request.method} {request.url.path} "
+            f"status={response.status_code} "
+            f"{duration}ms"
+        )
+        return response
+    except Exception as e:
+        duration = round((time.time() - start) * 1000, 2)
+        logger.error(
+            f"❌ {request.method} {request.url.path} "
+            f"Exception after {duration}ms: {str(e)}"
+        )
+        raise
 
 # Mount UI directory for static file serving
 UI_DIR = Path(__file__).resolve().parent / "ui"
