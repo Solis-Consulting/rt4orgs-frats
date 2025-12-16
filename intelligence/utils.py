@@ -60,6 +60,23 @@ def _get_deal_names_given(deal: Dict[str, Any]) -> int:
     return 0
 
 
+def _normalize_institution_name(inst: str) -> str:
+    """
+    Normalize institution name for matching.
+    Handles common variations like "UNC Chapel Hill" vs "University of North Carolina at Chapel Hill"
+    """
+    if not inst:
+        return ""
+    inst = inst.lower().strip()
+    # Remove common prefixes/suffixes that might vary
+    inst = inst.replace("university of ", "")
+    inst = inst.replace("university ", "")
+    inst = inst.replace(" at ", " ")
+    # Normalize whitespace
+    inst = normalize_text(inst)
+    return inst
+
+
 def find_matching_fraternity(
     contact: Dict[str, Any],
     sales_history: Dict[str, List[Dict[str, Any]]],
@@ -68,13 +85,21 @@ def find_matching_fraternity(
     Relational proof-point selector with matching hierarchy:
     1. Same fraternity + same institution (best)
     2. Same fraternity, different school
-    3. Same school, different fraternity
+    3. Same school, different fraternity (RELATIONAL MATCH)
     4. Fallback: TKE at University of Colorado Boulder (708 names)
+    5. Final fallback: Highest names given deal
     
     Pure function: no side effects, returns matched deal or None.
     """
     target_frat = contact.get("fraternity", "").strip().upper()
-    target_inst = (contact.get("institution") or contact.get("location") or "").strip().lower()
+    target_inst_raw = (contact.get("institution") or contact.get("location") or "").strip()
+    target_inst = _normalize_institution_name(target_inst_raw)
+    
+    # Debug logging
+    print(
+        f"[MATCH] Target: fraternity='{target_frat}' institution='{target_inst_raw}' (normalized: '{target_inst}')",
+        flush=True,
+    )
     
     # Collect all deals and match by abbreviation
     all_deals: List[Dict[str, Any]] = []
@@ -82,29 +107,42 @@ def find_matching_fraternity(
         if isinstance(deal_list, list):
             all_deals.extend(deal_list)
     
+    print(f"[MATCH] Total deals in sales history: {len(all_deals)}", flush=True)
+    
     # Normalize: also handle direct fraternity key matches
     deals_for_frat = sales_history.get(target_frat, [])
     if isinstance(deals_for_frat, list) and deals_for_frat:
-        pass  # Will use this below
+        print(f"[MATCH] Found {len(deals_for_frat)} deals for fraternity key '{target_frat}'", flush=True)
     else:
         # Try to find deals by abbreviation matching
         deals_for_frat = [
             deal for deal in all_deals
             if _get_deal_abbreviation(deal) == target_frat
         ]
+        if deals_for_frat:
+            print(f"[MATCH] Found {len(deals_for_frat)} deals by abbreviation matching for '{target_frat}'", flush=True)
+        else:
+            print(f"[MATCH] No deals found for fraternity '{target_frat}'", flush=True)
     
     # -------------------------------------------------------
     # 1) PRIMARY MATCH: Same fraternity + same institution
     # -------------------------------------------------------
     if deals_for_frat and target_inst:
-        matches = [
-            deal for deal in deals_for_frat
-            if _get_deal_institution(deal) == target_inst
-        ]
+        matches = []
+        for deal in deals_for_frat:
+            deal_inst = _normalize_institution_name(_get_deal_institution(deal))
+            if deal_inst == target_inst:
+                matches.append(deal)
         if matches:
             # If multiple, pick highest Names Given
             matches.sort(key=_get_deal_names_given, reverse=True)
-            return matches[0]
+            matched = matches[0]
+            print(
+                f"[MATCH] ✅ PRIMARY MATCH: {_get_deal_abbreviation(matched)} at {_get_deal_institution(matched)} "
+                f"({_get_deal_names_given(matched)} names)",
+                flush=True,
+            )
+            return matched
     
     # -------------------------------------------------------
     # 2) SECONDARY MATCH: Same fraternity, different school
@@ -116,40 +154,71 @@ def find_matching_fraternity(
             key=lambda d: (_get_deal_names_given(d),),
             reverse=True
         )
-        return sorted_deals[0]
+        matched = sorted_deals[0]
+        print(
+            f"[MATCH] ✅ SECONDARY MATCH: {_get_deal_abbreviation(matched)} at {_get_deal_institution(matched)} "
+            f"({_get_deal_names_given(matched)} names) - same fraternity, different school",
+            flush=True,
+        )
+        return matched
     
     # -------------------------------------------------------
-    # 3) TERTIARY MATCH: Same institution, different fraternity
+    # 3) TERTIARY MATCH: Same institution, different fraternity (RELATIONAL)
     # -------------------------------------------------------
     if target_inst:
-        inst_matches = [
-            deal for deal in all_deals
-            if _get_deal_institution(deal) == target_inst
-        ]
+        inst_matches = []
+        for deal in all_deals:
+            deal_inst = _normalize_institution_name(_get_deal_institution(deal))
+            if deal_inst == target_inst:
+                inst_matches.append(deal)
         if inst_matches:
             inst_matches.sort(key=_get_deal_names_given, reverse=True)
-            return inst_matches[0]
+            matched = inst_matches[0]
+            print(
+                f"[MATCH] ✅ TERTIARY MATCH (RELATIONAL): {_get_deal_abbreviation(matched)} at {_get_deal_institution(matched)} "
+                f"({_get_deal_names_given(matched)} names) - same institution, different fraternity",
+                flush=True,
+            )
+            return matched
+        else:
+            print(f"[MATCH] No deals found for institution '{target_inst}' (normalized from '{target_inst_raw}')", flush=True)
     
     # -------------------------------------------------------
     # 4) FALLBACK: TKE at University of Colorado Boulder (708 names)
     # -------------------------------------------------------
     for deal in all_deals:
         abbrev = _get_deal_abbreviation(deal)
-        inst = _get_deal_institution(deal)
+        inst = _normalize_institution_name(_get_deal_institution(deal))
         if abbrev == "TKE" and "colorado boulder" in inst:
+            print(
+                f"[MATCH] ✅ FALLBACK MATCH: TKE at Colorado Boulder ({_get_deal_names_given(deal)} names)",
+                flush=True,
+            )
             return deal
     
     # If TKE Boulder not found, try any TKE deal
     tke_deals = [deal for deal in all_deals if _get_deal_abbreviation(deal) == "TKE"]
     if tke_deals:
         tke_deals.sort(key=_get_deal_names_given, reverse=True)
-        return tke_deals[0]
+        matched = tke_deals[0]
+        print(
+            f"[MATCH] ✅ FALLBACK MATCH: TKE at {_get_deal_institution(matched)} ({_get_deal_names_given(matched)} names)",
+            flush=True,
+        )
+        return matched
     
     # -------------------------------------------------------
     # 5) FINAL FALLBACK: Highest names given deal
     # -------------------------------------------------------
     if all_deals:
         all_deals.sort(key=_get_deal_names_given, reverse=True)
-        return all_deals[0]
+        matched = all_deals[0]
+        print(
+            f"[MATCH] ✅ FINAL FALLBACK: {_get_deal_abbreviation(matched)} at {_get_deal_institution(matched)} "
+            f"({_get_deal_names_given(matched)} names) - highest names given",
+            flush=True,
+        )
+        return matched
     
+    print("[MATCH] ❌ No match found - no deals available", flush=True)
     return None

@@ -36,6 +36,7 @@ from intelligence.utils import (
     _get_deal_names_given,
     _get_deal_chapter,
     _get_deal_institution,
+    _get_deal_field,
 )
 
 
@@ -290,6 +291,15 @@ def run_blast_for_cards(
 
         # Find matching deal using new relational proof-point selector
         purchased_example = None
+        
+        # Log what we're matching
+        contact_frat = data.get("fraternity", "").strip().upper()
+        contact_inst = (data.get("institution") or data.get("location") or "").strip().lower()
+        print(
+            f"[BLAST_MATCH] Looking for match: fraternity='{contact_frat}' institution='{contact_inst}'",
+            flush=True,
+        )
+        
         if isinstance(sales_history, dict):
             purchased_example = find_matching_fraternity(data, sales_history)
         elif isinstance(sales_history, list):
@@ -304,7 +314,24 @@ def run_blast_for_cards(
                         if frat_key not in sales_dict:
                             sales_dict[frat_key] = []
                         sales_dict[frat_key].append(row)
+            
+            # Log available fraternities in sales data
+            available_frats = list(sales_dict.keys())
+            print(f"[BLAST_MATCH] Available fraternities in sales data: {available_frats}", flush=True)
+            
             purchased_example = find_matching_fraternity(data, sales_dict)
+        
+        # Log the match result
+        if purchased_example:
+            matched_frat = _get_deal_field(purchased_example, "Abbreviation", "abbreviation", "fraternity", "Fraternity").upper()
+            matched_inst = _get_deal_field(purchased_example, "Institution", "institution").lower()
+            matched_names = _get_deal_names_given(purchased_example)
+            print(
+                f"[BLAST_MATCH] ✅ Matched: {matched_frat} at {matched_inst} ({matched_names} names)",
+                flush=True,
+            )
+        else:
+            print("[BLAST_MATCH] ❌ No match found", flush=True)
 
         # Generate message text - try configured initial outreach first, fallback to template
         message = None
