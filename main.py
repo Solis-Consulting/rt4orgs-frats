@@ -20,6 +20,7 @@ import os
 import json
 from typing import List, Optional, Dict, Any
 from dotenv import load_dotenv
+from twilio.rest import Client
 
 # Load environment variables from .env file
 load_dotenv()
@@ -635,8 +636,78 @@ async def twilio_inbound(request: Request):
         # Call the intelligence handler directly (no HTTP overhead)
         result = await inbound_intelligent(event)
         
+        print(f"[TWILIO_INBOUND] Intelligence result: {result}")
+        
+        # Get card by phone to generate contextual reply
+        conn = get_conn()
+        card = None
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT card_id FROM conversations WHERE phone = %s LIMIT 1
+            """, (normalized_phone,))
+            row = cur.fetchone()
+            if row and row[0]:
+                card_id = row[0]
+                card = get_card(conn, card_id)
+        
+        # Generate reply message based on state and intent
+        reply_text = None
+        if result.get("next_state"):
+            next_state = result["next_state"]
+            intent = result.get("intent", {})
+            
+            # Simple reply logic based on state transition
+            if "interested" in next_state.lower() or intent.get("category") == "interested":
+                reply_text = "Great! Would you like pricing or a sample list?"
+            elif "pricing" in next_state.lower() or intent.get("category") == "pricing":
+                reply_text = "We offer one-time chapter lists starting at $299. Want details?"
+            elif "dead" in next_state.lower() or "not_interested" in next_state.lower():
+                reply_text = "All good — appreciate the reply."
+            elif next_state == "initial_outreach":
+                # First inbound after outbound
+                reply_text = "Thanks for getting back! What would you like to see next?"
+            else:
+                # Default reply
+                reply_text = "Got it — what would you like to see next?"
+        
+        # Send explicit reply via Twilio (webhook return does NOT send SMS)
+        if reply_text:
+            try:
+                twilio_sid = os.getenv("TWILIO_ACCOUNT_SID")
+                twilio_token = os.getenv("TWILIO_AUTH_TOKEN")
+                twilio_phone = os.getenv("TWILIO_PHONE_NUMBER")
+                twilio_messaging_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
+                
+                if twilio_sid and twilio_token:
+                    client = Client(twilio_sid, twilio_token)
+                    
+                    if twilio_messaging_sid:
+                        # Use Messaging Service (preferred for A2P)
+                        msg = client.messages.create(
+                            to=From,  # Use original From, not normalized
+                            messaging_service_sid=twilio_messaging_sid,
+                            body=reply_text
+                        )
+                    elif twilio_phone:
+                        # Fallback to direct From number
+                        msg = client.messages.create(
+                            to=From,
+                            from_=twilio_phone,
+                            body=reply_text
+                        )
+                    else:
+                        print("[TWILIO_INBOUND] WARNING: No Twilio Messaging Service SID or Phone Number configured")
+                    
+                    print(f"[TWILIO_INBOUND] Reply sent: {reply_text[:50]}... (SID: {msg.sid if 'msg' in locals() else 'N/A'})")
+                else:
+                    print("[TWILIO_INBOUND] WARNING: Twilio credentials not configured")
+            except Exception as send_error:
+                print(f"[TWILIO_INBOUND] ERROR sending reply: {send_error}")
+                import traceback
+                print(f"[TWILIO_INBOUND] Traceback: {traceback.format_exc()}")
+        
         print(f"[TWILIO_INBOUND] Success: {result}")
-        return "ok"
+        return PlainTextResponse("OK", status_code=200)
     except Exception as e:
         # Log error but return ok to Twilio (prevents retries on transient errors)
         # In production, you might want to log this to a monitoring service
