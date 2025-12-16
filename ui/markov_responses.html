@@ -229,7 +229,11 @@
     }
 
     async function saveState(stateKey, cfg) {
-      log('▶️ SAVE CLICKED', stateKey);
+      console.log('[SAVE] ========================================');
+      console.log('[SAVE] Function called', stateKey);
+      console.log('[SAVE] Config:', cfg);
+      console.log('[SAVE] BACKEND URL:', BACKEND);
+      
       setStateStatus(stateKey, 'saving', 'Saving…');
 
       try {
@@ -239,56 +243,81 @@
           description: cfg.description || '',
         };
 
-        log('📤 sending payload', payload);
+        const url = `${BACKEND}/markov/response`;
+        console.log('[SAVE] URL:', url);
+        console.log('[SAVE] Payload:', JSON.stringify(payload, null, 2));
+        console.log('[SAVE] Making POST request...');
 
-        const res = await fetch(`${BACKEND}/markov/response`, {
+        const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
 
-        log('📥 response status', res.status, stateKey);
+        console.log('[SAVE] Response received');
+        console.log('[SAVE] Status:', res.status);
+        console.log('[SAVE] Status OK:', res.ok);
+        console.log('[SAVE] Headers:', Object.fromEntries(res.headers.entries()));
 
         // MUST consume response body - browsers require this
         const data = await res.json();
-        log('📥 response json', data);
+        console.log('[SAVE] Response body:', JSON.stringify(data, null, 2));
 
         if (!res.ok) {
-          log('SAVE FAILED', stateKey, `HTTP ${res.status}: ${JSON.stringify(data)}`);
+          console.error('[SAVE] ❌ FAILED', stateKey, `HTTP ${res.status}:`, data);
           throw new Error(data.detail || data.message || `HTTP ${res.status}`);
         }
 
-        log('✅ SAVE CONFIRMED', stateKey);
+        console.log('[SAVE] ✅ SUCCESS', stateKey);
+        console.log('[SAVE] ========================================');
         setStateStatus(stateKey, 'success', 'Saved');
         return true;
       } catch (err) {
-        log('SAVE FAILED', stateKey, err);
+        console.error('[SAVE] ❌ EXCEPTION', stateKey, err);
+        console.error('[SAVE] Error message:', err.message);
+        console.error('[SAVE] Error stack:', err.stack);
+        console.log('[SAVE] ========================================');
         setStateStatus(stateKey, 'error', err.message);
         return false;
       }
     }
 
     async function saveStateFromTextarea(stateKey, textareaId) {
+      console.log('[SAVE_FROM_TEXTAREA] ========================================');
+      console.log('[SAVE_FROM_TEXTAREA] Button clicked!');
+      console.log('[SAVE_FROM_TEXTAREA] State key:', stateKey);
+      console.log('[SAVE_FROM_TEXTAREA] Textarea ID:', textareaId);
+      
       const textarea = document.getElementById(textareaId);
       const buttonId = textareaId === 'initialOutreach' ? 'saveInitialOutreachBtn' : `save-${stateKey}-btn`;
       const button = document.getElementById(buttonId);
       
+      console.log('[SAVE_FROM_TEXTAREA] Textarea element:', textarea);
+      console.log('[SAVE_FROM_TEXTAREA] Button element:', button);
+      
       if (!textarea) {
-        log('Textarea not found', textareaId);
+        console.error('[SAVE_FROM_TEXTAREA] ❌ Textarea not found', textareaId);
+        console.log('[SAVE_FROM_TEXTAREA] ========================================');
         return false;
       }
 
       if (button) {
         button.disabled = true;
+        console.log('[SAVE_FROM_TEXTAREA] Button disabled');
       }
 
       try {
         const responseText = textarea.value.trim();
+        console.log('[SAVE_FROM_TEXTAREA] Text value length:', responseText.length);
+        console.log('[SAVE_FROM_TEXTAREA] Calling saveState...');
         const success = await saveState(stateKey, { response_text: responseText });
+        console.log('[SAVE_FROM_TEXTAREA] Save result:', success);
+        console.log('[SAVE_FROM_TEXTAREA] ========================================');
         return success;
       } finally {
         if (button) {
           button.disabled = false;
+          console.log('[SAVE_FROM_TEXTAREA] Button re-enabled');
         }
       }
     }
@@ -368,19 +397,24 @@
     }
 
     async function importFromJSON(event) {
+      console.log('[IMPORT] ========================================');
+      console.log('[IMPORT] 🎯 IMPORT BUTTON CLICKED');
+      console.log('[IMPORT] Event:', event);
+      
       // Prevent any form submission
       if (event) {
         event.preventDefault();
         event.stopPropagation();
+        console.log('[IMPORT] Event prevented');
       }
-
-      log('Import clicked');
       
       const importBtn = document.getElementById('importBtn');
+      console.log('[IMPORT] Import button element:', importBtn);
       const originalText = importBtn ? importBtn.textContent : 'Import JSON';
       if (importBtn) {
         importBtn.disabled = true;
         importBtn.textContent = 'Importing...';
+        console.log('[IMPORT] Button disabled and text changed');
       }
 
       const statusEl = document.getElementById('importStatus');
@@ -396,9 +430,13 @@
       let failed = 0;
 
       try {
-        const jsonText = document.getElementById('jsonInput').value.trim();
+        const jsonInput = document.getElementById('jsonInput');
+        console.log('[IMPORT] JSON input element:', jsonInput);
+        const jsonText = jsonInput ? jsonInput.value.trim() : '';
+        console.log('[IMPORT] JSON text length:', jsonText.length);
+        
         if (!jsonText) {
-          log('JSON parse error', 'Empty JSON');
+          console.error('[IMPORT] ❌ Empty JSON');
           if (statusEl) {
             statusEl.style.display = 'block';
             statusEl.classList.remove('warning');
@@ -411,9 +449,12 @@
         let parsed;
         try {
           parsed = JSON.parse(jsonText);
-          log('Parsed JSON', parsed);
+          console.log('[IMPORT] ✅ JSON parsed successfully');
+          console.log('[IMPORT] Parsed JSON keys:', Object.keys(parsed));
+          console.log('[IMPORT] Parsed JSON:', JSON.stringify(parsed, null, 2));
         } catch (e) {
-          log('JSON parse error', e);
+          console.error('[IMPORT] ❌ JSON parse error:', e);
+          console.error('[IMPORT] Parse error message:', e.message);
           if (statusEl) {
             statusEl.style.display = 'block';
             statusEl.classList.remove('warning');
@@ -425,11 +466,14 @@
 
         // 1️⃣ Initial outreach
         if (parsed.initial_outreach) {
-          log('Saving initial_outreach');
+          console.log('[IMPORT] Processing initial_outreach');
           const initialTextarea = document.getElementById('initialOutreach');
+          console.log('[IMPORT] Initial textarea element:', initialTextarea);
           if (initialTextarea) {
             initialTextarea.value = parsed.initial_outreach;
+            console.log('[IMPORT] Calling saveState for initial_outreach...');
             const success = await saveState('__initial_outreach__', { response_text: parsed.initial_outreach });
+            console.log('[IMPORT] Initial outreach save result:', success);
             if (success) {
               ok++;
             } else {
@@ -440,21 +484,29 @@
 
         // 2️⃣ Per-state propagation
         if (parsed.responses && typeof parsed.responses === 'object') {
+          const stateKeys = Object.keys(parsed.responses);
+          console.log('[IMPORT] Processing', stateKeys.length, 'state responses');
+          console.log('[IMPORT] State keys:', stateKeys);
+          
           for (const [stateKey, cfg] of Object.entries(parsed.responses)) {
-            log('Saving state', stateKey, cfg);
+            console.log('[IMPORT] Processing state:', stateKey);
+            console.log('[IMPORT] State config:', cfg);
 
             const textarea = document.querySelector(`textarea[data-state="${stateKey}"]`) || 
                            document.getElementById(`state-${stateKey}`);
+            console.log('[IMPORT] State textarea element:', textarea);
 
             if (!textarea) {
-              log('STATE NOT FOUND IN UI', stateKey);
+              console.error('[IMPORT] ❌ STATE NOT FOUND IN UI:', stateKey);
               setStateStatus(stateKey, 'error', 'State not found in UI');
               skipped++;
               continue;
             }
 
             textarea.value = cfg.response_text || cfg.responseText || '';
+            console.log('[IMPORT] Calling saveState for state:', stateKey);
             const success = await saveState(stateKey, cfg);
+            console.log('[IMPORT] State save result:', success, 'for', stateKey);
             if (success) {
               ok++;
             } else {
@@ -463,12 +515,17 @@
           }
         }
 
-        log('Import complete', { ok, skipped, failed });
+        console.log('[IMPORT] ✅ Import complete');
+        console.log('[IMPORT] Summary:', { ok, skipped, failed });
+        console.log('[IMPORT] ========================================');
         showImportSummary(ok, skipped, failed);
 
       } catch (error) {
-        log('Import error', error);
-        console.error('IMPORT ERROR:', error);
+        console.error('[IMPORT] ❌ IMPORT ERROR');
+        console.error('[IMPORT] Error:', error);
+        console.error('[IMPORT] Error message:', error.message);
+        console.error('[IMPORT] Error stack:', error.stack);
+        console.log('[IMPORT] ========================================');
         if (statusEl) {
           statusEl.style.display = 'block';
           statusEl.classList.remove('success', 'warning');
@@ -479,6 +536,7 @@
         if (importBtn) {
           importBtn.disabled = false;
           importBtn.textContent = originalText;
+          console.log('[IMPORT] Button re-enabled');
         }
       }
     }
@@ -487,6 +545,22 @@
     window.saveStateFromTextarea = saveStateFromTextarea;
     window.importFromJSON = importFromJSON;
     window.saveState = saveState;
+    
+    // Add click listeners with logging to verify they're bound
+    window.addEventListener('DOMContentLoaded', () => {
+      console.log('[MARKOV_UI] DOM Content Loaded');
+      console.log('[MARKOV_UI] Checking button bindings...');
+      
+      const importBtn = document.getElementById('importBtn');
+      console.log('[MARKOV_UI] Import button:', importBtn);
+      console.log('[MARKOV_UI] Import button onclick:', importBtn ? importBtn.getAttribute('onclick') : 'null');
+      console.log('[MARKOV_UI] window.importFromJSON:', typeof window.importFromJSON);
+      
+      const saveInitialBtn = document.getElementById('saveInitialOutreachBtn');
+      console.log('[MARKOV_UI] Save initial button:', saveInitialBtn);
+      console.log('[MARKOV_UI] Save initial onclick:', saveInitialBtn ? saveInitialBtn.getAttribute('onclick') : 'null');
+      console.log('[MARKOV_UI] window.saveStateFromTextarea:', typeof window.saveStateFromTextarea);
+    });
 
     // Load on page load
     loadResponses();
