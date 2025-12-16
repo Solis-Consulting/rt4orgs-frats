@@ -18,9 +18,17 @@ from contextlib import asynccontextmanager
 import psycopg2
 import os
 import json
+import logging
 from typing import List, Optional, Dict, Any
 from dotenv import load_dotenv
 from twilio.rest import Client
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("markov")
 
 # Load environment variables from .env file
 load_dotenv()
@@ -275,6 +283,18 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=3600,  # Cache preflight for 1 hour
 )
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f"➡️ {request.method} {request.url.path}")
+    try:
+        response = await call_next(request)
+        logger.info(f"⬅️ {request.method} {request.url.path} → {response.status_code}")
+        return response
+    except Exception as e:
+        logger.error(f"❌ {request.method} {request.url.path} → Exception: {str(e)}")
+        raise
 
 # Mount UI directory for static file serving
 UI_DIR = Path(__file__).resolve().parent / "ui"
@@ -1776,6 +1796,10 @@ async def get_markov_responses():
 @app.post("/markov/response")
 async def update_single_markov_response(payload: Dict[str, Any] = Body(...)):
     """Update a single Markov state response. Payload: {state_key: str, response_text: str, description: str?}"""
+    logger.info("📥 POST /markov/response called")
+    logger.info(f"📦 Payload keys: {list(payload.keys())}")
+    logger.debug(f"📦 Full payload: {json.dumps(payload, indent=2)}")
+    
     conn = get_conn()
     
     state_key = payload.get("state_key")
@@ -1783,36 +1807,14 @@ async def update_single_markov_response(payload: Dict[str, Any] = Body(...)):
     description = payload.get("description", "")
     
     if not state_key:
+        logger.error("❌ Missing state_key in payload")
         raise HTTPException(status_code=400, detail="state_key is required")
     
-    with conn.cursor() as cur:
-        cur.execute("""
-            INSERT INTO markov_responses (state_key, response_text, description, updated_at)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (state_key)
-            DO UPDATE SET
-                response_text = EXCLUDED.response_text,
-                description = EXCLUDED.description,
-                updated_at = EXCLUDED.updated_at;
-        """, (state_key, response_text, description, datetime.utcnow()))
+    logger.info(f"✏️ Saving state: {state_key}")
+    logger.debug(f"Response text length: {len(response_text)}")
     
-    return {"ok": True, "state_key": state_key, "message": "Response saved successfully"}
-
-
-@app.post("/markov/responses")
-async def update_markov_responses(payload: Dict[str, Any] = Body(...)):
-    """Update Markov state responses. Payload: {responses: {state_key: {response_text, description}}, initial_outreach: str}"""
-    conn = get_conn()
-    
-    responses = payload.get("responses", {})
-    initial_outreach = payload.get("initial_outreach")
-    
-    with conn.cursor() as cur:
-        # Update/insert state responses
-        for state_key, config in responses.items():
-            response_text = config.get("response_text", "")
-            description = config.get("description", "")
-            
+    try:
+        with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO markov_responses (state_key, response_text, description, updated_at)
                 VALUES (%s, %s, %s, %s)
@@ -1823,18 +1825,83 @@ async def update_markov_responses(payload: Dict[str, Any] = Body(...)):
                     updated_at = EXCLUDED.updated_at;
             """, (state_key, response_text, description, datetime.utcnow()))
         
-        # Update initial outreach (special key)
-        if initial_outreach is not None:
-            cur.execute("""
-                INSERT INTO markov_responses (state_key, response_text, updated_at)
-                VALUES ('__initial_outreach__', %s, %s)
-                ON CONFLICT (state_key)
-                DO UPDATE SET
-                    response_text = EXCLUDED.response_text,
-                    updated_at = EXCLUDED.updated_at;
-            """, (initial_outreach, datetime.utcnow()))
+        logger.info(f"✅ Saved state: {state_key}")
+        return {"ok": True, "state_key": state_key, "message": "Response saved successfully"}
+    except Exception as e:
+        logger.error(f"❌ Failed saving state: {state_key}")
+        logger.exception(e)
+        raise
+
+
+@app.post("/markov/responses")
+async def update_markov_responses(payload: Dict[str, Any] = Body(...)):
+    """Update Markov state responses. Payload: {responses: {state_key: {response_text, description}}, initial_outreach: str}"""
+    logger.info("📥 POST /markov/responses called (batch)")
+    logger.info(f"📦 Payload keys: {list(payload.keys())}")
     
-    return {"ok": True, "message": "Responses updated successfully"}
+    responses = payload.get("responses", {})
+    initial_outreach = payload.get("initial_outreach")
+    
+    logger.info(f"📥 JSON import triggered")
+    logger.info(f"States in import: {list(responses.keys())}")
+    logger.info(f"Initial outreach present: {initial_outreach is not None}")
+    
+    conn = get_conn()
+    
+    saved_count = 0
+    failed_count = 0
+    
+    try:
+        with conn.cursor() as cur:
+            # Update/insert state responses
+            for state_key, config in responses.items():
+                logger.info(f"✏️ Saving state: {state_key}")
+                response_text = config.get("response_text", "")
+                description = config.get("description", "")
+                logger.debug(f"Response text length: {len(response_text)}")
+                
+                try:
+                    cur.execute("""
+                        INSERT INTO markov_responses (state_key, response_text, description, updated_at)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (state_key)
+                        DO UPDATE SET
+                            response_text = EXCLUDED.response_text,
+                            description = EXCLUDED.description,
+                            updated_at = EXCLUDED.updated_at;
+                    """, (state_key, response_text, description, datetime.utcnow()))
+                    logger.info(f"✅ Saved state: {state_key}")
+                    saved_count += 1
+                except Exception as e:
+                    logger.error(f"❌ Failed saving state: {state_key}")
+                    logger.exception(e)
+                    failed_count += 1
+            
+            # Update initial outreach (special key)
+            if initial_outreach is not None:
+                logger.info("✏️ Saving initial_outreach")
+                try:
+                    cur.execute("""
+                        INSERT INTO markov_responses (state_key, response_text, updated_at)
+                        VALUES ('__initial_outreach__', %s, %s)
+                        ON CONFLICT (state_key)
+                        DO UPDATE SET
+                            response_text = EXCLUDED.response_text,
+                            updated_at = EXCLUDED.updated_at;
+                    """, (initial_outreach, datetime.utcnow()))
+                    logger.info("✅ Saved initial_outreach")
+                    saved_count += 1
+                except Exception as e:
+                    logger.error("❌ Failed saving initial_outreach")
+                    logger.exception(e)
+                    failed_count += 1
+        
+        logger.info(f"✅ Batch save complete: {saved_count} saved, {failed_count} failed")
+        return {"ok": True, "message": "Responses updated successfully", "saved": saved_count, "failed": failed_count}
+    except Exception as e:
+        logger.error("❌ Batch save failed")
+        logger.exception(e)
+        raise
 
 
 def get_markov_response(conn: Any, state_key: str) -> Optional[str]:
