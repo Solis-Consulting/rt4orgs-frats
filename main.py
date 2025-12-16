@@ -319,6 +319,12 @@ async def update_webhook_config(cfg: WebhookConfig = Body(...)):
 # Debug Endpoints (temporary - for route verification)
 # ============================================================================
 
+@app.get("/")
+def root():
+    """Root endpoint to verify app is loaded correctly."""
+    return {"status": "ok", "message": "FastAPI app is running", "service": "rt4orgs-frats-backend"}
+
+
 @app.get("/health")
 def health():
     """Health check endpoint to verify routing works."""
