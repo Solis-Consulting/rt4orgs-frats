@@ -239,7 +239,9 @@ def run_blast_for_cards(
             sales_dict = {}
             for row in sales_history:
                 if isinstance(row, dict):
-                    frat_key = utils_module._get_deal_field(row, "Abbreviation", "abbreviation", "fraternity", "Fraternity").upper()
+                    # Try various field name variations to find fraternity/abbreviation
+                    frat_key = (row.get("Abbreviation") or row.get("abbreviation") or 
+                               row.get("fraternity") or row.get("Fraternity") or "").strip().upper()
                     if frat_key:
                         if frat_key not in sales_dict:
                             sales_dict[frat_key] = []
