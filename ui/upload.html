@@ -44,12 +44,12 @@
       <div class="sub">Upload JSON cards (person, fraternity, team, business). Cards will be validated and normalized.</div>
 
       <div class="toolbar">
-        <button onclick="validateJSON()">Validate JSON</button>
-        <button onclick="previewCards()">Preview Cards</button>
-        <button onclick="uploadCards()" id="uploadBtn" disabled>Upload Cards</button>
-        <button class="button-secondary" onclick="loadExample()">Load Example</button>
-        <input type="file" id="fileInput" accept=".json" style="display: none;" onchange="handleFileSelect(event)">
-        <button class="button-secondary" onclick="document.getElementById('fileInput').click()">Load from File</button>
+        <button id="validateBtn">Validate JSON</button>
+        <button id="previewBtn">Preview Cards</button>
+        <button id="uploadBtn" disabled>Upload Cards</button>
+        <button id="loadExampleBtn" class="button-secondary">Load Example</button>
+        <input type="file" id="fileInput" accept=".json" style="display: none;">
+        <button id="loadFileBtn" class="button-secondary">Load from File</button>
       </div>
 
       <textarea id="jsonInput" placeholder='Paste JSON array of cards here, e.g.:
@@ -113,6 +113,7 @@
         validatedCards = parsed;
         showStatus(`✓ Valid JSON: ${parsed.length} card(s)`, 'success');
         document.getElementById('uploadBtn').disabled = false;
+        console.log('UPLOAD ENABLED – valid JSON parsed');
       } catch (e) {
         showStatus(`Invalid JSON: ${e.message}`, 'error');
         document.getElementById('uploadBtn').disabled = true;
@@ -172,8 +173,25 @@
     }
 
     async function uploadCards() {
-      if (validatedCards.length === 0) {
-        showStatus('Please validate JSON first', 'error');
+      console.log('UPLOAD CLICKED – preparing cards');
+
+      // Always parse current textarea content so we don't depend on prior state
+      const raw = document.getElementById('jsonInput').value.trim();
+      if (!raw) {
+        showStatus('Please enter JSON data before uploading', 'error');
+        return;
+      }
+
+      let cardsToUpload;
+      try {
+        cardsToUpload = JSON.parse(raw);
+      } catch (e) {
+        showStatus(`Invalid JSON: ${e.message}`, 'error');
+        return;
+      }
+
+      if (!Array.isArray(cardsToUpload) || cardsToUpload.length === 0) {
+        showStatus('JSON must be a non-empty array of cards', 'error');
         return;
       }
 
@@ -185,14 +203,14 @@
 
       try {
         console.log('UPLOAD: Sending request to', `${BACKEND}/cards/upload`);
-        console.log('UPLOAD: Card count:', validatedCards.length);
+        console.log('UPLOAD: Card count:', cardsToUpload.length);
         
         const response = await fetch(`${BACKEND}/cards/upload`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(validatedCards),
+          body: JSON.stringify(cardsToUpload),
         });
 
         console.log('UPLOAD RESPONSE STATUS:', response.status);
@@ -361,6 +379,16 @@
     // Auto-validate on paste
     document.getElementById('jsonInput').addEventListener('paste', function() {
       setTimeout(validateJSON, 100);
+    });
+
+    // Wire up button and file handlers (no inline HTML handlers)
+    document.getElementById('validateBtn').addEventListener('click', validateJSON);
+    document.getElementById('previewBtn').addEventListener('click', previewCards);
+    document.getElementById('uploadBtn').addEventListener('click', uploadCards);
+    document.getElementById('loadExampleBtn').addEventListener('click', loadExample);
+    document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+    document.getElementById('loadFileBtn').addEventListener('click', () => {
+      document.getElementById('fileInput').click();
     });
   </script>
 </body>
