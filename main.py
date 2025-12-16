@@ -33,11 +33,12 @@ from backend.cards import (
     normalize_card,
     store_card,
     get_card,
-    get_card_relationships
+    get_card_relationships,
 )
 from backend.query import build_list_query
 from backend.resolve import resolve_target, extract_phones_from_cards
 from backend.webhook_config import WEBHOOK_CONFIG, WebhookConfig
+from backend.blast import run_blast_for_cards
 
 # Module-level verification - this will ALWAYS print
 print("=" * 60)
@@ -759,116 +760,6 @@ async def get_lead(name: str):
             "latest_state": latest_state,
             "folders": conversations
         }
-
-
-# ============================================================================
-# Admin Blast Endpoint
-# ============================================================================
-
-@app.post("/admin/blast")
-async def trigger_blast(request: Request, payload: Dict[str, Any] = Body(...)):
-    """
-    Trigger outbound blast to unblasted contacts.
-    
-    Payload:
-    {
-      "limit": 25,  # Optional: max messages to send
-      "owner": "system",  # Optional: owner name
-      "source_batch_id": "custom_id"  # Optional: batch tracking ID
-    }
-    """
-    # #region agent log - API endpoint entry
-    _log_file = Path(__file__).resolve().parent / ".cursor" / "debug.log"
-    try:
-        import json as _json
-        from datetime import datetime
-        with open(_log_file, "a") as f:
-            f.write(_json.dumps({
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "timestamp": int(datetime.now().timestamp() * 1000),
-                "location": f"{__file__}:API_ENTRY",
-                "message": "Blast API endpoint called",
-                "data": {"payload": payload},
-                "hypothesisId": "D"
-            }) + "\n")
-    except:
-        pass
-    # #endregion
-    
-    # Get base URL from request
-    base_url = str(request.base_url).rstrip('/')
-    
-    # Extract parameters
-    limit = payload.get("limit")
-    owner = payload.get("owner", "system")
-    source_batch_id = payload.get("source_batch_id")
-    
-    # Run blast (auto_confirm=True for API use)
-    try:
-        # #region agent log - Before calling run_blast
-        _log_file = Path(__file__).resolve().parent / ".cursor" / "debug.log"
-        try:
-            import json as _json
-            from datetime import datetime
-            with open(_log_file, "a") as f:
-                f.write(_json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "timestamp": int(datetime.now().timestamp() * 1000),
-                    "location": f"{__file__}:BEFORE_RUN_BLAST",
-                    "message": "About to call run_blast",
-                    "data": {"limit": limit, "owner": owner, "base_url": base_url},
-                    "hypothesisId": "D"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
-        
-        # Lazy import to avoid startup failures
-        blast_func = _get_run_blast()
-        result = blast_func(
-            limit=limit,
-            auto_confirm=True,
-            base_url=base_url,
-            owner=owner,
-            source_batch_id=source_batch_id
-        )
-        
-        # #region agent log - After calling run_blast
-        try:
-            with open(_log_file, "a") as f:
-                f.write(_json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "timestamp": int(datetime.now().timestamp() * 1000),
-                    "location": f"{__file__}:AFTER_RUN_BLAST",
-                    "message": "run_blast returned",
-                    "data": {"result_ok": result.get("ok") if isinstance(result, dict) else None},
-                    "hypothesisId": "D"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
-        
-        return result
-    except Exception as e:
-        # #region agent log - Exception in blast
-        try:
-            with open(_log_file, "a") as f:
-                f.write(_json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "timestamp": int(datetime.now().timestamp() * 1000),
-                    "location": f"{__file__}:BLAST_EXCEPTION",
-                    "message": "Exception in run_blast",
-                    "data": {"error": str(e), "error_type": e.__class__.__name__},
-                    "hypothesisId": "D"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
-        raise HTTPException(status_code=500, detail=f"Blast failed: {str(e)}")
 
 
 # ============================================================================
@@ -1631,4 +1522,50 @@ async def send_message(request: Dict[str, Any]):
         "messages_sent": len([r for r in results if r["status"] == "sent"]),
         "results": results
     }
+
+
+# ============================================================================
+# Card-centric Blast Endpoint
+# ============================================================================
+
+@app.post("/blast/run")
+async def blast_run(payload: Dict[str, Any] = Body(...)):
+    """
+    Trigger outbound blast for a specific set of card IDs.
+
+    Payload:
+    {
+      "card_ids": ["card_1", "card_2"],  # required
+      "limit": 10,                       # optional, cap number of cards
+      "owner": "system",                 # optional, defaults to 'system'
+      "source": "cards_ui"               # optional, defaults to 'cards_ui'
+    }
+    """
+    card_ids = payload.get("card_ids") or []
+    if not isinstance(card_ids, list) or not card_ids:
+        raise HTTPException(status_code=400, detail="card_ids must be a non-empty array")
+
+    limit = payload.get("limit")
+    if limit is not None:
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="limit must be an integer")
+
+    owner = payload.get("owner") or "system"
+    source = payload.get("source") or "cards_ui"
+
+    conn = get_conn()
+
+    try:
+        result = run_blast_for_cards(
+            conn=conn,
+            card_ids=card_ids,
+            limit=limit,
+            owner=owner,
+            source=source,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Blast failed: {str(e)}")
 

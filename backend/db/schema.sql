@@ -51,7 +51,19 @@ CREATE TABLE IF NOT EXISTS card_relationships (
 CREATE INDEX IF NOT EXISTS idx_relationships_parent ON card_relationships(parent_card_id);
 CREATE INDEX IF NOT EXISTS idx_relationships_child ON card_relationships(child_card_id);
 
--- 3. Bridge Conversations to Cards
+-- 3. Blast Runs Table (tracking blasts triggered from UI / scripts)
+CREATE TABLE IF NOT EXISTS blast_runs (
+    id TEXT PRIMARY KEY,
+    created_at TIMESTAMP DEFAULT NOW(),
+    owner TEXT,
+    source TEXT,
+    limit_count INTEGER,
+    total_targets INTEGER,
+    sent_count INTEGER,
+    status TEXT
+);
+
+-- 4. Bridge Conversations to Cards
 -- Add foreign key constraint to card_id column (if conversations table exists and column exists)
 DO $$ 
 BEGIN

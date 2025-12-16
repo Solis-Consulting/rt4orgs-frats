@@ -1,0 +1,17 @@
+[
+  {
+    "type": "person",
+    "id": "alan_solis_elrod",
+    "name": "Alan Solis Elrod",
+    "role": "Founder",
+    "phone": "+19195550123",
+    "email": "alan@solisconsultinggroup.com",
+    "tags": ["founder", "operator"],
+    "sales_state": "qualified",
+    "metadata": {
+      "company": "Solis Consulting",
+      "product": "RT4Orgs"
+    }
+  }
+]
+

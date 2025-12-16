@@ -92,6 +92,7 @@
             <option value="won">Won</option>
             <option value="lost">Lost</option>
           </select>
+          <button id="blastSelectedBtn" disabled>Run Blast on Selected Cards</button>
         </div>
         <div class="meta" id="cardSummary"></div>
         <div id="cardTableWrap"></div>
@@ -215,6 +216,11 @@
       }
     }
 
+    function getSelectedCardIds() {
+      const checkboxes = document.querySelectorAll('.card-select-checkbox:checked');
+      return Array.from(checkboxes).map(cb => cb.getAttribute('data-id'));
+    }
+
     function renderCards() {
       const search = document.getElementById("cardSearch").value.toLowerCase();
       
@@ -240,7 +246,7 @@
         `<div><strong>${shown}</strong> shown</div>`;
 
       let html = "<table><thead><tr>";
-      html += "<th>Name</th><th>Type</th><th>Sales State</th><th>Owner</th><th>Updated</th><th>View</th>";
+      html += "<th></th><th>Name</th><th>Type</th><th>Sales State</th><th>Owner</th><th>Updated</th><th>View</th>";
       html += "</tr></thead><tbody>";
 
       rows.forEach(card => {
@@ -251,6 +257,7 @@
         const updated = card.updated_at ? new Date(card.updated_at).toLocaleDateString() : '-';
         
         html += "<tr>";
+        html += `<td><input type="checkbox" class="card-select-checkbox" data-id="${card.id}"></td>`;
         html += `<td>${name}</td>`;
         html += `<td><span class='badge ${type}'>${type}</span></td>`;
         html += `<td><span class='badge gray'>${salesState}</span></td>`;
@@ -262,6 +269,61 @@
 
       html += "</tbody></table>";
       document.getElementById("cardTableWrap").innerHTML = html;
+
+      // Enable/disable blast button based on selection
+      const blastBtn = document.getElementById("blastSelectedBtn");
+      const updateBlastButtonState = () => {
+        const anySelected = getSelectedCardIds().length > 0;
+        blastBtn.disabled = !anySelected;
+      };
+      document.querySelectorAll(".card-select-checkbox").forEach(cb => {
+        cb.addEventListener("change", updateBlastButtonState);
+      });
+      updateBlastButtonState();
+    }
+
+    async function runBlastOnSelectedCards() {
+      const selectedIds = getSelectedCardIds();
+      if (selectedIds.length === 0) {
+        alert("No cards selected");
+        return;
+      }
+
+      if (!confirm(`Run blast on ${selectedIds.length} card(s)?`)) {
+        return;
+      }
+
+      const blastBtn = document.getElementById("blastSelectedBtn");
+      blastBtn.disabled = true;
+      blastBtn.textContent = "Blasting...";
+
+      try {
+        const res = await fetch(`${BACKEND}/blast/run`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            card_ids: selectedIds,
+            limit: selectedIds.length,
+            owner: "system",
+            source: "cards_ui"
+          })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.ok) {
+          const msg = data.error || `HTTP ${res.status}`;
+          alert(`Blast failed: ${msg}`);
+          return;
+        }
+
+        alert(`Blast complete.\nSent: ${data.sent}\nSkipped: ${data.skipped}`);
+      } catch (error) {
+        alert(`Blast error: ${error.message}`);
+      } finally {
+        blastBtn.disabled = false;
+        blastBtn.textContent = "Run Blast on Selected Cards";
+      }
     }
 
     // Tab switching
@@ -287,6 +349,7 @@
     document.getElementById("cardSearch").addEventListener("input", renderCards);
     document.getElementById("cardTypeFilter").addEventListener("change", loadCards);
     document.getElementById("cardStateFilter").addEventListener("change", loadCards);
+    document.getElementById("blastSelectedBtn").addEventListener("click", runBlastOnSelectedCards);
 
     document.querySelectorAll(".pill").forEach(p => {
       p.addEventListener("click", () => {
