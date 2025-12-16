@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>RT4 Blaster</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h2 {
+      color: #333;
+      margin-bottom: 30px;
+    }
+    .control-group {
+      background: white;
+      padding: 20px;
+      margin-bottom: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    label {
+      display: block;
+      margin-bottom: 10px;
+      font-weight: 500;
+      color: #555;
+    }
+    input[type="number"] {
+      margin-left: 10px;
+      padding: 6px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      width: 100px;
+    }
+    input[type="text"] {
+      margin-left: 10px;
+      padding: 6px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      width: 200px;
+    }
+    button {
+      background: #dc3545;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 20px;
+    }
+    button:hover {
+      background: #c82333;
+    }
+    button:active {
+      transform: scale(0.98);
+    }
+    button:disabled {
+      background: #6c757d;
+      cursor: not-allowed;
+    }
+    .status {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 4px;
+      display: none;
+    }
+    .status.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .status.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    .status.info {
+      background: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #bee5eb;
+    }
+    #out {
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      padding: 15px;
+      margin-top: 20px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      max-height: 500px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .warning {
+      background: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffeaa7;
+      padding: 15px;
+      border-radius: 4px;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Outbound Blaster</h2>
+
+  <div class="warning">
+    <strong>⚠️ Warning:</strong> This will send SMS messages to unblasted contacts. Use with caution.
+  </div>
+
+  <div class="control-group">
+    <label>
+      Limit (max messages to send):
+      <input id="limit" type="number" value="25" min="1" max="1000">
+      <small style="color: #666; margin-left: 10px;">Leave empty for all unblasted contacts</small>
+    </label>
+  </div>
+
+  <div class="control-group">
+    <label>
+      Owner:
+      <input id="owner" type="text" value="system" placeholder="system">
+    </label>
+  </div>
+
+  <div class="control-group">
+    <label>
+      Source Batch ID (optional):
+      <input id="source_batch_id" type="text" placeholder="auto-generated if empty">
+    </label>
+  </div>
+
+  <button id="blastBtn" onclick="blast()">Run Blast</button>
+
+  <div id="status" class="status"></div>
+
+  <pre id="out"></pre>
+
+  <script type="module">
+    import { BACKEND_URL } from '/config.js';
+    const limit = document.getElementById('limit');
+    const owner = document.getElementById('owner');
+    const source_batch_id = document.getElementById('source_batch_id');
+    const status = document.getElementById('status');
+    const out = document.getElementById('out');
+    const blastBtn = document.getElementById('blastBtn');
+
+    function showStatus(message, type = 'info') {
+      status.textContent = message;
+      status.className = 'status ' + type;
+      status.style.display = 'block';
+      setTimeout(() => {
+        if (type !== 'info') {
+          status.style.display = 'none';
+        }
+      }, 5000);
+    }
+
+    async function blast() {
+      // Confirm before blasting
+      const limitValue = limit.value ? parseInt(limit.value) : null;
+      const confirmMsg = limitValue 
+        ? `Send ${limitValue} messages?`
+        : 'Send messages to ALL unblasted contacts?';
+      
+      if (!confirm(confirmMsg)) {
+        return;
+      }
+
+      // Disable button and show loading
+      blastBtn.disabled = true;
+      blastBtn.textContent = 'Blasting...';
+      out.textContent = 'Starting blast...\n';
+      showStatus('Blast in progress...', 'info');
+
+      try {
+        const payload = {
+          owner: owner.value || 'system'
+        };
+
+        if (limitValue && limitValue > 0) {
+          payload.limit = limitValue;
+        }
+
+        if (source_batch_id.value.trim()) {
+          payload.source_batch_id = source_batch_id.value.trim();
+        }
+
+        const res = await fetch(`${BACKEND_URL}/admin/blast`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+          throw new Error(errorData.detail || `HTTP ${res.status}`);
+        }
+
+        const result = await res.json();
+        
+        // Format output
+        let output = '=== BLAST RESULTS ===\n\n';
+        output += `Status: ${result.ok ? 'SUCCESS' : 'FAILED'}\n`;
+        output += `Sent: ${result.sent || 0}\n`;
+        output += `Skipped: ${result.skipped || 0}\n`;
+        output += `Total Time: ${result.total_time || 0}s\n`;
+        output += `Rate: ${result.messages_per_sec || 0} msg/sec\n\n`;
+
+        if (result.error) {
+          output += `Error: ${result.error}\n\n`;
+        }
+
+        if (result.results && result.results.length > 0) {
+          output += '=== INDIVIDUAL RESULTS ===\n\n';
+          result.results.forEach((r, i) => {
+            output += `${i + 1}. ${r.contact || 'Unknown'} (${r.phone || 'N/A'})\n`;
+            output += `   Status: ${r.status}\n`;
+            if (r.twilio_sid) {
+              output += `   Twilio SID: ${r.twilio_sid}\n`;
+            }
+            if (r.error) {
+              output += `   Error: ${r.error}\n`;
+            }
+            if (r.reason) {
+              output += `   Reason: ${r.reason}\n`;
+            }
+            output += '\n';
+          });
+        }
+
+        out.textContent = output;
+
+        if (result.ok) {
+          showStatus(`Blast complete! Sent ${result.sent} messages.`, 'success');
+        } else {
+          showStatus(result.error || 'Blast failed', 'error');
+        }
+
+      } catch (error) {
+        out.textContent = `Error: ${error.message}\n`;
+        showStatus('Error: ' + error.message, 'error');
+      } finally {
+        blastBtn.disabled = false;
+        blastBtn.textContent = 'Run Blast';
+      }
+    }
+  </script>
+</body>
+</html>
+

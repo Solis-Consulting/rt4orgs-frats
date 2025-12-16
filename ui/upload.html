@@ -1,0 +1,298 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Upload Cards - RT4 CRM</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: #0f172a; color: #e5e7eb; }
+    .shell { max-width: 1200px; margin: 32px auto; padding: 0 16px; }
+    .card { background: #020617; border-radius: 16px; padding: 20px 24px; box-shadow: 0 18px 60px rgba(0,0,0,0.6); border: 1px solid #1f2937; margin-bottom: 16px; }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    .sub { margin-bottom: 16px; color: #9ca3af; font-size: 14px; }
+    .link { color: #38bdf8; text-decoration: none; font-weight: 500; }
+    .link:hover { text-decoration: underline; }
+    textarea { width: 100%; min-height: 300px; background: #020617; border: 1px solid #4b5563; border-radius: 8px; padding: 12px; color: #e5e7eb; font-family: 'Monaco', 'Courier New', monospace; font-size: 13px; }
+    textarea:focus { outline: none; border-color: #38bdf8; }
+    button { background: #0ea5e9; color: #0f172a; border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; margin-right: 8px; }
+    button:hover { background: #38bdf8; }
+    button:disabled { background: #374151; color: #6b7280; cursor: not-allowed; }
+    .button-secondary { background: #374151; color: #e5e7eb; }
+    .button-secondary:hover { background: #4b5563; }
+    .error { background: rgba(248,113,113,0.15); border: 1px solid rgba(248,113,113,0.3); color: #fecaca; padding: 12px; border-radius: 8px; margin: 12px 0; }
+    .success { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #bbf7d0; padding: 12px; border-radius: 8px; margin: 12px 0; }
+    .info { background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3); color: #bfdbfe; padding: 12px; border-radius: 8px; margin: 12px 0; }
+    .preview { margin-top: 16px; }
+    .preview-item { background: #111827; border: 1px solid #1f2937; border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+    .preview-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .preview-item-id { font-family: monospace; font-size: 12px; color: #9ca3af; }
+    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; margin-left: 8px; }
+    .badge.person { background: rgba(59,130,246,0.15); color: #bfdbfe; }
+    .badge.fraternity { background: rgba(168,85,247,0.15); color: #e9d5ff; }
+    .badge.team { background: rgba(34,197,94,0.15); color: #bbf7d0; }
+    .badge.business { background: rgba(245,158,11,0.15); color: #fed7aa; }
+    .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+    .stats { display: flex; gap: 16px; font-size: 12px; color: #9ca3af; margin-top: 12px; }
+    .stats strong { color: #e5e7eb; }
+    pre { background: #020617; border-radius: 8px; padding: 10px 12px; font-size: 11px; overflow-x: auto; border: 1px solid #111827; margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="card">
+      <a href="index.html" class="link">&larr; Back to list</a>
+      <h1>Upload Cards</h1>
+      <div class="sub">Upload JSON cards (person, fraternity, team, business). Cards will be validated and normalized.</div>
+
+      <div class="toolbar">
+        <button onclick="validateJSON()">Validate JSON</button>
+        <button onclick="previewCards()">Preview Cards</button>
+        <button onclick="uploadCards()" id="uploadBtn" disabled>Upload Cards</button>
+        <button class="button-secondary" onclick="loadExample()">Load Example</button>
+        <input type="file" id="fileInput" accept=".json" style="display: none;" onchange="handleFileSelect(event)">
+        <button class="button-secondary" onclick="document.getElementById('fileInput').click()">Load from File</button>
+      </div>
+
+      <textarea id="jsonInput" placeholder='Paste JSON array of cards here, e.g.:
+[
+  {
+    "type": "person",
+    "name": "John Doe",
+    "phone": "+1234567890",
+    "email": "john@example.com",
+    "fraternity": "SigChi",
+    "chapter": "Alpha",
+    "tags": ["rush", "decision_maker"],
+    "sales_state": "cold"
+  }
+]'></textarea>
+
+      <div id="status"></div>
+      <div id="preview" class="preview"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { BACKEND_URL } from '/config.js';
+    const BACKEND = BACKEND_URL;
+    let validatedCards = [];
+    let previewData = null;
+
+    function showStatus(message, type = 'info') {
+      const statusDiv = document.getElementById('status');
+      statusDiv.className = type;
+      statusDiv.textContent = message;
+      statusDiv.style.display = 'block';
+    }
+
+    function hideStatus() {
+      document.getElementById('status').style.display = 'none';
+    }
+
+    function validateJSON() {
+      hideStatus();
+      const input = document.getElementById('jsonInput').value.trim();
+      
+      if (!input) {
+        showStatus('Please enter JSON data', 'error');
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(input);
+        
+        if (!Array.isArray(parsed)) {
+          showStatus('JSON must be an array of card objects', 'error');
+          return;
+        }
+
+        if (parsed.length === 0) {
+          showStatus('Array is empty', 'error');
+          return;
+        }
+
+        validatedCards = parsed;
+        showStatus(`✓ Valid JSON: ${parsed.length} card(s)`, 'success');
+        document.getElementById('uploadBtn').disabled = false;
+      } catch (e) {
+        showStatus(`Invalid JSON: ${e.message}`, 'error');
+        document.getElementById('uploadBtn').disabled = true;
+      }
+    }
+
+    async function previewCards() {
+      hideStatus();
+      const input = document.getElementById('jsonInput').value.trim();
+      
+      if (!input) {
+        showStatus('Please enter JSON data', 'error');
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(input);
+        
+        if (!Array.isArray(parsed)) {
+          showStatus('JSON must be an array', 'error');
+          return;
+        }
+
+        const previewDiv = document.getElementById('preview');
+        previewDiv.innerHTML = '';
+
+        if (parsed.length === 0) {
+          showStatus('Array is empty', 'error');
+          return;
+        }
+
+        let html = '<div style="margin-top: 16px;"><strong>Preview:</strong></div>';
+        
+        parsed.forEach((card, idx) => {
+          const type = card.type || 'person';
+          const id = card.id || `(will be generated: ${type}_${(card.name || 'unknown').toLowerCase().replace(/\s+/g, '_')})`;
+          
+          html += `<div class="preview-item">
+            <div class="preview-item-header">
+              <div>
+                <strong>Card ${idx + 1}</strong>
+                <span class="badge ${type}">${type}</span>
+              </div>
+              <div class="preview-item-id">${id}</div>
+            </div>
+            <pre>${JSON.stringify(card, null, 2)}</pre>
+          </div>`;
+        });
+
+        previewDiv.innerHTML = html;
+        validatedCards = parsed;
+        document.getElementById('uploadBtn').disabled = false;
+        showStatus(`Preview: ${parsed.length} card(s) ready to upload`, 'success');
+      } catch (e) {
+        showStatus(`Error: ${e.message}`, 'error');
+      }
+    }
+
+    async function uploadCards() {
+      if (validatedCards.length === 0) {
+        showStatus('Please validate JSON first', 'error');
+        return;
+      }
+
+      const uploadBtn = document.getElementById('uploadBtn');
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = 'Uploading...';
+
+      showStatus('Uploading cards...', 'info');
+
+      try {
+        const response = await fetch(`${BACKEND}/cards/upload`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(validatedCards),
+        });
+
+        const result = await response.json();
+
+        if (result.ok) {
+          showStatus(
+            `✓ Successfully uploaded ${result.stored} card(s). ${result.errors > 0 ? `${result.errors} error(s).` : ''}`,
+            'success'
+          );
+
+          if (result.error_details && result.error_details.length > 0) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.style.marginTop = '12px';
+            errorDiv.innerHTML = '<strong>Errors:</strong><pre>' + JSON.stringify(result.error_details, null, 2) + '</pre>';
+            document.getElementById('status').after(errorDiv);
+          }
+
+          // Show stats
+          const statsDiv = document.createElement('div');
+          statsDiv.className = 'stats';
+          statsDiv.innerHTML = `
+            <div><strong>${result.stored}</strong> stored</div>
+            <div><strong>${result.errors}</strong> errors</div>
+            <div><strong>${result.cards.length}</strong> total</div>
+          `;
+          document.getElementById('status').after(statsDiv);
+
+          // Clear input after successful upload
+          setTimeout(() => {
+            document.getElementById('jsonInput').value = '';
+            validatedCards = [];
+            document.getElementById('preview').innerHTML = '';
+          }, 3000);
+        } else {
+          showStatus(`Upload failed: ${result.error_details?.[0]?.error || 'Unknown error'}`, 'error');
+          if (result.error_details) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.style.marginTop = '12px';
+            errorDiv.innerHTML = '<strong>Error details:</strong><pre>' + JSON.stringify(result.error_details, null, 2) + '</pre>';
+            document.getElementById('status').after(errorDiv);
+          }
+        }
+      } catch (e) {
+        showStatus(`Upload error: ${e.message}`, 'error');
+      } finally {
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = 'Upload Cards';
+      }
+    }
+
+    function loadExample() {
+      const example = [
+        {
+          "type": "person",
+          "name": "Aidan Scheible",
+          "role": "President",
+          "phone": "+12489962425",
+          "email": "scheibae@miamioh.edu",
+          "fraternity": "SigChi",
+          "chapter": "Alpha",
+          "tags": ["fraternity", "rush", "decision_maker"],
+          "sales_state": "cold",
+          "metadata": {
+            "insta": "",
+            "other_social": ""
+          }
+        },
+        {
+          "id": "sigchi_alpha",
+          "type": "fraternity",
+          "name": "Sigma Chi – Alpha Chapter",
+          "school": "Miami University",
+          "members": ["aidan_scheible_sigchi_alpha"],
+          "sales_state": "active_outreach",
+          "owner": "david"
+        }
+      ];
+      
+      document.getElementById('jsonInput').value = JSON.stringify(example, null, 2);
+      validatedCards = example;
+      document.getElementById('uploadBtn').disabled = false;
+      showStatus('Example loaded', 'success');
+    }
+
+    function handleFileSelect(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        document.getElementById('jsonInput').value = e.target.result;
+        validateJSON();
+      };
+      reader.readAsText(file);
+    }
+
+    // Auto-validate on paste
+    document.getElementById('jsonInput').addEventListener('paste', function() {
+      setTimeout(validateJSON, 100);
+    });
+  </script>
+</body>
+</html>
+

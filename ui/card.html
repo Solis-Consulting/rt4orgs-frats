@@ -1,0 +1,171 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Card Detail - RT4 CRM</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: #0f172a; color: #e5e7eb; }
+    .shell { max-width: 900px; margin: 32px auto; padding: 0 16px; }
+    .card { background: #020617; border-radius: 16px; padding: 20px 24px; box-shadow: 0 18px 60px rgba(0,0,0,0.6); border: 1px solid #1f2937; margin-bottom: 16px; }
+    a { color: #38bdf8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    h1 { margin: 0 0 8px; font-size: 22px; }
+    .sub { margin-bottom: 16px; font-size: 13px; color: #9ca3af; }
+    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; margin-left: 8px; }
+    .badge.person { background: rgba(59,130,246,0.15); color: #bfdbfe; }
+    .badge.fraternity { background: rgba(168,85,247,0.15); color: #e9d5ff; }
+    .badge.team { background: rgba(34,197,94,0.15); color: #bbf7d0; }
+    .badge.business { background: rgba(245,158,11,0.15); color: #fed7aa; }
+    .badge.state { background: rgba(75,85,99,0.4); color: #e5e7eb; }
+    .section { margin-top: 16px; border-top: 1px solid #1f2937; padding-top: 12px; }
+    pre { background: #020617; border-radius: 10px; padding: 10px 12px; font-size: 12px; overflow-x: auto; border: 1px solid #111827; }
+    .field { margin-bottom: 8px; }
+    .field-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; margin-bottom: 4px; }
+    .field-value { font-size: 14px; color: #e5e7eb; }
+    .meta { display: flex; gap: 16px; font-size: 12px; color: #9ca3af; margin-bottom: 8px; }
+    .meta strong { color: #e5e7eb; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+    th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid #1f2937; }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; }
+    select { background: #020617; border: 1px solid #4b5563; border-radius: 6px; padding: 4px 8px; color: #e5e7eb; font-size: 13px; }
+    select:focus { outline: none; border-color: #38bdf8; }
+    button { background: #0ea5e9; color: #0f172a; border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+    button:hover { background: #38bdf8; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="card">
+      <a href="index.html">&larr; Back to list</a>
+      <div id="content" style="margin-top:12px;">Loading...</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { BACKEND_URL } from '/config.js';
+    const BACKEND = BACKEND_URL;
+    const params = new URLSearchParams(window.location.search);
+    const cardId = params.get("id");
+
+    async function loadCard() {
+      if (!cardId) {
+        document.getElementById("content").innerHTML = "<div style='color: #fecaca;'>No card ID provided.</div>";
+        return;
+      }
+
+      try {
+        const res = await fetch(`${BACKEND}/cards/${encodeURIComponent(cardId)}`);
+        
+        if (!res.ok) {
+          if (res.status === 404) {
+            document.getElementById("content").innerHTML = "<div style='color: #fecaca;'>Card not found.</div>";
+            return;
+          }
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        const card = await res.json();
+        renderCard(card);
+      } catch (error) {
+        document.getElementById("content").innerHTML = `<div style='color: #fecaca;'>Error loading card: ${error.message}</div>`;
+      }
+    }
+
+    function renderCard(card) {
+      const type = card.type || 'person';
+      const salesState = card.sales_state || 'cold';
+      const cardData = card.card_data || {};
+
+      let html = "";
+      html += `<h1>${cardData.name || card.id} <span class="badge ${type}">${type}</span> <span class="badge state">${salesState}</span></h1>`;
+      html += `<div class="sub">ID: <code>${card.id}</code></div>`;
+
+      // Card data fields
+      html += "<div class='section'>";
+      html += "<div class='field-label'>Card Data</div>";
+      html += "<pre>" + JSON.stringify(cardData, null, 2) + "</pre>";
+      html += "</div>";
+
+      // Sales state editor
+      html += "<div class='section'>";
+      html += "<div class='field-label'>Sales State</div>";
+      html += `<select id="salesStateSelect" onchange="updateSalesState()">`;
+      const states = ['cold', 'qualified', 'negotiating', 'won', 'lost'];
+      states.forEach(s => {
+        html += `<option value="${s}" ${s === salesState ? 'selected' : ''}>${s}</option>`;
+      });
+      html += `</select>`;
+      html += "</div>";
+
+      // Relationships
+      if (card.relationships && card.relationships.length > 0) {
+        html += "<div class='section'>";
+        html += "<div class='field-label'>Relationships</div>";
+        html += "<table><thead><tr><th>Parent</th><th>Child</th><th>Type</th><th>Created</th></tr></thead><tbody>";
+        card.relationships.forEach(rel => {
+          html += `<tr>`;
+          html += `<td><a href="card.html?id=${encodeURIComponent(rel.parent_card_id)}">${rel.parent_card_id}</a></td>`;
+          html += `<td><a href="card.html?id=${encodeURIComponent(rel.child_card_id)}">${rel.child_card_id}</a></td>`;
+          html += `<td>${rel.relationship_type}</td>`;
+          html += `<td>${rel.created_at || ''}</td>`;
+          html += `</tr>`;
+        });
+        html += "</tbody></table>";
+        html += "</div>";
+      }
+
+      // Conversations
+      if (card.conversations && card.conversations.length > 0) {
+        html += "<div class='section'>";
+        html += "<div class='field-label'>Linked Conversations</div>";
+        html += "<table><thead><tr><th>Phone</th><th>State</th><th>Last Outbound</th><th>Last Inbound</th></tr></thead><tbody>";
+        card.conversations.forEach(conv => {
+          html += `<tr>`;
+          html += `<td>${conv.phone}</td>`;
+          html += `<td>${conv.state || ''}</td>`;
+          html += `<td>${conv.last_outbound_at || ''}</td>`;
+          html += `<td>${conv.last_inbound_at || ''}</td>`;
+          html += `</tr>`;
+        });
+        html += "</tbody></table>";
+        html += "</div>";
+      } else if (type === 'person') {
+        html += "<div class='section'>";
+        html += "<div class='field-label'>Linked Conversations</div>";
+        html += "<div style='color: #9ca3af; font-size: 13px;'>No conversations linked yet.</div>";
+        html += "</div>";
+      }
+
+      // Metadata
+      html += "<div class='section'>";
+      html += "<div class='meta'>";
+      html += `<div><strong>Created:</strong> ${card.created_at || 'N/A'}</div>`;
+      html += `<div><strong>Updated:</strong> ${card.updated_at || 'N/A'}</div>`;
+      if (card.owner) {
+        html += `<div><strong>Owner:</strong> ${card.owner}</div>`;
+      }
+      html += "</div>";
+      html += "</div>";
+
+      document.getElementById("content").innerHTML = html;
+    }
+
+    async function updateSalesState() {
+      const select = document.getElementById('salesStateSelect');
+      const newState = select.value;
+      const cardId = new URLSearchParams(window.location.search).get('id');
+
+      try {
+        // Note: This would require a PATCH endpoint - for now just show the change
+        // In a full implementation, you'd call: PATCH /cards/{id} with {sales_state: newState}
+        alert(`Sales state update would be sent to backend. This requires a PATCH endpoint to be implemented.`);
+      } catch (error) {
+        alert(`Error updating sales state: ${error.message}`);
+      }
+    }
+
+    loadCard();
+  </script>
+</body>
+</html>
+
