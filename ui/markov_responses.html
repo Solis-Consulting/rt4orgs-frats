@@ -229,13 +229,13 @@
     }
 
     async function saveState(stateKey, textareaId) {
-      console.log('SAVE STATE:', stateKey);
+      logUI('save:click', stateKey);
       const textarea = document.getElementById(textareaId);
       const buttonId = textareaId === 'initialOutreach' ? 'saveInitialOutreachBtn' : `save-${stateKey}-btn`;
       const button = document.getElementById(buttonId);
       
       if (!textarea) {
-        console.error('Could not find textarea for state:', stateKey);
+        logUI('save:error', `Textarea not found: ${textareaId}`);
         return false;
       }
 
@@ -254,8 +254,7 @@
         };
 
         const requestUrl = `${BACKEND}/markov/response`;
-        console.log('SAVE STATE: Request URL =', requestUrl);
-        console.log('SAVE STATE: Payload =', payload);
+        logUI('save:request', payload);
 
         const res = await fetch(requestUrl, {
           method: 'POST',
@@ -263,12 +262,11 @@
           body: JSON.stringify(payload),
         });
 
-        console.log('SAVE STATE: Response status =', res.status);
-        console.log('SAVE STATE: Response ok =', res.ok);
+        logUI('save:response', res.status);
 
         // MUST consume response body - browsers won't complete lifecycle until consumed
         const data = await res.json();
-        console.log('SAVE STATE: Response data =', data);
+        logUI('save:done', data);
 
         if (!res.ok) {
           throw new Error(data.detail || data.message || `HTTP ${res.status}`);
@@ -278,6 +276,7 @@
         return true;
 
       } catch (error) {
+        logUI('save:error', error.message);
         console.error('SAVE STATE ERROR:', error);
         setStateStatus(stateKey, 'error', error.message);
         return false;
@@ -288,6 +287,45 @@
       }
     }
 
+
+    function logUI(event, data = '') {
+      console.log(`[UI] ${event}`, data);
+    }
+
+    function hydrateUIFromJSON(payload) {
+      logUI('hydrate:start', Object.keys(payload));
+      
+      // Update initial outreach
+      if (payload.initial_outreach) {
+        const initialTextarea = document.getElementById('initialOutreach');
+        if (initialTextarea) {
+          initialTextarea.value = payload.initial_outreach;
+          setStateStatus('__initial_outreach__', 'success', 'Updated');
+          logUI('hydrate:initial_outreach', 'updated');
+        }
+      }
+
+      // Update state responses
+      if (payload.responses && typeof payload.responses === 'object') {
+        Object.entries(payload.responses).forEach(([stateKey, stateData]) => {
+          const responseText = stateData.response_text || stateData.responseText || '';
+          const textareaId = `state-${stateKey}`;
+          const textarea = document.getElementById(textareaId);
+          
+          if (!textarea) {
+            setStateStatus(stateKey, 'error', 'State not found');
+            logUI('hydrate:state:notfound', stateKey);
+            return;
+          }
+
+          textarea.value = responseText;
+          setStateStatus(stateKey, 'success', 'Updated');
+          logUI('hydrate:state:updated', stateKey);
+        });
+      }
+      
+      logUI('hydrate:complete');
+    }
 
     function showImportSummary(ok, skipped, failed) {
       const statusEl = document.getElementById('importStatus');
@@ -325,7 +363,7 @@
         event.stopPropagation();
       }
 
-      console.log('IMPORT CLICKED - importFromJSON() called');
+      logUI('import:start');
       
       // Immediate visual feedback
       const statusEl = document.getElementById('importStatus');
@@ -350,6 +388,7 @@
       try {
         const jsonText = document.getElementById('jsonInput').value.trim();
         if (!jsonText) {
+          logUI('import:error', 'Empty JSON');
           if (statusEl) {
             statusEl.style.display = 'block';
             statusEl.classList.remove('warning');
@@ -359,93 +398,64 @@
           return;
         }
 
-        console.log('IMPORT: Parsing JSON...');
-        if (statusEl) {
-          statusEl.textContent = 'Parsing JSON…';
-        }
-        const data = JSON.parse(jsonText);
-        console.log('IMPORT: Parsed data', Object.keys(data));
+        logUI('import:parsing');
+        const payload = JSON.parse(jsonText);
+        logUI('import:parsed', Object.keys(payload));
         
         if (statusEl) {
-          statusEl.textContent = 'Applying to UI…';
+          statusEl.textContent = 'Saving to backend…';
         }
 
         // Validate structure
-        if (typeof data !== 'object' || data === null) {
+        if (typeof payload !== 'object' || payload === null) {
           throw new Error('JSON must be an object');
         }
 
-        // STEP 1: Update UI fields FIRST (instant visual feedback)
-        // Initial outreach
-        if (data.initial_outreach !== undefined && data.initial_outreach !== null) {
-          const initialTextarea = document.getElementById('initialOutreach');
-          if (initialTextarea) {
-            initialTextarea.value = data.initial_outreach;
-            console.log('IMPORT: Set initial_outreach in UI');
-          }
+        // STEP 1: POST to backend
+        logUI('import:request', payload);
+        const requestUrl = `${BACKEND}/markov/responses`;
+        const res = await fetch(requestUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        logUI('import:response', res.status);
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          logUI('import:error', `HTTP ${res.status}: ${errorText}`);
+          throw new Error(`HTTP ${res.status}: ${errorText}`);
         }
 
-        // State responses - update UI fields synchronously
-        if (data.responses && typeof data.responses === 'object') {
-          for (const [stateKey, stateData] of Object.entries(data.responses)) {
-            const responseText = stateData.response_text || stateData.responseText || '';
-            const textareaId = `state-${stateKey}`;
-            const textarea = document.getElementById(textareaId);
-            
+        // MUST consume response body - browsers require this
+        const responseData = await res.json();
+        logUI('import:saved', responseData);
+
+        // STEP 2: Hydrate UI state immediately from payload we just saved
+        hydrateUIFromJSON(payload);
+
+        // Count what was imported
+        if (payload.initial_outreach) {
+          ok++;
+        }
+        if (payload.responses) {
+          Object.keys(payload.responses).forEach(stateKey => {
+            const textarea = document.getElementById(`state-${stateKey}`);
             if (textarea) {
-              // Update UI immediately (instant visual feedback)
-              textarea.value = responseText;
-              console.log('IMPORT: Set', stateKey, 'in UI');
+              ok++;
             } else {
-              // State not found - skip with warning
-              console.warn('IMPORT: State not found in UI:', stateKey);
               skipped++;
             }
-          }
-        }
-
-        // Show UI update confirmation
-        if (statusEl) {
-          statusEl.textContent = 'UI updated, saving to backend…';
-        }
-
-        // STEP 2: Now persist to backend (with per-state feedback)
-        // Save initial outreach
-        if (data.initial_outreach !== undefined && data.initial_outreach !== null) {
-          try {
-            const success = await saveState('__initial_outreach__', 'initialOutreach');
-            success ? ok++ : failed++;
-          } catch (e) {
-            console.error('IMPORT: Failed to save initial_outreach:', e);
-            failed++;
-          }
-        }
-
-        // Save state responses - compile to individual saves
-        if (data.responses && typeof data.responses === 'object') {
-          for (const [stateKey, stateData] of Object.entries(data.responses)) {
-            const textareaId = `state-${stateKey}`;
-            const textarea = document.getElementById(textareaId);
-            
-            if (!textarea) {
-              // Already counted as skipped above
-              continue;
-            }
-
-            try {
-              const success = await saveState(stateKey, textareaId);
-              success ? ok++ : failed++;
-            } catch (e) {
-              console.error('IMPORT: Failed to save state', stateKey, ':', e);
-              failed++;
-            }
-          }
+          });
         }
 
         // Show aggregate summary
         showImportSummary(ok, skipped, failed);
+        logUI('import:complete', { ok, skipped, failed });
 
       } catch (error) {
+        logUI('import:error', error.message);
         console.error('IMPORT ERROR:', error);
         if (statusEl) {
           statusEl.style.display = 'block';
