@@ -94,6 +94,7 @@
             <option value="lost">Lost</option>
           </select>
           <button id="blastSelectedBtn" disabled>Run Blast on Selected Cards</button>
+          <button id="deleteSelectedBtn" disabled style="background: #ef4444; margin-left: 8px;">Delete Selected Cards</button>
         </div>
         <div class="meta" id="cardSummary"></div>
         <div id="cardTableWrap"></div>
@@ -320,11 +321,15 @@
         }
       };
 
-      // Enable/disable blast button based on selection
+      // Enable/disable buttons based on selection
       const blastBtn = document.getElementById("blastSelectedBtn");
+      const deleteBtn = document.getElementById("deleteSelectedBtn");
       const updateBlastButtonState = () => {
         const anySelected = getSelectedCardIds().length > 0;
         blastBtn.disabled = !anySelected;
+        if (deleteBtn) {
+          deleteBtn.disabled = !anySelected;
+        }
         updateSelectAllState();
       };
       
@@ -428,6 +433,65 @@
     document.getElementById("cardTypeFilter").addEventListener("change", loadCards);
     document.getElementById("cardStateFilter").addEventListener("change", loadCards);
     document.getElementById("blastSelectedBtn").addEventListener("click", runBlastOnSelectedCards);
+    
+    async function deleteSelectedCards() {
+      const selectedIds = getSelectedCardIds();
+      if (selectedIds.length === 0) {
+        alert("No cards selected");
+        return;
+      }
+
+      const count = selectedIds.length;
+      if (!confirm(`Delete ${count} card(s)? This will also delete related conversations and relationships. This action cannot be undone.`)) {
+        return;
+      }
+
+      const deleteBtn = document.getElementById("deleteSelectedBtn");
+      deleteBtn.disabled = true;
+      deleteBtn.textContent = "Deleting...";
+
+      try {
+        let successCount = 0;
+        let failCount = 0;
+        const errors = [];
+
+        // Delete cards one by one (could be optimized with a bulk endpoint)
+        for (const cardId of selectedIds) {
+          try {
+            const res = await fetch(`${BACKEND}/cards/${encodeURIComponent(cardId)}`, {
+              method: "DELETE",
+            });
+
+            if (!res.ok) {
+              const data = await res.json();
+              errors.push(`${cardId}: ${data.detail || res.status}`);
+              failCount++;
+            } else {
+              successCount++;
+            }
+          } catch (error) {
+            errors.push(`${cardId}: ${error.message}`);
+            failCount++;
+          }
+        }
+
+        if (failCount > 0) {
+          alert(`Delete completed with errors.\n\nDeleted: ${successCount}\nFailed: ${failCount}\n\nErrors:\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...' : ''}`);
+        } else {
+          alert(`Successfully deleted ${successCount} card(s).`);
+        }
+
+        // Refresh the list
+        loadCards();
+      } catch (error) {
+        alert(`Delete error: ${error.message}`);
+      } finally {
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = "Delete Selected Cards";
+      }
+    }
+
+    document.getElementById("deleteSelectedBtn").addEventListener("click", deleteSelectedCards);
 
     document.querySelectorAll(".pill").forEach(p => {
       p.addEventListener("click", () => {
