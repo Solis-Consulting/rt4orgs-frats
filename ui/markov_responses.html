@@ -291,6 +291,10 @@
         console.log('IMPORT: Auto-saving to backend...');
         await saveResponses(true); // Pass true to indicate this is from import
 
+        // Re-hydrate UI from backend to ensure UI matches DB
+        console.log('IMPORT: Re-hydrating UI from backend...');
+        await loadResponses();
+
         showStatus('JSON imported and saved successfully', 'success');
       } catch (error) {
         console.error('IMPORT ERROR:', error);
