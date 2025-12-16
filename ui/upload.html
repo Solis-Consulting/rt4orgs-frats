@@ -192,13 +192,60 @@
           body: JSON.stringify(validatedCards),
         });
 
+        // Check HTTP status code first
+        if (!response.ok) {
+          let errorText;
+          try {
+            const errorJson = await response.json();
+            errorText = errorJson.error_details?.[0]?.error || errorJson.error || JSON.stringify(errorJson);
+          } catch {
+            errorText = await response.text() || `HTTP ${response.status}`;
+          }
+          showStatus(`Upload failed (${response.status}): ${errorText}`, 'error');
+          return;
+        }
+
         const result = await response.json();
 
         if (result.ok) {
-          showStatus(
-            `✓ Successfully uploaded ${result.stored} card(s). ${result.errors > 0 ? `${result.errors} error(s).` : ''}`,
-            'success'
-          );
+          // Verify cards are actually in DB
+          let verificationMessage = '';
+          try {
+            const verifyResponse = await fetch(`${BACKEND}/cards?limit=1000`);
+            if (verifyResponse.ok) {
+              const verifyData = await verifyResponse.json();
+              const uploadedIds = result.cards.map(c => c.id);
+              const foundIds = verifyData.cards.map(c => c.id);
+              const missingIds = uploadedIds.filter(id => !foundIds.includes(id));
+              
+              if (missingIds.length > 0) {
+                verificationMessage = ` ⚠️ Warning: ${missingIds.length} card(s) not found in database after upload`;
+                showStatus(
+                  `✓ Upload reported success but ${missingIds.length} card(s) not found in database`,
+                  'error'
+                );
+              } else {
+                verificationMessage = ' ✓ Verified in database';
+                showStatus(
+                  `✓ Successfully uploaded and verified ${result.stored} card(s)`,
+                  'success'
+                );
+              }
+            } else {
+              verificationMessage = ' (verification failed)';
+              showStatus(
+                `✓ Successfully uploaded ${result.stored} card(s)${verificationMessage}`,
+                'success'
+              );
+            }
+          } catch (verifyError) {
+            console.error('Verification failed:', verifyError);
+            verificationMessage = ' (verification failed)';
+            showStatus(
+              `✓ Successfully uploaded ${result.stored} card(s)${verificationMessage}`,
+              'success'
+            );
+          }
 
           if (result.error_details && result.error_details.length > 0) {
             const errorDiv = document.createElement('div');

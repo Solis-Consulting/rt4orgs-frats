@@ -973,17 +973,42 @@ async def upload_cards(cards: List[Dict[str, Any]]):
     Upload array of heterogeneous JSON card objects.
     Validates schema, normalizes IDs, resolves references, and stores cards.
     """
-    conn = get_conn()
+    print(f"📤 Upload request: {len(cards)} card(s)")
+    
+    try:
+        conn = get_conn()
+    except Exception as db_error:
+        print(f"❌ Database connection failed: {db_error}")
+        return JSONResponse(
+            content={
+                "ok": False,
+                "stored": 0,
+                "errors": len(cards),
+                "cards": [],
+                "error_details": [{"error": f"Database connection failed: {str(db_error)}"}]
+            },
+            status_code=500
+        )
+    
     results = []
     errors = []
+    
+    # Log card types for debugging
+    card_types = {}
+    for card in cards:
+        card_type = card.get("type", "unknown")
+        card_types[card_type] = card_types.get(card_type, 0) + 1
+    print(f"📋 Card types: {card_types}")
     
     for idx, card in enumerate(cards):
         # Normalize card
         normalized = normalize_card(card)
+        card_id = normalized.get("id", "unknown")
         
         # Validate schema
         is_valid, error = validate_card_schema(normalized)
         if not is_valid:
+            print(f"  ❌ Card {idx + 1}/{len(cards)} validation failed: {card_id} - {error}")
             errors.append({
                 "index": idx,
                 "card": normalized,
@@ -995,21 +1020,38 @@ async def upload_cards(cards: List[Dict[str, Any]]):
         success, error_msg, stored_card = store_card(conn, normalized, allow_missing_references=True)
         
         if success:
+            print(f"  ✅ Card {idx + 1}/{len(cards)} stored: {card_id}")
             results.append(stored_card)
         else:
+            print(f"  ❌ Card {idx + 1}/{len(cards)} storage failed: {card_id} - {error_msg}")
             errors.append({
                 "index": idx,
                 "card": normalized,
                 "error": error_msg
             })
     
-    return {
-        "ok": len(errors) == 0,
-        "stored": len(results),
-        "errors": len(errors),
-        "cards": results,
-        "error_details": errors
-    }
+    print(f"📊 Upload complete: {len(results)} stored, {len(errors)} errors")
+    
+    # Determine HTTP status code
+    if len(errors) == 0:
+        status_code = 200
+    elif len(results) == 0:
+        # All cards failed
+        status_code = 400
+    else:
+        # Partial success
+        status_code = 207  # Multi-Status
+    
+    return JSONResponse(
+        content={
+            "ok": len(errors) == 0,
+            "stored": len(results),
+            "errors": len(errors),
+            "cards": results,
+            "error_details": errors
+        },
+        status_code=status_code
+    )
 
 
 @app.get("/cards/{card_id}")
