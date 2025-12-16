@@ -1137,16 +1137,21 @@ async def list_cards(
             
             check_duration = time.time() - check_start
             
-            with open(_log_file, "a") as f:
-                f.write(_json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "timestamp": int(time.time() * 1000),
-                    "location": f"{__file__}:TABLE_EXISTS_CHECK",
-                    "message": "Checked if cards table exists",
-                    "data": {"table_exists": table_exists, "check_duration_ms": int(check_duration * 1000)},
-                    "hypothesisId": "F"
-                }) + "\n")
+            # Best-effort logging; do not let log failures affect table_exists
+            try:
+                with open(_log_file, "a") as f:
+                    f.write(_json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "timestamp": int(time.time() * 1000),
+                        "location": f"{__file__}:TABLE_EXISTS_CHECK",
+                        "message": "Checked if cards table exists",
+                        "data": {"table_exists": table_exists, "check_duration_ms": int(check_duration * 1000)},
+                        "hypothesisId": "F"
+                    }) + "\n")
+            except Exception:
+                # Ignore logging errors entirely in production
+                pass
         except Exception as check_outer_e:
             # If the check itself fails, assume table doesn't exist and try migration
             import time
