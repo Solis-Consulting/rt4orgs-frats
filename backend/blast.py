@@ -107,9 +107,14 @@ def _substitute_template(template: str, data: Dict[str, Any], purchased_example:
     
     Falls back to empty string if placeholder value is missing.
     """
+    print(f"[SUBSTITUTE] Starting template substitution", flush=True)
+    print(f"[SUBSTITUTE] Template: {template[:100]}...", flush=True)
+    print(f"[SUBSTITUTE] Purchased example is None: {purchased_example is None}", flush=True)
+    
     # Extract values from card data
     name = data.get("name") or ""
     fraternity = data.get("fraternity") or ""
+    print(f"[SUBSTITUTE] Card data - name: '{name}', fraternity: '{fraternity}'", flush=True)
     
     # Extract values from purchased example (deal)
     purchased_names = ""
@@ -117,15 +122,25 @@ def _substitute_template(template: str, data: Dict[str, Any], purchased_example:
     purchased_institution = ""
     
     if purchased_example:
+        print(f"[SUBSTITUTE] Purchased example keys: {list(purchased_example.keys())}", flush=True)
+        print(f"[SUBSTITUTE] Purchased example: {purchased_example}", flush=True)
+        
         names_given = _get_deal_names_given(purchased_example)
         purchased_names = str(names_given) if names_given > 0 else ""
         purchased_chapter = _get_deal_chapter(purchased_example)
         purchased_institution = _get_deal_institution(purchased_example)
+        
+        print(f"[SUBSTITUTE] Extracted values:", flush=True)
+        print(f"[SUBSTITUTE]   purchased_names: '{purchased_names}'", flush=True)
+        print(f"[SUBSTITUTE]   purchased_chapter: '{purchased_chapter}'", flush=True)
+        print(f"[SUBSTITUTE]   purchased_institution: '{purchased_institution}'", flush=True)
+    else:
+        print(f"[SUBSTITUTE] ⚠️ No purchased_example provided - placeholders will be empty", flush=True)
     
     # Perform substitution using .format() with safe defaults
     # Support both naming conventions for backward compatibility
     try:
-        return template.format(
+        result = template.format(
             name=name,
             fraternity=fraternity,
             purchased_names=purchased_names,
@@ -135,9 +150,12 @@ def _substitute_template(template: str, data: Dict[str, Any], purchased_example:
             purchased_institution=purchased_institution,
             matched_institution=purchased_institution,  # Alias for backward compatibility
         )
+        print(f"[SUBSTITUTE] ✅ Substitution successful using .format()", flush=True)
+        print(f"[SUBSTITUTE] Result: {result[:200]}...", flush=True)
+        return result
     except KeyError as e:
         # If template has unknown placeholders, log and continue with what we have
-        print(f"[BLAST] Template substitution warning: unknown placeholder {e}", flush=True)
+        print(f"[SUBSTITUTE] ⚠️ Template substitution warning: unknown placeholder {e}", flush=True)
         # Fallback: use replace for known placeholders
         result = template
         result = result.replace("{name}", name)
@@ -148,7 +166,14 @@ def _substitute_template(template: str, data: Dict[str, Any], purchased_example:
         result = result.replace("{matched_chapter}", purchased_chapter)
         result = result.replace("{purchased_institution}", purchased_institution)
         result = result.replace("{matched_institution}", purchased_institution)
+        print(f"[SUBSTITUTE] ✅ Substitution completed using .replace() fallback", flush=True)
+        print(f"[SUBSTITUTE] Result: {result[:200]}...", flush=True)
         return result
+    except Exception as e:
+        print(f"[SUBSTITUTE] ❌ Template substitution error: {e}", flush=True)
+        print(f"[SUBSTITUTE] Error type: {type(e).__name__}", flush=True)
+        # Return template as-is if substitution fails completely
+        return template
 
 
 def _insert_blast_run_row(
@@ -331,12 +356,18 @@ def run_blast_for_cards(
             matched_frat = _get_deal_field(purchased_example, "Abbreviation", "abbreviation", "fraternity", "Fraternity").upper()
             matched_inst = _get_deal_field(purchased_example, "Institution", "institution").lower()
             matched_names = _get_deal_names_given(purchased_example)
+            matched_chapter = _get_deal_chapter(purchased_example)
             print(
                 f"[BLAST_MATCH] ✅ Matched: {matched_frat} at {matched_inst} ({matched_names} names)",
                 flush=True,
             )
+            print(
+                f"[BLAST_MATCH] Match details - Chapter: '{matched_chapter}', Institution: '{matched_inst}', Names: {matched_names}",
+                flush=True,
+            )
         else:
-            print("[BLAST_MATCH] ❌ No match found", flush=True)
+            print("[BLAST_MATCH] ❌ No match found - purchased_example is None", flush=True)
+            print("[BLAST_MATCH] ⚠️ Template placeholders will not be substituted", flush=True)
 
         # Generate message text - try configured initial outreach first, fallback to template
         message = None
