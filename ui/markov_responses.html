@@ -60,6 +60,20 @@
         <div id="stateResponses"></div>
       </div>
 
+      <!-- JSON Import/Export Section -->
+      <div class="section">
+        <div class="section-title">JSON Import / Export</div>
+        <div style="margin-bottom: 12px; font-size: 12px; color: #9ca3af;">
+          Import JSON to populate all fields, or export current configuration as JSON.
+        </div>
+        <textarea id="jsonInput" placeholder='{"initial_outreach": "...", "responses": {"state_key": {"response_text": "...", "description": "..."}}}' style="min-height: 150px; font-family: 'Monaco', 'Courier New', monospace; font-size: 12px;"></textarea>
+        <div style="margin-top: 12px;">
+          <button class="button-secondary" onclick="importFromJSON()">Import JSON</button>
+          <button class="button-secondary" onclick="exportToJSON()">Export JSON</button>
+          <button class="button-secondary" onclick="clearJSONInput()">Clear</button>
+        </div>
+      </div>
+
       <div style="margin-top: 24px;">
         <button id="saveBtn" onclick="saveResponses()">Save All Changes</button>
         <button class="button-secondary" onclick="loadResponses()">Reload</button>
@@ -187,6 +201,81 @@
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save All Changes';
       }
+    }
+
+    function exportToJSON() {
+      try {
+        // Collect initial outreach
+        const initialOutreach = document.getElementById('initialOutreach').value.trim();
+
+        // Collect state responses
+        const responses = {};
+        document.querySelectorAll('.response-input').forEach(textarea => {
+          const stateKey = textarea.getAttribute('data-state');
+          const responseText = textarea.value.trim();
+          if (stateKey && responseText) {
+            responses[stateKey] = {
+              response_text: responseText,
+              description: '',
+            };
+          }
+        });
+
+        const exportData = {
+          initial_outreach: initialOutreach || null,
+          responses: responses,
+        };
+
+        // Format and display in JSON textarea
+        document.getElementById('jsonInput').value = JSON.stringify(exportData, null, 2);
+        showStatus('JSON exported to textarea below', 'success');
+      } catch (error) {
+        showStatus(`Error exporting JSON: ${error.message}`, 'error');
+      }
+    }
+
+    function importFromJSON() {
+      try {
+        const jsonText = document.getElementById('jsonInput').value.trim();
+        if (!jsonText) {
+          showStatus('Please enter JSON to import', 'error');
+          return;
+        }
+
+        const data = JSON.parse(jsonText);
+
+        // Validate structure
+        if (typeof data !== 'object' || data === null) {
+          throw new Error('JSON must be an object');
+        }
+
+        // Import initial outreach
+        if (data.initial_outreach !== undefined && data.initial_outreach !== null) {
+          document.getElementById('initialOutreach').value = data.initial_outreach;
+        }
+
+        // Import state responses
+        if (data.responses && typeof data.responses === 'object') {
+          document.querySelectorAll('.response-input').forEach(textarea => {
+            const stateKey = textarea.getAttribute('data-state');
+            if (stateKey && data.responses[stateKey]) {
+              const stateData = data.responses[stateKey];
+              const responseText = stateData.response_text || stateData.responseText || '';
+              textarea.value = responseText;
+            }
+          });
+        }
+
+        showStatus('JSON imported successfully. Click "Save All Changes" to persist.', 'success');
+      } catch (error) {
+        showStatus(`Error importing JSON: ${error.message}`, 'error');
+        console.error('JSON import error:', error);
+      }
+    }
+
+    function clearJSONInput() {
+      document.getElementById('jsonInput').value = '';
+      showStatus('JSON input cleared', 'success');
     }
 
     // Load on page load
