@@ -25,6 +25,7 @@
     .state-row { margin-bottom: 16px; padding: 12px; background: #111827; border-radius: 8px; border: 1px solid #1f2937; }
     .state-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
     .state-key { font-family: monospace; font-size: 12px; color: #9ca3af; }
+    .state-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-left: 8px; }
     .state-description { font-size: 11px; color: #6b7280; margin-bottom: 8px; }
     .response-input { width: 100%; min-height: 60px; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
@@ -70,34 +71,8 @@
     import { BACKEND_URL } from '/config.js';
     const BACKEND = BACKEND_URL;
 
-    // Known Markov states from the system
-    const MARKOV_STATES = [
-      { key: "initial_outreach", description: "Initial outbound message state" },
-      { key: "interest", description: "User shows interest" },
-      { key: "light_interest", description: "User shows mild interest" },
-      { key: "strong_interest", description: "User is very interested" },
-      { key: "confused_interest", description: "User sounds unsure but open" },
-      { key: "want_proof", description: "User wants proof or verification" },
-      { key: "want_numbers", description: "User wants quantity or statistics" },
-      { key: "question", description: "User has a question" },
-      { key: "pricing_question", description: "User asks for pricing" },
-      { key: "deliverable_question", description: "User asks what they receive" },
-      { key: "timeline_question", description: "User asks about delivery time" },
-      { key: "pricing", description: "User is interested in pricing" },
-      { key: "asks_for_price", description: "User asks how much it costs" },
-      { key: "negotiates_price", description: "User tries to negotiate" },
-      { key: "objection", description: "User has an objection" },
-      { key: "price_too_high", description: "User thinks price is too high" },
-      { key: "no_time", description: "User claims to be too busy" },
-      { key: "not_interested", description: "User rejects offer" },
-      { key: "who_are_you", description: "User questions legitimacy" },
-      { key: "demo", description: "User wants a demo" },
-      { key: "asks_for_example_list", description: "User wants example list" },
-      { key: "purchase", description: "User is ready to purchase" },
-      { key: "ready_to_pay", description: "User wants to pay now" },
-      { key: "send_payment_info", description: "User asks how to pay" },
-      { key: "dead", description: "Conversation permanently dead" },
-    ];
+    // States will be loaded from the registry endpoint
+    let MARKOV_STATES = [];
 
     function showStatus(message, type = 'info') {
       const statusDiv = document.getElementById('status');
@@ -111,42 +86,58 @@
 
     async function loadResponses() {
       try {
-        const res = await fetch(`${BACKEND}/markov/responses`);
-        const data = await res.json();
+        // Step 1: Fetch all states from the registry (authoritative source)
+        const statesRes = await fetch(`${BACKEND}/markov/states`);
+        if (!statesRes.ok) {
+          throw new Error(`Failed to load states: ${statesRes.status}`);
+        }
+        MARKOV_STATES = await statesRes.json();
+
+        // Step 2: Fetch configured responses from DB
+        const responsesRes = await fetch(`${BACKEND}/markov/responses`);
+        if (!responsesRes.ok) {
+          throw new Error(`Failed to load responses: ${responsesRes.status}`);
+        }
+        const responsesData = await responsesRes.json();
 
         // Load initial outreach
-        if (data.initial_outreach) {
-          document.getElementById('initialOutreach').value = data.initial_outreach;
+        if (responsesData.initial_outreach) {
+          document.getElementById('initialOutreach').value = responsesData.initial_outreach;
         }
 
-        // Load state responses
-        const responses = data.responses || {};
+        // Step 3: Merge states (registry) with responses (config)
+        const responses = responsesData.responses || {};
         const container = document.getElementById('stateResponses');
         container.innerHTML = '';
 
         MARKOV_STATES.forEach(state => {
-          const stateData = responses[state.key] || {};
-          const responseText = stateData.response_text || '';
-          const description = stateData.description || state.description || '';
+          // Get config for this state (if it exists)
+          const stateConfig = responses[state.state_key] || {};
+          const responseText = stateConfig.response_text || '';
+          const configDescription = stateConfig.description || '';
+          
+          // Use description from registry, or fallback to config description
+          const description = state.description || configDescription || '';
 
           const row = document.createElement('div');
           row.className = 'state-row';
           row.innerHTML = `
             <div class="state-header">
               <div>
-                <strong>${state.key}</strong>
-                <span class="state-key">${state.key}</span>
+                <strong>${state.label || state.state_key}</strong>
+                <span class="state-badge" style="background: ${state.color}20; border: 1px solid ${state.color}; color: ${state.color};">${state.state_key}</span>
               </div>
             </div>
             ${description ? `<div class="state-description">${description}</div>` : ''}
-            <textarea class="response-input" data-state="${state.key}" placeholder="Leave empty to skip replies for this state">${responseText}</textarea>
+            <textarea class="response-input" data-state="${state.state_key}" placeholder="Leave empty to skip replies for this state">${responseText}</textarea>
           `;
           container.appendChild(row);
         });
 
-        showStatus('Responses loaded', 'success');
+        showStatus('States and responses loaded', 'success');
       } catch (error) {
-        showStatus(`Error loading responses: ${error.message}`, 'error');
+        showStatus(`Error loading: ${error.message}`, 'error');
+        console.error('Load error:', error);
       }
     }
 

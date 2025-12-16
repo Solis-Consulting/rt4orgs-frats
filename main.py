@@ -28,6 +28,8 @@ load_dotenv()
 # Now import local modules (using proper package paths)
 from intelligence.handler import handle_inbound
 from intelligence.utils import normalize_phone
+from intelligence.markov import CONVERSATION_TREE, ROOT_STATE
+from intelligence.states import SUBTAM_DESCRIPTIONS
 
 from backend.cards import (
     validate_card_schema,
@@ -1664,6 +1666,72 @@ async def send_message(request: Dict[str, Any]):
 # ============================================================================
 # Markov Response Configuration Endpoints
 # ============================================================================
+
+def generate_state_color(state_key: str) -> str:
+    """
+    Generate a deterministic color for a state key using a simple hash.
+    Returns a hex color code.
+    """
+    # Simple hash function for deterministic colors
+    hash_val = hash(state_key) % (256 * 256 * 256)
+    r = (hash_val >> 16) & 0xFF
+    g = (hash_val >> 8) & 0xFF
+    b = hash_val & 0xFF
+    
+    # Adjust brightness to ensure colors are visible (not too dark)
+    r = max(100, min(220, r))
+    g = max(100, min(220, g))
+    b = max(100, min(220, b))
+    
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def get_all_markov_states() -> List[Dict[str, Any]]:
+    """
+    Get all Markov states from the intelligence registry.
+    Flattens the conversation tree and includes the root state.
+    Returns list of {state_key, label, description, color}
+    """
+    all_states = set()
+    
+    # Add root state
+    all_states.add(ROOT_STATE)
+    
+    # Flatten the tree - add all parent states and their children
+    for parent, children in CONVERSATION_TREE.items():
+        all_states.add(parent)
+        all_states.update(children)
+    
+    # Convert to sorted list for consistent ordering
+    state_list = sorted(all_states)
+    
+    # Build the response with metadata
+    result = []
+    for state_key in state_list:
+        description = SUBTAM_DESCRIPTIONS.get(state_key, "")
+        # Use human-readable label (convert snake_case to Title Case)
+        label = state_key.replace("_", " ").title()
+        
+        result.append({
+            "state_key": state_key,
+            "label": label,
+            "description": description,
+            "color": generate_state_color(state_key),
+        })
+    
+    return result
+
+
+@app.get("/markov/states")
+async def get_markov_states():
+    """
+    Get all possible Markov/SubTAM states from the intelligence registry.
+    This is the authoritative source of which states exist (code-defined, not DB).
+    Returns list of {state_key, label, description, color}
+    """
+    states = get_all_markov_states()
+    return states
+
 
 @app.get("/markov/responses")
 async def get_markov_responses():

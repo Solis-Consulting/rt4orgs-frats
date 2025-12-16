@@ -201,9 +201,10 @@ def run_migration() -> Tuple[bool, Optional[str]]:
         
         print("✅ Database connection established")
         
-        # Check if cards table already exists
-        print("🔍 Checking if cards table exists...")
+        # Check which tables exist
+        print("🔍 Checking existing tables...")
         cards_exists = check_table_exists(conn, "cards")
+        markov_responses_exists = check_table_exists(conn, "markov_responses")
         
         # #region agent log - Table existence check
         try:
@@ -214,8 +215,8 @@ def run_migration() -> Tuple[bool, Optional[str]]:
                     "runId": "run1",
                     "timestamp": int(time.time() * 1000),
                     "location": f"{__file__}:TABLE_CHECK",
-                    "message": "Checked if cards table exists",
-                    "data": {"cards_exists": cards_exists},
+                    "message": "Checked table existence",
+                    "data": {"cards_exists": cards_exists, "markov_responses_exists": markov_responses_exists},
                     "hypothesisId": "C"
                 }) + "\n")
         except:
@@ -223,12 +224,22 @@ def run_migration() -> Tuple[bool, Optional[str]]:
         # #endregion
         
         print(f"📊 Cards table exists: {cards_exists}")
+        print(f"📊 Markov responses table exists: {markov_responses_exists}")
         
-        if cards_exists:
-            # Tables already exist, skip migration
-            print("⏭️  Migration skipped: tables already exist")
+        # Check if all required tables exist
+        required_tables_exist = cards_exists and markov_responses_exists
+        
+        if required_tables_exist:
+            # All required tables exist, skip migration
+            print("⏭️  Migration skipped: all required tables already exist")
             conn.close()
-            return True, "Migration skipped: tables already exist"
+            return True, "Migration skipped: all required tables already exist"
+        
+        # Some tables are missing - run migration (schema.sql uses IF NOT EXISTS, so safe to run)
+        if cards_exists and not markov_responses_exists:
+            print("🔧 Missing markov_responses table - running migration to add it...")
+        elif not cards_exists:
+            print("🔧 Missing tables - running full migration...")
         
         # Run migration
         print("🚀 Executing migration SQL...")
@@ -276,6 +287,7 @@ def run_migration() -> Tuple[bool, Optional[str]]:
         print("🔍 Verifying tables were created...")
         cards_exists_after = check_table_exists(conn, "cards")
         relationships_exists = check_table_exists(conn, "card_relationships")
+        markov_responses_exists_after = check_table_exists(conn, "markov_responses")
         
         # #region agent log - Table verification
         try:
@@ -287,7 +299,11 @@ def run_migration() -> Tuple[bool, Optional[str]]:
                     "timestamp": int(time.time() * 1000),
                     "location": f"{__file__}:TABLE_VERIFICATION",
                     "message": "Verified tables after migration",
-                    "data": {"cards_exists": cards_exists_after, "relationships_exists": relationships_exists},
+                    "data": {
+                        "cards_exists": cards_exists_after,
+                        "relationships_exists": relationships_exists,
+                        "markov_responses_exists": markov_responses_exists_after
+                    },
                     "hypothesisId": "C"
                 }) + "\n")
         except:
@@ -296,18 +312,20 @@ def run_migration() -> Tuple[bool, Optional[str]]:
         
         print(f"📊 Cards table exists after: {cards_exists_after}")
         print(f"📊 Relationships table exists: {relationships_exists}")
+        print(f"📊 Markov responses table exists: {markov_responses_exists_after}")
         
         conn.close()
         
-        if cards_exists_after and relationships_exists:
+        # Check if all critical tables exist
+        if cards_exists_after and markov_responses_exists_after:
             print("✅ Migration completed successfully")
-            return True, "Migration completed successfully: created cards and card_relationships tables"
+            return True, "Migration completed successfully: created required tables"
         elif cards_exists_after:
-            print("⚠️  Migration completed (partial)")
-            return True, "Migration completed: created cards table (card_relationships may already exist)"
+            print("⚠️  Migration completed (partial - markov_responses may still be missing)")
+            return True, "Migration completed: created cards table"
         else:
-            print("❌ Migration executed but tables were not created")
-            return False, "Migration executed but tables were not created"
+            print("❌ Migration executed but critical tables were not created")
+            return False, "Migration executed but critical tables were not created"
         
     except psycopg2.Error as e:
         print(f"❌ Database error: {str(e)}")
