@@ -37,10 +37,8 @@ from backend.query import build_list_query
 from backend.resolve import resolve_target, extract_phones_from_cards
 from backend.webhook_config import WEBHOOK_CONFIG, WebhookConfig
 
-# Import blast function
-SCRIPTS_DIR = Path(__file__).resolve().parent / "scripts"
-sys.path.insert(0, str(SCRIPTS_DIR))
-from blast import run_blast
+# Import blast function (scripts is now a package)
+from scripts.blast import run_blast
 
 app = FastAPI()
 
