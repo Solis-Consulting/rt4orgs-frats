@@ -184,6 +184,9 @@
       showStatus('Uploading cards...', 'info');
 
       try {
+        console.log('UPLOAD: Sending request to', `${BACKEND}/cards/upload`);
+        console.log('UPLOAD: Card count:', validatedCards.length);
+        
         const response = await fetch(`${BACKEND}/cards/upload`, {
           method: 'POST',
           headers: {
@@ -191,6 +194,9 @@
           },
           body: JSON.stringify(validatedCards),
         });
+
+        console.log('UPLOAD RESPONSE STATUS:', response.status);
+        console.log('UPLOAD RESPONSE OK:', response.ok);
 
         // Check HTTP status code first
         if (!response.ok) {
@@ -201,11 +207,25 @@
           } catch {
             errorText = await response.text() || `HTTP ${response.status}`;
           }
+          console.error('UPLOAD FAILED:', response.status, errorText);
           showStatus(`Upload failed (${response.status}): ${errorText}`, 'error');
+          alert(`UPLOAD FAILED: ${response.status} - ${errorText}`);
           return;
         }
 
-        const result = await response.json();
+        const responseText = await response.text();
+        console.log('UPLOAD RESPONSE BODY:', responseText);
+        
+        let result;
+        try {
+          result = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error('UPLOAD: Failed to parse JSON response:', parseError);
+          console.error('UPLOAD: Response text was:', responseText);
+          showStatus(`Upload error: Invalid JSON response from server`, 'error');
+          alert(`UPLOAD ERROR: Server returned invalid JSON. Check console for details.`);
+          return;
+        }
 
         if (result.ok) {
           // Verify cards are actually in DB
@@ -282,7 +302,10 @@
           }
         }
       } catch (e) {
+        console.error('UPLOAD EXCEPTION:', e);
+        console.error('UPLOAD EXCEPTION STACK:', e.stack);
         showStatus(`Upload error: ${e.message}`, 'error');
+        alert(`UPLOAD FAILED: ${e.message}\n\nCheck browser console for details.`);
       } finally {
         uploadBtn.disabled = false;
         uploadBtn.textContent = 'Upload Cards';

@@ -973,6 +973,9 @@ async def upload_cards(cards: List[Dict[str, Any]]):
     Upload array of heterogeneous JSON card objects.
     Validates schema, normalizes IDs, resolves references, and stores cards.
     """
+    print("=" * 60)
+    print("UPLOAD HIT")
+    print("=" * 60)
     print(f"📤 Upload request: {len(cards)} card(s)")
     
     try:
