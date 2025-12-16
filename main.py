@@ -339,7 +339,7 @@ async def update_webhook_config(cfg: WebhookConfig = Body(...)):
 @app.get("/")
 def root():
     """Root endpoint to verify app is loaded correctly."""
-    return {"status": "ok", "message": "FastAPI app is running", "service": "rt4orgs-frats-backend"}
+    return {"status": "ok", "message": "FastAPI app is running", "service": "rt4orgs-frats-backend", "version": "2024-12-15"}
 
 
 @app.get("/health")
