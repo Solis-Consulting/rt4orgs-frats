@@ -483,6 +483,11 @@
       }
     }
 
+    // Expose functions to global scope for onclick handlers
+    window.saveStateFromTextarea = saveStateFromTextarea;
+    window.importFromJSON = importFromJSON;
+    window.saveState = saveState;
+
     // Load on page load
     loadResponses();
   </script>
