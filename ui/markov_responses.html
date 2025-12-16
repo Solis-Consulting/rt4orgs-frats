@@ -60,23 +60,21 @@
         <div id="stateResponses"></div>
       </div>
 
-      <!-- JSON Import/Export Section -->
+      <!-- JSON Import Section -->
       <div class="section">
-        <div class="section-title">JSON Import / Export</div>
+        <div class="section-title">JSON Import</div>
         <div style="margin-bottom: 12px; font-size: 12px; color: #9ca3af;">
-          Import JSON to populate all fields, or export current configuration as JSON.
+          Paste JSON to populate all fields. Import automatically saves to backend.
         </div>
         <textarea id="jsonInput" placeholder='{"initial_outreach": "...", "responses": {"state_key": {"response_text": "...", "description": "..."}}}' style="min-height: 150px; font-family: 'Monaco', 'Courier New', monospace; font-size: 12px;"></textarea>
         <div style="margin-top: 12px;">
-          <button class="button-secondary" onclick="importFromJSON()">Import JSON</button>
-          <button class="button-secondary" onclick="exportToJSON()">Export JSON</button>
-          <button class="button-secondary" onclick="clearJSONInput()">Clear</button>
+          <button id="importBtn" onclick="importFromJSON()">Import JSON</button>
         </div>
       </div>
 
       <div style="margin-top: 24px;">
         <button id="saveBtn" onclick="saveResponses()">Save All Changes</button>
-        <button class="button-secondary" onclick="loadResponses()">Reload</button>
+        <button class="button-secondary" onclick="loadResponses()" style="opacity: 0.7;">Reload</button>
       </div>
     </div>
   </div>
@@ -171,11 +169,16 @@
       }
     }
 
-    async function saveResponses() {
-      console.log('SAVE CLICKED - saveResponses() called');
+    async function saveResponses(isAutoSave = false) {
+      if (!isAutoSave) {
+        console.log('SAVE CLICKED - saveResponses() called');
+      }
       const saveBtn = document.getElementById('saveBtn');
-      saveBtn.disabled = true;
-      saveBtn.textContent = 'Saving...';
+      const wasDisabled = saveBtn ? saveBtn.disabled : false;
+      if (!isAutoSave && saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+      }
 
       try {
         console.log('SAVE: BACKEND URL =', BACKEND);
@@ -221,53 +224,34 @@
           throw new Error(data.error || data.message || `HTTP ${res.status}`);
         }
 
-        showStatus('All responses saved successfully', 'success');
+        if (!isAutoSave) {
+          showStatus('All responses saved successfully', 'success');
+        }
       } catch (error) {
         console.error('SAVE ERROR:', error);
-        showStatus(`Error saving: ${error.message}`, 'error');
+        if (!isAutoSave) {
+          showStatus(`Error saving: ${error.message}`, 'error');
+        } else {
+          throw error; // Re-throw for importFromJSON to handle
+        }
       } finally {
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Save All Changes';
+        if (!isAutoSave && saveBtn) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save All Changes';
+        } else if (saveBtn) {
+          saveBtn.disabled = wasDisabled;
+        }
       }
     }
 
-    function exportToJSON() {
-      console.log('EXPORT CLICKED - exportToJSON() called');
-      try {
-        // Collect initial outreach
-        const initialOutreach = document.getElementById('initialOutreach').value.trim();
 
-        // Collect state responses
-        const responses = {};
-        document.querySelectorAll('.response-input').forEach(textarea => {
-          const stateKey = textarea.getAttribute('data-state');
-          const responseText = textarea.value.trim();
-          if (stateKey && responseText) {
-            responses[stateKey] = {
-              response_text: responseText,
-              description: '',
-            };
-          }
-        });
-
-        const exportData = {
-          initial_outreach: initialOutreach || null,
-          responses: responses,
-        };
-
-        // Format and display in JSON textarea
-        const jsonString = JSON.stringify(exportData, null, 2);
-        document.getElementById('jsonInput').value = jsonString;
-        console.log('EXPORT: Exported', Object.keys(responses).length, 'state responses');
-        showStatus('JSON exported to textarea below', 'success');
-      } catch (error) {
-        console.error('EXPORT ERROR:', error);
-        showStatus(`Error exporting JSON: ${error.message}`, 'error');
-      }
-    }
-
-    function importFromJSON() {
+    async function importFromJSON() {
       console.log('IMPORT CLICKED - importFromJSON() called');
+      const importBtn = document.getElementById('importBtn');
+      const originalText = importBtn.textContent;
+      importBtn.disabled = true;
+      importBtn.textContent = 'Importing...';
+
       try {
         const jsonText = document.getElementById('jsonInput').value.trim();
         if (!jsonText) {
@@ -284,13 +268,10 @@
           throw new Error('JSON must be an object');
         }
 
-        let importedCount = 0;
-
         // Import initial outreach
         if (data.initial_outreach !== undefined && data.initial_outreach !== null) {
           document.getElementById('initialOutreach').value = data.initial_outreach;
           console.log('IMPORT: Set initial_outreach');
-          importedCount++;
         }
 
         // Import state responses
@@ -301,22 +282,23 @@
               const stateData = data.responses[stateKey];
               const responseText = stateData.response_text || stateData.responseText || '';
               textarea.value = responseText;
-              importedCount++;
             }
           });
           console.log('IMPORT: Imported', Object.keys(data.responses).length, 'state responses');
         }
 
-        showStatus(`JSON imported successfully (${importedCount} fields). Click "Save All Changes" to persist.`, 'success');
+        // Auto-save immediately after import
+        console.log('IMPORT: Auto-saving to backend...');
+        await saveResponses(true); // Pass true to indicate this is from import
+
+        showStatus('JSON imported and saved successfully', 'success');
       } catch (error) {
         console.error('IMPORT ERROR:', error);
         showStatus(`Error importing JSON: ${error.message}`, 'error');
+      } finally {
+        importBtn.disabled = false;
+        importBtn.textContent = originalText;
       }
-    }
-
-    function clearJSONInput() {
-      document.getElementById('jsonInput').value = '';
-      showStatus('JSON input cleared', 'success');
     }
 
     // Load on page load
