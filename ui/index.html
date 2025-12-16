@@ -168,17 +168,24 @@
         "<div><strong>" + rows.length + "</strong> shown</div>";
 
       let html = "<table><thead><tr>";
-      html += "<th>Name</th><th>State</th><th>Folders</th><th>Open</th>";
+      html += "<th>Name</th><th>State</th><th>Messages</th><th>Open</th>";
       html += "</tr></thead><tbody>";
 
       rows.forEach(l => {
         const s = l.latest_state?.next_state || "";
         const cls = stateBadgeClass(s);
+        const inboundCount = l.inbound_count || 0;
         html += "<tr>";
         html += "<td>" + l.name + "</td>";
         html += "<td><span class='badge " + cls + "'>" + s + "</span></td>";
-        html += "<td>" + l.folders.length + "</td>";
-        html += "<td><a class='link' href='lead.html?name=" + encodeURIComponent(l.name) + "'>View</a></td>";
+        html += "<td>" + inboundCount + " message" + (inboundCount !== 1 ? "s" : "") + "</td>";
+        // Link to card detail page instead of lead.html
+        const cardId = l.card_id || "";
+        if (cardId) {
+          html += "<td><a class='link' href='card.html?id=" + encodeURIComponent(cardId) + "'>View</a></td>";
+        } else {
+          html += "<td>-</td>";
+        }
         html += "</tr>";
       });
 
@@ -189,12 +196,29 @@
 
     async function load() {
       try {
-        const res = await fetch(BACKEND + "/all");
+        const res = await fetch(BACKEND + "/leads");
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
         const data = await res.json();
-        allLeads = Object.values(data);
+        // Convert leads array to format expected by render function
+        allLeads = (data.leads || []).map(lead => ({
+          name: lead.name,
+          card_id: lead.card_id,
+          phone: lead.phone,
+          latest_state: {
+            next_state: lead.state || "unknown"
+          },
+          folders: [], // Not used in new system
+          last_inbound_at: lead.last_inbound_at,
+          last_outbound_at: lead.last_outbound_at,
+          inbound_count: lead.inbound_count || 0,
+          sales_state: lead.sales_state
+        }));
         render();
       } catch (error) {
-        document.getElementById("tableWrap").innerHTML = "<div style='color: #fecaca; padding: 20px;'>Error loading leads. Make sure BACKEND URL is set correctly.</div>";
+        console.error("Error loading leads:", error);
+        document.getElementById("tableWrap").innerHTML = `<div style='color: #fecaca; padding: 20px;'>Error loading leads: ${error.message}. Make sure BACKEND URL is set correctly.</div>`;
       }
     }
 

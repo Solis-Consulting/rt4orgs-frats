@@ -515,17 +515,66 @@ async def inbound_intelligent(event: dict):
         
         row = cur.fetchone()
         
+        # Find card by phone number to link conversation
+        # Try multiple phone formats for matching
+        card_id = None
+        phone_variants = [
+            phone_raw,  # Original format from Twilio
+            f"+{phone}",  # + prefix with normalized
+            phone,  # Normalized (last 10 digits)
+            phone_raw.replace("+", ""),  # Without +
+        ]
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_variants = []
+        for variant in phone_variants:
+            if variant and variant not in seen:
+                seen.add(variant)
+                unique_variants.append(variant)
+        
+        # Try to find card by any phone variant
+        for phone_variant in unique_variants:
+            cur.execute("""
+                SELECT id FROM cards
+                WHERE type = 'person'
+                AND card_data->>'phone' = %s
+                LIMIT 1;
+            """, (phone_variant,))
+            card_row = cur.fetchone()
+            if card_row:
+                card_id = card_row[0]
+                break
+        
+        # Also try normalized last 10 digits matching (for cases like +19843695080 vs 19843695080)
+        if not card_id:
+            # Extract last 10 digits from normalized phone
+            last_10 = phone[-10:] if len(phone) >= 10 else phone
+            cur.execute("""
+                SELECT id FROM cards
+                WHERE type = 'person'
+                AND (
+                    card_data->>'phone' LIKE %s
+                    OR RIGHT(REPLACE(card_data->>'phone', '+', ''), 10) = %s
+                )
+                LIMIT 1;
+            """, (f"%{last_10}", last_10))
+            card_row = cur.fetchone()
+            if card_row:
+                card_id = card_row[0]
+        
         # Auto-create conversation if it doesn't exist
         if not row:
-            # Create new conversation with initial state
+            # Create new conversation with initial state and link to card if found
             try:
                 cur.execute("""
                     INSERT INTO conversations
-                    (phone, state, last_inbound_at, history)
-                    VALUES (%s, 'initial_outreach', %s, %s::jsonb)
-                    ON CONFLICT (phone) DO NOTHING
+                    (phone, card_id, state, last_inbound_at, history)
+                    VALUES (%s, %s, 'initial_outreach', %s, %s::jsonb)
+                    ON CONFLICT (phone) DO UPDATE SET
+                        card_id = COALESCE(EXCLUDED.card_id, conversations.card_id)
                     RETURNING phone, state, COALESCE(history::text, '[]') as history;
-                """, (phone, datetime.utcnow(), json.dumps([])))
+                """, (phone, card_id, datetime.utcnow(), json.dumps([])))
                 row = cur.fetchone()
                 # If still no row (conflict), fetch it
                 if not row:
@@ -539,11 +588,12 @@ async def inbound_intelligent(event: dict):
                 # History column doesn't exist, create without it
                 cur.execute("""
                     INSERT INTO conversations
-                    (phone, state, last_inbound_at)
-                    VALUES (%s, 'initial_outreach', %s)
-                    ON CONFLICT (phone) DO NOTHING
+                    (phone, card_id, state, last_inbound_at)
+                    VALUES (%s, %s, 'initial_outreach', %s)
+                    ON CONFLICT (phone) DO UPDATE SET
+                        card_id = COALESCE(EXCLUDED.card_id, conversations.card_id)
                     RETURNING phone, state;
-                """, (phone, datetime.utcnow()))
+                """, (phone, card_id, datetime.utcnow()))
                 row = cur.fetchone()
                 # If still no row (conflict), fetch it
                 if not row:
@@ -553,6 +603,16 @@ async def inbound_intelligent(event: dict):
                         WHERE phone = %s;
                     """, (phone,))
                     row = cur.fetchone()
+        
+        # If conversation exists but card_id is missing, try to link it
+        if row and not card_id:
+            # Check if conversation already has a card_id
+            cur.execute("""
+                SELECT card_id FROM conversations WHERE phone = %s;
+            """, (phone,))
+            existing_card_id = cur.fetchone()
+            if existing_card_id and existing_card_id[0]:
+                card_id = existing_card_id[0]
         
         if not row:
             raise HTTPException(status_code=500, detail=f"Failed to create or fetch conversation for phone: {phone}")
@@ -599,19 +659,21 @@ async def inbound_intelligent(event: dict):
         }
         updated_history = normalized_history + [inbound_msg]
         
-        # Update conversations table with new state and history
+        # Update conversations table with new state, history, and card_id
         # Try to update history if column exists
         try:
             cur.execute("""
                 UPDATE conversations
                 SET state = %s,
                     last_inbound_at = %s,
-                    history = %s::jsonb
+                    history = %s::jsonb,
+                    card_id = COALESCE(%s, card_id)
                 WHERE phone = %s;
             """, (
                 result["next_state"],
                 datetime.utcnow(),
                 json.dumps(updated_history),
+                card_id,  # Link to card if found
                 phone,
             ))
         except psycopg2.ProgrammingError:
@@ -619,11 +681,13 @@ async def inbound_intelligent(event: dict):
             cur.execute("""
                 UPDATE conversations
                 SET state = %s,
-                    last_inbound_at = %s
+                    last_inbound_at = %s,
+                    card_id = COALESCE(%s, card_id)
                 WHERE phone = %s;
             """, (
                 result["next_state"],
                 datetime.utcnow(),
+                card_id,  # Link to card if found
                 phone,
             ))
     
@@ -941,6 +1005,73 @@ async def get_all():
     Returns empty dict - new system uses /cards endpoint.
     """
     return {}
+
+
+@app.get("/leads")
+async def get_leads():
+    """
+    Get all leads - cards that have received inbound messages (responses).
+    Leads = any cards with last_inbound_at set (not null).
+    """
+    conn = get_conn()
+    leads = []
+    
+    with conn.cursor() as cur:
+        # Get all conversations with inbound messages
+        cur.execute("""
+            SELECT DISTINCT c.card_id, c.phone, c.state, c.last_inbound_at, c.last_outbound_at,
+                   COALESCE(c.history::text, '[]') as history
+            FROM conversations c
+            WHERE c.card_id IS NOT NULL
+              AND c.last_inbound_at IS NOT NULL
+            ORDER BY c.last_inbound_at DESC;
+        """)
+        
+        rows = cur.fetchall()
+        
+        # Get card details for each lead
+        for row in rows:
+            card_id = row[0]
+            phone = row[1]
+            state = row[2]
+            last_inbound_at = row[3]
+            last_outbound_at = row[4]
+            history_raw = row[5] if len(row) > 5 else '[]'
+            
+            # Get card details
+            card = get_card(conn, card_id)
+            if not card:
+                continue
+            
+            # Parse history
+            try:
+                history = json.loads(history_raw) if isinstance(history_raw, str) else history_raw
+            except:
+                history = []
+            
+            # Count inbound messages
+            inbound_count = sum(1 for msg in history if (
+                isinstance(msg, dict) and msg.get("direction") == "inbound"
+            ) or isinstance(msg, str))
+            
+            card_data = card.get("card_data", {})
+            lead = {
+                "card_id": card_id,
+                "name": card_data.get("name", card_id),
+                "phone": phone,
+                "state": state,
+                "last_inbound_at": last_inbound_at.isoformat() if last_inbound_at else None,
+                "last_outbound_at": last_outbound_at.isoformat() if last_outbound_at else None,
+                "inbound_count": inbound_count,
+                "card_data": card_data,
+                "sales_state": card.get("sales_state", "cold"),
+            }
+            leads.append(lead)
+    
+    return {
+        "leads": leads,
+        "count": len(leads)
+    }
 
 
 @app.get("/lead/{name}")
