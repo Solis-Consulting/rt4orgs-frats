@@ -805,6 +805,13 @@ async def twilio_inbound(request: Request):
             # Try to get configured response for this state
             configured_response = get_markov_response(conn, next_state)
             
+            # Filter out "OK" responses from database
+            if configured_response:
+                configured_response_clean = configured_response.strip().upper()
+                if configured_response_clean in ["OK", "OKAY", "K", "OK."]:
+                    print(f"[TWILIO_INBOUND] Filtered out 'OK' response from database for state '{next_state}'")
+                    configured_response = None
+            
             if configured_response:
                 # If we have a card, substitute template placeholders
                 if card and card.get("card_data"):
