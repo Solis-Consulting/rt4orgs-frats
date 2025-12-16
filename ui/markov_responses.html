@@ -27,12 +27,18 @@
     .state-key { font-family: monospace; font-size: 12px; color: #9ca3af; }
     .state-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-left: 8px; }
     .state-description { font-size: 11px; color: #6b7280; margin-bottom: 8px; }
-    .state-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .state-actions { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
     .save-state-btn { background: #0ea5e9; color: #0f172a; border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
     .save-state-btn:hover { background: #38bdf8; }
     .save-state-btn:disabled { background: #374151; color: #6b7280; cursor: not-allowed; }
-    .save-state-btn.saved { background: #22c55e; color: white; }
-    @keyframes flashSaved { 0% { background: #22c55e; } 100% { background: #0ea5e9; } }
+    .state-status { font-size: 12px; font-weight: 500; margin-left: 8px; min-width: 80px; }
+    .state-status.saving { color: #9ca3af; }
+    .state-status.success { color: #22c55e; }
+    .state-status.error { color: #f87171; }
+    .import-status { font-size: 13px; font-weight: 500; margin-top: 8px; padding: 8px; border-radius: 6px; }
+    .import-status.success { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #22c55e; }
+    .import-status.warning { background: rgba(251,191,36,0.15); border: 1px solid rgba(251,191,36,0.3); color: #fbbf24; }
+    .import-status.error { background: rgba(248,113,113,0.15); border: 1px solid rgba(248,113,113,0.3); color: #f87171; }
     .response-input { width: 100%; min-height: 60px; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
     th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid #1f2937; }
@@ -56,7 +62,8 @@
         </div>
         <textarea id="initialOutreach" placeholder="Hello {name}, we would like to know how {fraternity}'s spring rush could be with a FRESH PNM list..."></textarea>
         <div class="state-actions">
-          <button class="save-state-btn" id="saveInitialOutreachBtn" onclick="saveState('__initial_outreach__', 'initialOutreach', 'saveInitialOutreachBtn')">Save</button>
+          <button class="save-state-btn" id="saveInitialOutreachBtn" onclick="saveState('__initial_outreach__', 'initialOutreach')">Save</button>
+          <span class="state-status" id="status-__initial_outreach__"></span>
         </div>
       </div>
 
@@ -79,6 +86,7 @@
         <div style="margin-top: 12px;">
           <button id="importBtn" onclick="importFromJSON()">Import JSON</button>
         </div>
+        <div id="importStatus" class="import-status" style="display: none;"></div>
       </div>
 
       <div style="margin-top: 24px;">
@@ -169,7 +177,8 @@
             ${description ? `<div class="state-description">${description}</div>` : ''}
             <textarea id="${textareaId}" class="response-input" data-state="${state.state_key}" placeholder="Leave empty to skip replies for this state">${responseText}</textarea>
             <div class="state-actions">
-              <button class="save-state-btn" id="${buttonId}" onclick="saveState('${state.state_key}', '${textareaId}', '${buttonId}')">Save</button>
+              <button class="save-state-btn" id="${buttonId}" onclick="saveState('${state.state_key}', '${textareaId}')">Save</button>
+              <span class="state-status" id="status-${state.state_key}"></span>
             </div>
           `;
           container.appendChild(row);
@@ -182,19 +191,49 @@
       }
     }
 
-    async function saveState(stateKey, textareaId, buttonId) {
+    function setStateStatus(stateKey, status, message = '') {
+      const statusEl = document.getElementById(`status-${stateKey}`);
+      if (!statusEl) return;
+      
+      // Remove all status classes
+      statusEl.classList.remove('saving', 'success', 'error');
+      
+      if (status === 'saving') {
+        statusEl.classList.add('saving');
+        statusEl.textContent = 'Saving…';
+      } else if (status === 'success') {
+        statusEl.classList.add('success');
+        statusEl.textContent = '✓ Saved';
+        // Clear after 2 seconds
+        setTimeout(() => {
+          if (statusEl.textContent === '✓ Saved') {
+            statusEl.textContent = '';
+            statusEl.classList.remove('success');
+          }
+        }, 2000);
+      } else if (status === 'error') {
+        statusEl.classList.add('error');
+        statusEl.textContent = `✕ ${message || 'Error'}`;
+      } else {
+        statusEl.textContent = '';
+      }
+    }
+
+    async function saveState(stateKey, textareaId) {
       console.log('SAVE STATE:', stateKey);
       const textarea = document.getElementById(textareaId);
+      const buttonId = textareaId === 'initialOutreach' ? 'saveInitialOutreachBtn' : `save-${stateKey}-btn`;
       const button = document.getElementById(buttonId);
       
-      if (!textarea || !button) {
-        console.error('Could not find textarea or button for state:', stateKey);
-        return;
+      if (!textarea) {
+        console.error('Could not find textarea for state:', stateKey);
+        return false;
       }
 
-      const originalText = button.textContent;
-      button.disabled = true;
-      button.textContent = 'Saving...';
+      if (button) {
+        button.disabled = true;
+      }
+      setStateStatus(stateKey, 'saving');
 
       try {
         const responseText = textarea.value.trim();
@@ -225,25 +264,44 @@
         const data = await res.json();
         console.log('SAVE STATE: Response data =', data);
 
-        // Flash saved state
-        button.classList.add('saved');
-        button.textContent = 'Saved ✓';
-        setTimeout(() => {
-          button.classList.remove('saved');
-          button.textContent = originalText;
-        }, 2000);
+        setStateStatus(stateKey, 'success');
+        return true;
 
       } catch (error) {
         console.error('SAVE STATE ERROR:', error);
-        button.textContent = 'Error';
-        setTimeout(() => {
-          button.textContent = originalText;
-        }, 2000);
+        setStateStatus(stateKey, 'error', error.message);
+        return false;
       } finally {
-        button.disabled = false;
+        if (button) {
+          button.disabled = false;
+        }
       }
     }
 
+
+    function showImportSummary(ok, fail, total) {
+      const statusEl = document.getElementById('importStatus');
+      if (!statusEl) return;
+      
+      statusEl.style.display = 'block';
+      statusEl.classList.remove('success', 'warning', 'error');
+      
+      if (fail === 0) {
+        statusEl.classList.add('success');
+        statusEl.textContent = `✔ Imported ${ok} ${ok === 1 ? 'state' : 'states'} successfully`;
+      } else if (ok === 0) {
+        statusEl.classList.add('error');
+        statusEl.textContent = `✕ Import failed: ${fail} ${fail === 1 ? 'state' : 'states'} failed`;
+      } else {
+        statusEl.classList.add('warning');
+        statusEl.textContent = `⚠ Imported ${ok}, ${fail} ${fail === 1 ? 'state' : 'states'} failed`;
+      }
+      
+      // Clear after 5 seconds
+      setTimeout(() => {
+        statusEl.style.display = 'none';
+      }, 5000);
+    }
 
     async function importFromJSON() {
       console.log('IMPORT CLICKED - importFromJSON() called');
@@ -251,6 +309,15 @@
       const originalText = importBtn.textContent;
       importBtn.disabled = true;
       importBtn.textContent = 'Importing...';
+
+      // Hide previous import status
+      const statusEl = document.getElementById('importStatus');
+      if (statusEl) {
+        statusEl.style.display = 'none';
+      }
+
+      let ok = 0;
+      let fail = 0;
 
       try {
         const jsonText = document.getElementById('jsonInput').value.trim();
@@ -272,8 +339,9 @@
         if (data.initial_outreach !== undefined && data.initial_outreach !== null) {
           document.getElementById('initialOutreach').value = data.initial_outreach;
           console.log('IMPORT: Set initial_outreach');
-          // Save initial outreach
-          await saveState('__initial_outreach__', 'initialOutreach', 'saveInitialOutreachBtn');
+          // Save initial outreach - this will show per-state feedback
+          const success = await saveState('__initial_outreach__', 'initialOutreach');
+          success ? ok++ : fail++;
         }
 
         // Import state responses - compile to individual saves
@@ -285,24 +353,32 @@
             const stateData = data.responses[stateKey];
             const responseText = stateData.response_text || stateData.responseText || '';
             const textareaId = `state-${stateKey}`;
-            const buttonId = `save-${stateKey}-btn`;
             
             // Populate textarea
             const textarea = document.getElementById(textareaId);
             if (textarea) {
               textarea.value = responseText;
-              // Save state
-              await saveState(stateKey, textareaId, buttonId);
+              // Save state - this will show per-state feedback
+              const success = await saveState(stateKey, textareaId);
+              success ? ok++ : fail++;
             } else {
               console.warn('IMPORT: Textarea not found for state:', stateKey);
+              fail++;
             }
           }
         }
 
-        showStatus('JSON imported and saved successfully', 'success');
+        // Show aggregate summary
+        showImportSummary(ok, fail, ok + fail);
+
       } catch (error) {
         console.error('IMPORT ERROR:', error);
         showStatus(`Error importing JSON: ${error.message}`, 'error');
+        if (statusEl) {
+          statusEl.style.display = 'block';
+          statusEl.classList.add('error');
+          statusEl.textContent = `✕ Import error: ${error.message}`;
+        }
       } finally {
         importBtn.disabled = false;
         importBtn.textContent = originalText;
