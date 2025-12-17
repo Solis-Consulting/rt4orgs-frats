@@ -178,11 +178,21 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None) -> Dic
     # Only use auth_token if it's a non-empty string
     if auth_token and auth_token.strip():
         token_to_use = auth_token.strip()
-        env_token_preview = (TWILIO_AUTH_TOKEN[:10] + "..." if TWILIO_AUTH_TOKEN and len(TWILIO_AUTH_TOKEN) > 10 else "not set") if TWILIO_AUTH_TOKEN else "not set"
-        print(f"[SEND_SMS] ✅ Using PROVIDED auth token: {token_to_use[:10]}... (env var: {env_token_preview})")
+        # Compare with env var to show if they're different
+        if TWILIO_AUTH_TOKEN and token_to_use != TWILIO_AUTH_TOKEN:
+            print(f"[SEND_SMS] ✅ Using PROVIDED auth token (DIFFERENT from env var)")
+            print(f"[SEND_SMS]   Provided: {token_to_use[:15]}... (length: {len(token_to_use)})")
+            print(f"[SEND_SMS]   Env var:  {TWILIO_AUTH_TOKEN[:15]}... (length: {len(TWILIO_AUTH_TOKEN)})")
+        else:
+            print(f"[SEND_SMS] ✅ Using PROVIDED auth token (same as env var)")
+            print(f"[SEND_SMS]   Token: {token_to_use[:15]}... (length: {len(token_to_use)})")
     else:
         token_to_use = TWILIO_AUTH_TOKEN
-        print(f"[SEND_SMS] ⚠️ Using environment variable TWILIO_AUTH_TOKEN (no token provided)")
+        if not token_to_use:
+            print(f"[SEND_SMS] ❌ ERROR: No auth token provided and TWILIO_AUTH_TOKEN not set")
+        else:
+            print(f"[SEND_SMS] ⚠️ Using environment variable TWILIO_AUTH_TOKEN (no token provided)")
+            print(f"[SEND_SMS]   Token: {token_to_use[:15]}... (length: {len(token_to_use)})")
     
     if not token_to_use:
         raise ValueError("Twilio auth token not provided and TWILIO_AUTH_TOKEN not set")

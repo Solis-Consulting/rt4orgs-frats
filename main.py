@@ -2307,9 +2307,11 @@ async def blast_run(request: Request, payload: Dict[str, Any] = Body(...)):
     
     # Log auth token status (without exposing the full token)
     if auth_token:
-        print(f"[BLAST_AUTH] Auth token provided: {auth_token[:10]}..." if len(auth_token) > 10 else f"[BLAST_AUTH] Auth token provided: {auth_token}")
+        print(f"[BLAST_AUTH] ✅ Auth token received from request")
+        print(f"[BLAST_AUTH]   Token preview: {auth_token[:15]}... (length: {len(auth_token)})")
+        print(f"[BLAST_AUTH]   Source: {'payload' if payload.get('auth_token') else 'Authorization header'}")
     else:
-        print("[BLAST_AUTH] No auth token provided, using environment variable")
+        print("[BLAST_AUTH] ⚠️ No auth token provided in request, will use environment variable")
 
     conn = get_conn()
 
