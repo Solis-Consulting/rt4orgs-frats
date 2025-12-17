@@ -1,0 +1,190 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RT4 Login</title>
+  <style>
+    body { 
+      font-family: -apple-system, system-ui, sans-serif; 
+      margin: 0; 
+      background: #0f172a; 
+      color: #e5e7eb;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .login-card {
+      background: #020617;
+      border-radius: 16px;
+      padding: 40px;
+      box-shadow: 0 18px 60px rgba(0,0,0,0.6);
+      border: 1px solid #1f2937;
+      width: 100%;
+      max-width: 400px;
+    }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    .sub { margin-bottom: 24px; color: #9ca3af; font-size: 14px; }
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+      color: #9ca3af;
+    }
+    input {
+      width: 100%;
+      background: #020617;
+      border: 1px solid #4b5563;
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: #e5e7eb;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    input:focus {
+      outline: none;
+      border-color: #38bdf8;
+    }
+    button {
+      width: 100%;
+      background: #0ea5e9;
+      color: #0f172a;
+      border: none;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 16px;
+    }
+    button:hover { background: #38bdf8; }
+    button:disabled {
+      background: #4b5563;
+      cursor: not-allowed;
+    }
+    .error {
+      color: #fecaca;
+      font-size: 13px;
+      margin-top: 8px;
+      display: none;
+    }
+    .error.show { display: block; }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <h1>RT4 Lead Console</h1>
+    <div class="sub">Enter your API token to continue</div>
+    
+    <form id="loginForm">
+      <label for="token">API Token</label>
+      <input type="password" id="token" placeholder="Enter your API token" required autofocus>
+      <div class="error" id="error"></div>
+      <button type="submit" id="loginBtn">Login</button>
+    </form>
+  </div>
+
+  <script type="module">
+    import { BACKEND_URL } from '/config.js';
+    const BACKEND = BACKEND_URL;
+
+    const form = document.getElementById('loginForm');
+    const tokenInput = document.getElementById('token');
+    const loginBtn = document.getElementById('loginBtn');
+    const errorDiv = document.getElementById('error');
+
+    // Check if already logged in
+    const storedToken = localStorage.getItem('apiToken');
+    if (storedToken) {
+      // Validate token by trying to get user info
+      fetch(`${BACKEND}/rep/cards`, {
+        headers: {
+          'Authorization': `Bearer ${storedToken}`
+        }
+      })
+      .then(res => {
+        if (res.ok) {
+          // Token is valid, redirect
+          redirectToDashboard(storedToken);
+        } else {
+          // Token invalid, clear it
+          localStorage.removeItem('apiToken');
+        }
+      })
+      .catch(() => {
+        localStorage.removeItem('apiToken');
+      });
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const token = tokenInput.value.trim();
+      
+      if (!token) {
+        showError('Please enter an API token');
+        return;
+      }
+
+      loginBtn.disabled = true;
+      loginBtn.textContent = 'Logging in...';
+      errorDiv.classList.remove('show');
+
+      try {
+        // Try to authenticate by calling a rep endpoint
+        const res = await fetch(`${BACKEND}/rep/cards`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (res.ok) {
+          // Get user info to determine role
+          const data = await res.json();
+          
+          // Store token
+          localStorage.setItem('apiToken', token);
+          
+          // Redirect to appropriate dashboard
+          redirectToDashboard(token);
+        } else if (res.status === 401) {
+          showError('Invalid API token');
+        } else {
+          const errorData = await res.json().catch(() => ({}));
+          showError(errorData.detail || 'Login failed');
+        }
+      } catch (error) {
+        showError('Network error. Please try again.');
+        console.error('Login error:', error);
+      } finally {
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'Login';
+      }
+    });
+
+    function showError(message) {
+      errorDiv.textContent = message;
+      errorDiv.classList.add('show');
+    }
+
+    async function redirectToDashboard(token) {
+      // Try to determine if user is admin by calling admin endpoint
+      try {
+        const res = await fetch(`${BACKEND}/admin/users`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (res.ok) {
+          window.location.href = 'admin.html';
+        } else {
+          window.location.href = 'rep.html';
+        }
+      } catch {
+        // Default to rep dashboard
+        window.location.href = 'rep.html';
+      }
+    }
+  </script>
+</body>
+</html>

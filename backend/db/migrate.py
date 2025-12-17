@@ -205,6 +205,7 @@ def run_migration() -> Tuple[bool, Optional[str]]:
         print("🔍 Checking existing tables...")
         cards_exists = check_table_exists(conn, "cards")
         markov_responses_exists = check_table_exists(conn, "markov_responses")
+        users_exists = check_table_exists(conn, "users")
         
         # #region agent log - Table existence check
         try:
@@ -225,69 +226,92 @@ def run_migration() -> Tuple[bool, Optional[str]]:
         
         print(f"📊 Cards table exists: {cards_exists}")
         print(f"📊 Markov responses table exists: {markov_responses_exists}")
+        print(f"📊 Users table exists: {users_exists}")
         
         # Check if all required tables exist
         required_tables_exist = cards_exists and markov_responses_exists
         
-        if required_tables_exist:
-            # All required tables exist, skip migration
-            print("⏭️  Migration skipped: all required tables already exist")
-            conn.close()
-            return True, "Migration skipped: all required tables already exist"
+        # Run main schema migration if needed
+        if not required_tables_exist:
+            # Some tables are missing - run migration (schema.sql uses IF NOT EXISTS, so safe to run)
+            if cards_exists and not markov_responses_exists:
+                print("🔧 Missing markov_responses table - running migration to add it...")
+            elif not cards_exists:
+                print("🔧 Missing tables - running full migration...")
+            
+            # Run migration
+            print("🚀 Executing migration SQL...")
+            
+            # #region agent log - Before SQL execution
+            try:
+                import time
+                with open(_log_file, "a") as f:
+                    f.write(json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "timestamp": int(time.time() * 1000),
+                        "location": f"{__file__}:BEFORE_SQL_EXEC",
+                        "message": "About to execute migration SQL",
+                        "data": {"sql_length": len(schema_sql)},
+                        "hypothesisId": "C"
+                    }) + "\n")
+            except:
+                pass
+            # #endregion
+            
+            with conn.cursor() as cur:
+                cur.execute(schema_sql)
+            
+            # #region agent log - After SQL execution
+            try:
+                import time
+                with open(_log_file, "a") as f:
+                    f.write(json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "timestamp": int(time.time() * 1000),
+                        "location": f"{__file__}:AFTER_SQL_EXEC",
+                        "message": "Migration SQL executed",
+                        "data": {"status": "success"},
+                        "hypothesisId": "C"
+                    }) + "\n")
+            except:
+                pass
+            # #endregion
+            
+            print("✅ Migration SQL executed")
         
-        # Some tables are missing - run migration (schema.sql uses IF NOT EXISTS, so safe to run)
-        if cards_exists and not markov_responses_exists:
-            print("🔧 Missing markov_responses table - running migration to add it...")
-        elif not cards_exists:
-            print("🔧 Missing tables - running full migration...")
+        # Run additional migrations (always check, migrations use IF NOT EXISTS)
+        migrations_dir = Path(__file__).resolve().parent / "migrations"
+        if migrations_dir.exists():
+            migration_files = sorted([f for f in migrations_dir.glob("*.sql")])
+            for migration_file in migration_files:
+                print(f"🔧 Running additional migration: {migration_file.name}")
+                try:
+                    with open(migration_file, 'r') as f:
+                        migration_sql = f.read()
+                    with conn.cursor() as cur:
+                        cur.execute(migration_sql)
+                    print(f"✅ Migration {migration_file.name} executed")
+                except Exception as e:
+                    print(f"⚠️  Migration {migration_file.name} failed: {e}")
+                    # Continue with other migrations
+        else:
+            print("📁 No migrations directory found, skipping additional migrations")
         
-        # Run migration
-        print("🚀 Executing migration SQL...")
-        
-        # #region agent log - Before SQL execution
-        try:
-            import time
-            with open(_log_file, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "timestamp": int(time.time() * 1000),
-                    "location": f"{__file__}:BEFORE_SQL_EXEC",
-                    "message": "About to execute migration SQL",
-                    "data": {"sql_length": len(schema_sql)},
-                    "hypothesisId": "C"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
-        
-        with conn.cursor() as cur:
-            cur.execute(schema_sql)
-        
-        # #region agent log - After SQL execution
-        try:
-            import time
-            with open(_log_file, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "timestamp": int(time.time() * 1000),
-                    "location": f"{__file__}:AFTER_SQL_EXEC",
-                    "message": "Migration SQL executed",
-                    "data": {"status": "success"},
-                    "hypothesisId": "C"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
-        
-        print("✅ Migration SQL executed")
+        # Check if we should skip (all tables exist)
+        if required_tables_exist and users_exists:
+            print("⏭️  Core tables exist, migrations completed")
+        else:
+            print("✅ Migrations completed")
         
         # Verify tables were created
         print("🔍 Verifying tables were created...")
         cards_exists_after = check_table_exists(conn, "cards")
         relationships_exists = check_table_exists(conn, "card_relationships")
         markov_responses_exists_after = check_table_exists(conn, "markov_responses")
+        users_exists_after = check_table_exists(conn, "users")
+        card_assignments_exists = check_table_exists(conn, "card_assignments")
         
         # #region agent log - Table verification
         try:
@@ -313,6 +337,8 @@ def run_migration() -> Tuple[bool, Optional[str]]:
         print(f"📊 Cards table exists after: {cards_exists_after}")
         print(f"📊 Relationships table exists: {relationships_exists}")
         print(f"📊 Markov responses table exists: {markov_responses_exists_after}")
+        print(f"📊 Users table exists: {users_exists_after}")
+        print(f"📊 Card assignments table exists: {card_assignments_exists}")
         
         conn.close()
         

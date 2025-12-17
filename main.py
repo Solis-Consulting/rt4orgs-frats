@@ -50,6 +50,18 @@ from backend.query import build_list_query
 from backend.resolve import resolve_target, extract_phones_from_cards
 from backend.webhook_config import WEBHOOK_CONFIG, WebhookConfig
 from backend.blast import run_blast_for_cards
+from backend.auth import (
+    get_user_by_token, create_user, list_users, update_user_twilio_config, get_user
+)
+from backend.assignments import (
+    assign_card_to_rep, get_rep_assigned_cards, get_card_assignment,
+    update_assignment_status, list_assignments
+)
+from backend.rep_messaging import (
+    send_rep_message, get_rep_conversations, get_conversation_messages
+)
+from fastapi import Depends, Header
+from starlette.responses import RedirectResponse
 
 # Module-level verification - this will ALWAYS print
 print("=" * 60)
@@ -763,6 +775,31 @@ async def twilio_inbound(request: Request):
         normalized_phone = normalize_phone(From)
         print(f"[TWILIO_INBOUND] Normalized phone: {normalized_phone}")
         
+        # Get conversation to check routing mode
+        conn = get_conn()
+        routing_mode = 'ai'  # Default to AI
+        rep_user_id = None
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT routing_mode, rep_user_id FROM conversations WHERE phone = %s LIMIT 1
+            """, (normalized_phone,))
+            row = cur.fetchone()
+            if row:
+                routing_mode = row[0] or 'ai'
+                rep_user_id = row[1]
+        
+        print(f"[TWILIO_INBOUND] Routing mode: {routing_mode}, Rep user ID: {rep_user_id}")
+        
+        # Store inbound message in history regardless of routing mode
+        from backend.rep_messaging import add_message_to_history
+        add_message_to_history(conn, normalized_phone, "inbound", Body, "contact")
+        
+        # If routing mode is 'rep', don't auto-respond - rep will handle via UI
+        if routing_mode == 'rep':
+            print(f"[TWILIO_INBOUND] Conversation in rep mode - storing message, no auto-response")
+            return PlainTextResponse("OK", status_code=200)
+        
+        # Continue with AI processing for 'ai' mode
         # Classify intent from message text (simple keyword-based for now)
         intent = classify_intent_simple(Body)
         print(f"[TWILIO_INBOUND] Classified intent: {intent}")
@@ -783,7 +820,6 @@ async def twilio_inbound(request: Request):
         print(f"[TWILIO_INBOUND] Intelligence result: {result}")
         
         # Get card by phone to generate contextual reply
-        conn = get_conn()
         card = None
         with conn.cursor() as cur:
             cur.execute("""
@@ -888,49 +924,9 @@ async def twilio_inbound(request: Request):
                     
                     # Store outbound reply in conversation history
                     try:
-                        with conn.cursor() as cur:
-                            # Get existing history
-                            cur.execute("""
-                                SELECT COALESCE(history::text, '[]') as history
-                                FROM conversations
-                                WHERE phone = %s;
-                            """, (normalized_phone,))
-                            row = cur.fetchone()
-                            existing_history = []
-                            if row and row[0]:
-                                try:
-                                    existing_history = json.loads(row[0]) if isinstance(row[0], str) else row[0]
-                                except:
-                                    existing_history = []
-                            
-                            # Add outbound message to history
-                            outbound_msg = {
-                                "direction": "outbound",
-                                "text": reply_text,
-                                "timestamp": datetime.utcnow().isoformat(),
-                                "state": result.get("next_state", "unknown")
-                            }
-                            updated_history = existing_history + [outbound_msg]
-                            
-                            # Update conversation with new history and last_outbound_at
-                            try:
-                                cur.execute("""
-                                    UPDATE conversations
-                                    SET history = %s::jsonb,
-                                        last_outbound_at = %s
-                                    WHERE phone = %s;
-                                """, (
-                                    json.dumps(updated_history),
-                                    datetime.utcnow(),
-                                    normalized_phone
-                                ))
-                            except psycopg2.ProgrammingError:
-                                # History column doesn't exist, just update last_outbound_at
-                                cur.execute("""
-                                    UPDATE conversations
-                                    SET last_outbound_at = %s
-                                    WHERE phone = %s;
-                                """, (datetime.utcnow(), normalized_phone))
+                        from backend.rep_messaging import add_message_to_history
+                        twilio_sid_value = msg.sid if 'msg' in locals() else None
+                        add_message_to_history(conn, normalized_phone, "outbound", reply_text, "ai", twilio_sid_value)
                     except Exception as history_error:
                         print(f"[TWILIO_INBOUND] WARNING: Could not store outbound message in history: {history_error}")
                     
@@ -2327,4 +2323,300 @@ async def blast_run(request: Request, payload: Dict[str, Any] = Body(...)):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Blast failed: {str(e)}")
+
+
+# ============================================================================
+# Authentication Dependency
+# ============================================================================
+
+async def get_current_user(request: Request) -> Dict[str, Any]:
+    """FastAPI dependency to get current user from Authorization header."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    
+    token = auth_header[7:]
+    conn = get_conn()
+    user = get_user_by_token(conn, token)
+    
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid API token")
+    
+    return user
+
+
+async def get_current_admin_user(request: Request) -> Dict[str, Any]:
+    """FastAPI dependency to get current admin user."""
+    user = await get_current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+# ============================================================================
+# Admin Endpoints
+# ============================================================================
+
+@app.post("/admin/users")
+async def admin_create_user(
+    payload: Dict[str, Any] = Body(...),
+    current_user: Dict = Depends(get_current_admin_user)
+):
+    """Create a new rep user."""
+    username = payload.get("username")
+    role = payload.get("role", "rep")
+    twilio_phone = payload.get("twilio_phone_number")
+    twilio_account_sid = payload.get("twilio_account_sid")
+    twilio_auth_token = payload.get("twilio_auth_token")
+    user_id = payload.get("user_id")
+    
+    if not username:
+        raise HTTPException(status_code=400, detail="username is required")
+    
+    conn = get_conn()
+    try:
+        user = create_user(
+            conn, username, role, twilio_phone,
+            twilio_account_sid, twilio_auth_token, user_id
+        )
+        return {"ok": True, "user": user}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create user: {str(e)}")
+
+
+@app.get("/admin/users")
+async def admin_list_users(current_user: Dict = Depends(get_current_admin_user)):
+    """List all users."""
+    conn = get_conn()
+    users = list_users(conn, include_inactive=True)
+    return {"ok": True, "users": users}
+
+
+@app.post("/admin/assignments")
+async def admin_assign_card(
+    payload: Dict[str, Any] = Body(...),
+    current_user: Dict = Depends(get_current_admin_user)
+):
+    """Assign a card to a rep."""
+    card_id = payload.get("card_id")
+    user_id = payload.get("user_id")
+    notes = payload.get("notes")
+    
+    if not card_id or not user_id:
+        raise HTTPException(status_code=400, detail="card_id and user_id are required")
+    
+    conn = get_conn()
+    success = assign_card_to_rep(conn, card_id, user_id, current_user["id"], notes)
+    
+    if success:
+        return {"ok": True, "message": "Card assigned successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to assign card")
+
+
+@app.get("/admin/assignments")
+async def admin_list_assignments(
+    user_id: Optional[str] = None,
+    status: Optional[str] = None,
+    current_user: Dict = Depends(get_current_admin_user)
+):
+    """List all assignments."""
+    conn = get_conn()
+    assignments = list_assignments(conn, user_id=user_id, status=status)
+    return {"ok": True, "assignments": assignments}
+
+
+@app.put("/admin/assignments/{card_id}")
+async def admin_update_assignment(
+    card_id: str,
+    payload: Dict[str, Any] = Body(...),
+    current_user: Dict = Depends(get_current_admin_user)
+):
+    """Update assignment status."""
+    status = payload.get("status")
+    notes = payload.get("notes")
+    
+    if not status:
+        raise HTTPException(status_code=400, detail="status is required")
+    
+    # Get assignment to find user_id
+    conn = get_conn()
+    assignment = get_card_assignment(conn, card_id)
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    
+    success = update_assignment_status(conn, card_id, assignment["user_id"], status, notes)
+    
+    if success:
+        return {"ok": True, "message": "Assignment updated successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to update assignment")
+
+
+# ============================================================================
+# Rep Endpoints
+# ============================================================================
+
+@app.get("/rep/cards")
+async def rep_get_cards(
+    status: Optional[str] = None,
+    current_user: Dict = Depends(get_current_user)
+):
+    """Get rep's assigned cards."""
+    conn = get_conn()
+    cards = get_rep_assigned_cards(conn, current_user["id"], status=status)
+    return {"ok": True, "cards": cards}
+
+
+@app.get("/rep/conversations")
+async def rep_get_conversations(current_user: Dict = Depends(get_current_user)):
+    """Get rep's active conversations."""
+    conn = get_conn()
+    conversations = get_rep_conversations(conn, current_user["id"])
+    return {"ok": True, "conversations": conversations}
+
+
+@app.post("/rep/blast")
+async def rep_blast(
+    payload: Dict[str, Any] = Body(...),
+    current_user: Dict = Depends(get_current_user)
+):
+    """Blast rep's assigned cards using rep's phone number."""
+    limit = payload.get("limit")
+    status_filter = payload.get("status", "assigned")  # Only blast assigned/active cards
+    card_ids = payload.get("card_ids")  # Optional: specific card IDs to blast
+    
+    conn = get_conn()
+    
+    # If specific card_ids provided, use those; otherwise get all assigned cards
+    if card_ids and isinstance(card_ids, list):
+        # Verify these cards are assigned to the rep
+        all_assigned = get_rep_assigned_cards(conn, current_user["id"])
+        assigned_ids = {c["id"] for c in all_assigned}
+        card_ids = [cid for cid in card_ids if cid in assigned_ids]
+        
+        if not card_ids:
+            return {"ok": False, "error": "None of the specified cards are assigned to you", "sent": 0, "skipped": 0}
+    else:
+        # Get rep's assigned cards
+        cards = get_rep_assigned_cards(conn, current_user["id"], status=status_filter)
+        if not cards:
+            return {"ok": False, "error": "No assigned cards found", "sent": 0, "skipped": 0}
+        
+        card_ids = [c["id"] for c in cards]
+        
+        # Apply limit if provided
+        if limit:
+            card_ids = card_ids[:limit]
+    
+    # Run blast with rep's user_id as owner
+    try:
+        result = run_blast_for_cards(
+            conn=conn,
+            card_ids=card_ids,
+            limit=None,  # Already applied limit above if needed
+            owner=current_user["id"],
+            source="rep_ui",
+            auth_token=None,  # Will use system Twilio for now
+            rep_user_id=current_user["id"],
+            rep_phone_number=current_user.get("twilio_phone_number"),
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Blast failed: {str(e)}")
+
+
+@app.post("/rep/messages/send")
+async def rep_send_message(
+    payload: Dict[str, Any] = Body(...),
+    current_user: Dict = Depends(get_current_user)
+):
+    """Send a message to a specific card/phone."""
+    card_id = payload.get("card_id")
+    phone = payload.get("phone")
+    message = payload.get("message")
+    
+    if not message:
+        raise HTTPException(status_code=400, detail="message is required")
+    
+    if not card_id and not phone:
+        raise HTTPException(status_code=400, detail="card_id or phone is required")
+    
+    conn = get_conn()
+    
+    # If phone provided but not card_id, try to find card_id
+    if phone and not card_id:
+        with conn.cursor() as cur:
+            cur.execute("SELECT card_id FROM conversations WHERE phone = %s LIMIT 1", (phone,))
+            row = cur.fetchone()
+            if row and row[0]:
+                card_id = row[0]
+    
+    if not card_id:
+        raise HTTPException(status_code=404, detail="Card not found for phone number")
+    
+    try:
+        result = send_rep_message(conn, current_user["id"], card_id, message)
+        return {"ok": True, "result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send message: {str(e)}")
+
+
+@app.get("/rep/messages/{phone}")
+async def rep_get_messages(
+    phone: str,
+    current_user: Dict = Depends(get_current_user)
+):
+    """Get conversation history for a phone number."""
+    conn = get_conn()
+    
+    # Verify this conversation belongs to the rep
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT rep_user_id FROM conversations WHERE phone = %s
+        """, (phone,))
+        row = cur.fetchone()
+        if row and row[0] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Not authorized to view this conversation")
+    
+    messages = get_conversation_messages(conn, phone)
+    return {"ok": True, "messages": messages}
+
+
+@app.get("/rep/stats")
+async def rep_get_stats(current_user: Dict = Depends(get_current_user)):
+    """Get rep's conversion metrics."""
+    conn = get_conn()
+    
+    # Get assignment counts by status
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT status, COUNT(*) as count
+            FROM card_assignments
+            WHERE user_id = %s
+            GROUP BY status
+        """, (current_user["id"],))
+        
+        stats = {
+            "assigned": 0,
+            "active": 0,
+            "closed": 0,
+            "lost": 0,
+        }
+        
+        for row in cur.fetchall():
+            status = row[0]
+            count = row[1]
+            if status in stats:
+                stats[status] = count
+        
+        # Get total conversations
+        cur.execute("""
+            SELECT COUNT(*) FROM conversations
+            WHERE rep_user_id = %s AND routing_mode = 'rep'
+        """, (current_user["id"],))
+        row = cur.fetchone()
+        stats["total_conversations"] = row[0] if row else 0
+        
+        return {"ok": True, "stats": stats}
 

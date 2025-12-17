@@ -1,0 +1,267 @@
+"""
+Rep messaging system.
+Handles sending messages from rep phone numbers and managing rep conversations.
+"""
+
+from __future__ import annotations
+
+from typing import List, Dict, Any, Optional
+from datetime import datetime
+import json
+import os
+import psycopg2
+from twilio.rest import Client
+
+from backend.auth import get_user
+from backend.cards import get_card
+
+
+def send_rep_message(
+    conn: Any,
+    user_id: str,
+    card_id: str,
+    message: str,
+) -> Dict[str, Any]:
+    """
+    Send SMS from rep's phone number to the card's phone number.
+    Returns dict with result including twilio_sid.
+    """
+    # Get rep user info
+    user = get_user(conn, user_id)
+    if not user:
+        raise ValueError(f"User {user_id} not found")
+    
+    if not user.get("twilio_phone_number"):
+        raise ValueError(f"User {user_id} does not have a Twilio phone number configured")
+    
+    # Get card to find phone number
+    card = get_card(conn, card_id)
+    if not card:
+        raise ValueError(f"Card {card_id} not found")
+    
+    phone = card.get("card_data", {}).get("phone")
+    if not phone:
+        raise ValueError(f"Card {card_id} does not have a phone number")
+    
+    # Get Twilio credentials (use rep-specific or fall back to system)
+    account_sid = user.get("twilio_account_sid")
+    auth_token = user.get("twilio_auth_token")
+    
+    if not account_sid or not auth_token:
+        # Fall back to system Twilio credentials
+        import os
+        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+    
+    if not account_sid or not auth_token:
+        raise ValueError("Twilio credentials not configured for user or system")
+    
+    # Send SMS via Twilio
+    client = Client(account_sid, auth_token)
+    messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
+    
+    try:
+        if messaging_service_sid:
+            msg = client.messages.create(
+                to=phone,
+                messaging_service_sid=messaging_service_sid,
+                body=message
+            )
+        else:
+            # Use rep's phone number as From
+            msg = client.messages.create(
+                to=phone,
+                from_=user["twilio_phone_number"],
+                body=message
+            )
+        
+        # Update conversation to rep mode
+        switch_conversation_to_rep(conn, phone, user_id, user["twilio_phone_number"])
+        
+        # Store message in conversation history
+        add_message_to_history(
+            conn,
+            phone,
+            direction="outbound",
+            text=message,
+            sender=f"rep:{user_id}",
+            twilio_sid=msg.sid,
+        )
+        
+        return {
+            "ok": True,
+            "twilio_sid": msg.sid,
+            "status": msg.status,
+            "phone": phone,
+        }
+    except Exception as e:
+        print(f"[REP_MESSAGE] Error sending message: {e}")
+        raise
+
+
+def switch_conversation_to_rep(
+    conn: Any,
+    phone: str,
+    user_id: str,
+    rep_phone_number: str,
+) -> bool:
+    """Switch a conversation from AI mode to rep mode."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE conversations
+            SET routing_mode = 'rep',
+                rep_user_id = %s,
+                rep_phone_number = %s,
+                updated_at = NOW()
+            WHERE phone = %s
+        """, (user_id, rep_phone_number, phone))
+        
+        # If conversation doesn't exist, create it
+        if cur.rowcount == 0:
+            # Get card_id from phone if possible
+            card_id = None
+            cur.execute("""
+                SELECT card_id FROM conversations WHERE phone = %s LIMIT 1
+            """, (phone,))
+            row = cur.fetchone()
+            if row and row[0]:
+                card_id = row[0]
+            
+            cur.execute("""
+                INSERT INTO conversations (
+                    phone, card_id, routing_mode, rep_user_id, rep_phone_number,
+                    state, owner, created_at, updated_at
+                )
+                VALUES (%s, %s, 'rep', %s, %s, 'awaiting_response', %s, NOW(), NOW())
+                ON CONFLICT (phone) DO UPDATE SET
+                    routing_mode = 'rep',
+                    rep_user_id = EXCLUDED.rep_user_id,
+                    rep_phone_number = EXCLUDED.rep_phone_number,
+                    updated_at = NOW()
+            """, (phone, card_id, user_id, rep_phone_number, user_id))
+        
+        return True
+
+
+def get_rep_conversations(conn: Any, user_id: str) -> List[Dict[str, Any]]:
+    """Get all conversations for a rep."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT 
+                phone, card_id, state, routing_mode, rep_phone_number,
+                last_outbound_at, last_inbound_at, created_at, updated_at,
+                history
+            FROM conversations
+            WHERE rep_user_id = %s AND routing_mode = 'rep'
+            ORDER BY 
+                COALESCE(last_inbound_at, last_outbound_at, updated_at) DESC NULLS LAST
+        """, (user_id,))
+        
+        conversations = []
+        for row in cur.fetchall():
+            history = row[9] or []
+            if isinstance(history, str):
+                try:
+                    history = json.loads(history)
+                except:
+                    history = []
+            
+            # Get unread count (messages after last outbound)
+            unread_count = 0
+            if history:
+                last_outbound_idx = -1
+                for i, msg in enumerate(reversed(history)):
+                    if msg.get("direction") == "outbound":
+                        last_outbound_idx = len(history) - 1 - i
+                        break
+                
+                if last_outbound_idx >= 0:
+                    unread_count = len([m for m in history[last_outbound_idx+1:] if m.get("direction") == "inbound"])
+                else:
+                    unread_count = len([m for m in history if m.get("direction") == "inbound"])
+            
+            conversations.append({
+                "phone": row[0],
+                "card_id": row[1],
+                "state": row[2],
+                "routing_mode": row[3],
+                "rep_phone_number": row[4],
+                "last_outbound_at": row[5],
+                "last_inbound_at": row[6],
+                "created_at": row[7],
+                "updated_at": row[8],
+                "unread_count": unread_count,
+            })
+        
+        return conversations
+
+
+def get_conversation_messages(conn: Any, phone: str) -> List[Dict[str, Any]]:
+    """Get full message history for a phone number."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT history
+            FROM conversations
+            WHERE phone = %s
+        """, (phone,))
+        
+        row = cur.fetchone()
+        if not row or not row[0]:
+            return []
+        
+        history = row[0]
+        if isinstance(history, str):
+            try:
+                history = json.loads(history)
+            except:
+                return []
+        
+        return history if isinstance(history, list) else []
+
+
+def add_message_to_history(
+    conn: Any,
+    phone: str,
+    direction: str,
+    text: str,
+    sender: str,
+    twilio_sid: Optional[str] = None,
+) -> None:
+    """Add a message to conversation history."""
+    with conn.cursor() as cur:
+        # Get existing history
+        cur.execute("""
+            SELECT COALESCE(history::text, '[]') as history
+            FROM conversations
+            WHERE phone = %s
+        """, (phone,))
+        
+        row = cur.fetchone()
+        existing_history = []
+        if row and row[0]:
+            try:
+                existing_history = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+            except:
+                existing_history = []
+        
+        # Add new message
+        new_message = {
+            "direction": direction,
+            "text": text,
+            "timestamp": datetime.utcnow().isoformat(),
+            "sender": sender,
+        }
+        if twilio_sid:
+            new_message["twilio_sid"] = twilio_sid
+        
+        updated_history = existing_history + [new_message]
+        
+        # Update conversation
+        cur.execute("""
+            UPDATE conversations
+            SET history = %s::jsonb,
+                updated_at = NOW(),
+                last_outbound_at = CASE WHEN %s = 'outbound' THEN NOW() ELSE last_outbound_at END,
+                last_inbound_at = CASE WHEN %s = 'inbound' THEN NOW() ELSE last_inbound_at END
+            WHERE phone = %s
+        """, (json.dumps(updated_history), direction, direction, phone))

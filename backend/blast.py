@@ -229,6 +229,8 @@ def run_blast_for_cards(
     owner: str,
     source: str,
     auth_token: Optional[str] = None,
+    rep_user_id: Optional[str] = None,
+    rep_phone_number: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Run outbound blast for a specific set of card IDs.
@@ -240,6 +242,8 @@ def run_blast_for_cards(
     
     Args:
         auth_token: Optional authorization token to use for Twilio (overrides env var)
+        rep_user_id: Optional rep user ID (if blasting from rep account)
+        rep_phone_number: Optional rep phone number (if blasting from rep account)
     """
     # High-level run visibility
     print(
@@ -462,13 +466,17 @@ def run_blast_for_cards(
                 }
                 updated_history = existing_history + [outbound_msg]
                 
+                # Determine routing mode and rep info
+                routing_mode = 'rep' if rep_user_id else 'ai'
+                rep_phone = rep_phone_number if rep_user_id else None
+                
                 # Insert or update conversation with history
                 try:
                     cur.execute(
                         """
                         INSERT INTO conversations
-                        (phone, contact_id, card_id, owner, state, source_batch_id, last_outbound_at, history)
-                        VALUES (%s, %s, %s, %s, 'awaiting_response', %s, %s, %s::jsonb)
+                        (phone, contact_id, card_id, owner, state, source_batch_id, last_outbound_at, history, routing_mode, rep_user_id, rep_phone_number)
+                        VALUES (%s, %s, %s, %s, 'awaiting_response', %s, %s, %s::jsonb, %s, %s, %s)
                         ON CONFLICT (phone)
                         DO UPDATE SET
                           last_outbound_at = EXCLUDED.last_outbound_at,
@@ -476,7 +484,10 @@ def run_blast_for_cards(
                           state = 'awaiting_response',
                           source_batch_id = EXCLUDED.source_batch_id,
                           card_id = COALESCE(EXCLUDED.card_id, conversations.card_id),
-                          history = EXCLUDED.history;
+                          history = EXCLUDED.history,
+                          routing_mode = EXCLUDED.routing_mode,
+                          rep_user_id = EXCLUDED.rep_user_id,
+                          rep_phone_number = EXCLUDED.rep_phone_number;
                         """,
                         (
                             phone,
@@ -486,32 +497,65 @@ def run_blast_for_cards(
                             blast_id,
                             datetime.utcnow(),
                             json.dumps(updated_history),
+                            routing_mode,
+                            rep_user_id,
+                            rep_phone,
                         ),
                     )
-                except psycopg2.ProgrammingError:
-                    # History column doesn't exist, update without it
-                    cur.execute(
-                        """
-                        INSERT INTO conversations
-                        (phone, contact_id, card_id, owner, state, source_batch_id, last_outbound_at)
-                        VALUES (%s, %s, %s, %s, 'awaiting_response', %s, %s)
-                        ON CONFLICT (phone)
-                        DO UPDATE SET
-                          last_outbound_at = EXCLUDED.last_outbound_at,
-                          owner = EXCLUDED.owner,
-                          state = 'awaiting_response',
-                          source_batch_id = EXCLUDED.source_batch_id,
-                          card_id = COALESCE(EXCLUDED.card_id, conversations.card_id);
-                        """,
-                        (
-                            phone,
-                            card_id,  # contact_id
-                            card_id,
-                            owner,
-                            blast_id,
-                            datetime.utcnow(),
-                        ),
-                    )
+                except psycopg2.ProgrammingError as e:
+                    # Handle case where new columns don't exist yet (backward compatibility)
+                    if 'routing_mode' in str(e):
+                        # Try without routing_mode columns
+                        cur.execute(
+                            """
+                            INSERT INTO conversations
+                            (phone, contact_id, card_id, owner, state, source_batch_id, last_outbound_at, history)
+                            VALUES (%s, %s, %s, %s, 'awaiting_response', %s, %s, %s::jsonb)
+                            ON CONFLICT (phone)
+                            DO UPDATE SET
+                              last_outbound_at = EXCLUDED.last_outbound_at,
+                              owner = EXCLUDED.owner,
+                              state = 'awaiting_response',
+                              source_batch_id = EXCLUDED.source_batch_id,
+                              card_id = COALESCE(EXCLUDED.card_id, conversations.card_id),
+                              history = EXCLUDED.history;
+                            """,
+                            (
+                                phone,
+                                card_id,  # contact_id
+                                card_id,
+                                owner,
+                                blast_id,
+                                datetime.utcnow(),
+                                json.dumps(updated_history),
+                            ),
+                        )
+                    elif 'history' in str(e):
+                        # History column doesn't exist, update without it
+                        cur.execute(
+                            """
+                            INSERT INTO conversations
+                            (phone, contact_id, card_id, owner, state, source_batch_id, last_outbound_at)
+                            VALUES (%s, %s, %s, %s, 'awaiting_response', %s, %s)
+                            ON CONFLICT (phone)
+                            DO UPDATE SET
+                              last_outbound_at = EXCLUDED.last_outbound_at,
+                              owner = EXCLUDED.owner,
+                              state = 'awaiting_response',
+                              source_batch_id = EXCLUDED.source_batch_id,
+                              card_id = COALESCE(EXCLUDED.card_id, conversations.card_id);
+                            """,
+                            (
+                                phone,
+                                card_id,  # contact_id
+                                card_id,
+                                owner,
+                                blast_id,
+                                datetime.utcnow(),
+                            ),
+                        )
+                    else:
+                        raise
 
             sent_count += 1
             results.append(

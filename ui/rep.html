@@ -1,0 +1,393 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RT4 Rep Dashboard</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: #0f172a; color: #e5e7eb; }
+    .shell { max-width: 1400px; margin: 32px auto; padding: 0 16px; }
+    .card { background: #020617; border-radius: 16px; padding: 20px 24px; box-shadow: 0 18px 60px rgba(0,0,0,0.6); border: 1px solid #1f2937; margin-bottom: 24px; }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    .sub { margin-bottom: 16px; color: #9ca3af; font-size: 14px; }
+    .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    input, select, textarea { background: #020617; border: 1px solid #4b5563; border-radius: 8px; padding: 6px 10px; color: #e5e7eb; font-size: 13px; }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: #38bdf8; }
+    button { background: #0ea5e9; color: #0f172a; border: none; border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    button:hover { background: #38bdf8; }
+    button:disabled { background: #4b5563; cursor: not-allowed; }
+    button.danger { background: #ef4444; }
+    button.danger:hover { background: #dc2626; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+    th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid #1f2937; }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; }
+    tr:hover td { background: #020617; }
+    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+    .badge.green { background: rgba(34,197,94,0.15); color: #bbf7d0; }
+    .badge.red { background: rgba(248,113,113,0.15); color: #fecaca; }
+    .badge.amber { background: rgba(245,158,11,0.15); color: #fed7aa; }
+    .badge.gray { background: rgba(75,85,99,0.4); color: #e5e7eb; }
+    .link { color: #38bdf8; text-decoration: none; font-weight: 500; cursor: pointer; }
+    .link:hover { text-decoration: underline; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid #1f2937; }
+    .tab { padding: 8px 16px; cursor: pointer; color: #9ca3af; border-bottom: 2px solid transparent; }
+    .tab.active { color: #38bdf8; border-bottom-color: #38bdf8; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .stat-card { background: #1e293b; padding: 16px; border-radius: 8px; }
+    .stat-value { font-size: 24px; font-weight: 600; color: #e5e7eb; }
+    .stat-label { font-size: 12px; color: #9ca3af; margin-top: 4px; }
+    .message-thread { max-height: 400px; overflow-y: auto; padding: 16px; background: #1e293b; border-radius: 8px; margin-bottom: 16px; }
+    .message { margin-bottom: 12px; padding: 8px 12px; border-radius: 8px; }
+    .message.inbound { background: #1e3a5f; }
+    .message.outbound { background: #1e3a3a; margin-left: 20%; }
+    .message-time { font-size: 11px; color: #9ca3af; margin-top: 4px; }
+    .header-actions { display: flex; gap: 12px; align-items: center; margin-left: auto; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="card">
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div>
+          <h1>RT4 Rep Dashboard</h1>
+          <div class="sub" id="userInfo">Loading...</div>
+        </div>
+        <div class="header-actions">
+          <a href="index.html" class="link">Admin View</a>
+          <a href="#" class="link" onclick="logout(); return false;">Logout</a>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active" data-view="cards">My Cards</div>
+        <div class="tab" data-view="conversations">Conversations</div>
+        <div class="tab" data-view="stats">Stats</div>
+      </div>
+
+      <!-- Cards View -->
+      <div id="cardsView">
+        <div class="toolbar">
+          <input id="cardSearch" placeholder="Search by name or ID">
+          <select id="statusFilter">
+            <option value="">All statuses</option>
+            <option value="assigned">Assigned</option>
+            <option value="active">Active</option>
+            <option value="closed">Closed</option>
+            <option value="lost">Lost</option>
+          </select>
+          <button id="blastBtn" disabled>Blast Selected Cards</button>
+        </div>
+        <div id="cardsTableWrap"></div>
+      </div>
+
+      <!-- Conversations View -->
+      <div id="conversationsView" style="display: none;">
+        <div class="toolbar">
+          <input id="convSearch" placeholder="Search conversations">
+        </div>
+        <div id="conversationsList"></div>
+        <div id="messageThread" style="display: none;">
+          <div class="message-thread" id="messageThreadContent"></div>
+          <div class="toolbar">
+            <textarea id="messageInput" placeholder="Type your message..." rows="3" style="flex: 1; min-width: 300px;"></textarea>
+            <button id="sendMessageBtn">Send</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats View -->
+      <div id="statsView" style="display: none;">
+        <div class="stats" id="statsGrid"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { BACKEND_URL } from '/config.js';
+    const BACKEND = BACKEND_URL;
+
+    let currentView = 'cards';
+    let allCards = [];
+    let allConversations = [];
+    let selectedPhone = null;
+    let apiToken = localStorage.getItem('apiToken');
+
+    if (!apiToken) {
+      window.location.href = 'login.html';
+    }
+
+    const headers = {
+      'Authorization': `Bearer ${apiToken}`,
+      'Content-Type': 'application/json'
+    };
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const view = tab.getAttribute('data-view');
+        currentView = view;
+        
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        
+        document.getElementById('cardsView').style.display = view === 'cards' ? 'block' : 'none';
+        document.getElementById('conversationsView').style.display = view === 'conversations' ? 'block' : 'none';
+        document.getElementById('statsView').style.display = view === 'stats' ? 'block' : 'none';
+        
+        if (view === 'cards') loadCards();
+        else if (view === 'conversations') loadConversations();
+        else if (view === 'stats') loadStats();
+      });
+    });
+
+    async function loadCards() {
+      try {
+        const status = document.getElementById('statusFilter').value;
+        let url = `${BACKEND}/rep/cards`;
+        if (status) url += `?status=${encodeURIComponent(status)}`;
+        
+        const res = await fetch(url, { headers });
+        if (res.status === 401) {
+          window.location.href = 'login.html';
+          return;
+        }
+        
+        const data = await res.json();
+        allCards = data.cards || [];
+        renderCards();
+      } catch (error) {
+        console.error('Error loading cards:', error);
+      }
+    }
+
+    function renderCards() {
+      const search = document.getElementById('cardSearch').value.toLowerCase();
+      
+      let rows = allCards.filter(card => {
+        if (!search) return true;
+        const name = card.card_data?.name || '';
+        const id = card.id || '';
+        return name.toLowerCase().includes(search) || id.toLowerCase().includes(search);
+      });
+
+      let html = '<table><thead><tr>';
+      html += '<th><input type="checkbox" id="selectAll"></th><th>Name</th><th>Type</th><th>Sales State</th><th>Assignment Status</th><th>Updated</th><th>Actions</th>';
+      html += '</tr></thead><tbody>';
+
+      rows.forEach(card => {
+        const name = card.card_data?.name || card.id;
+        const type = card.type || 'person';
+        const salesState = card.sales_state || 'cold';
+        const assignmentStatus = card.assignment?.status || 'assigned';
+        const updated = card.updated_at ? new Date(card.updated_at).toLocaleDateString() : '-';
+        
+        html += '<tr>';
+        html += `<td><input type="checkbox" class="card-checkbox" data-id="${card.id}"></td>`;
+        html += `<td>${name}</td>`;
+        html += `<td><span class='badge ${type}'>${type}</span></td>`;
+        html += `<td><span class='badge gray'>${salesState}</span></td>`;
+        html += `<td><span class='badge ${assignmentStatus === 'active' ? 'green' : assignmentStatus === 'closed' ? 'green' : assignmentStatus === 'lost' ? 'red' : 'gray'}'>${assignmentStatus}</span></td>`;
+        html += `<td>${updated}</td>`;
+        html += `<td><a class='link' href='#' onclick='viewConversation("${card.card_data?.phone || ''}"); return false;'>View</a></td>`;
+        html += '</tr>';
+      });
+
+      html += '</tbody></table>';
+      document.getElementById('cardsTableWrap').innerHTML = html;
+
+      // Select all checkbox
+      document.getElementById('selectAll')?.addEventListener('change', (e) => {
+        document.querySelectorAll('.card-checkbox').forEach(cb => {
+          cb.checked = e.target.checked;
+        });
+        updateBlastButton();
+      });
+
+      document.querySelectorAll('.card-checkbox').forEach(cb => {
+        cb.addEventListener('change', updateBlastButton);
+      });
+      updateBlastButton();
+    }
+
+    function updateBlastButton() {
+      const selected = document.querySelectorAll('.card-checkbox:checked').length;
+      document.getElementById('blastBtn').disabled = selected === 0;
+    }
+
+    document.getElementById('cardSearch').addEventListener('input', renderCards);
+    document.getElementById('statusFilter').addEventListener('change', loadCards);
+    document.getElementById('blastBtn').addEventListener('click', async () => {
+      const selected = Array.from(document.querySelectorAll('.card-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
+      if (selected.length === 0) {
+        alert('No cards selected');
+        return;
+      }
+
+      if (!confirm(`Blast ${selected.length} card(s)?`)) return;
+
+      const btn = document.getElementById('blastBtn');
+      btn.disabled = true;
+      btn.textContent = 'Blasting...';
+
+      try {
+        const res = await fetch(`${BACKEND}/rep/blast`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ card_ids: selected })
+        });
+
+        const data = await res.json();
+        if (data.ok) {
+          alert(`Blast complete. Sent: ${data.sent}, Skipped: ${data.skipped}`);
+          loadCards();
+        } else {
+          alert(`Blast failed: ${data.error || 'Unknown error'}`);
+        }
+      } catch (error) {
+        alert(`Error: ${error.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Blast Selected Cards';
+      }
+    });
+
+    async function loadConversations() {
+      try {
+        const res = await fetch(`${BACKEND}/rep/conversations`, { headers });
+        if (res.status === 401) {
+          window.location.href = 'login.html';
+          return;
+        }
+        
+        const data = await res.json();
+        allConversations = data.conversations || [];
+        renderConversations();
+      } catch (error) {
+        console.error('Error loading conversations:', error);
+      }
+    }
+
+    function renderConversations() {
+      const search = document.getElementById('convSearch').value.toLowerCase();
+      let html = '';
+
+      allConversations.filter(conv => {
+        if (!search) return true;
+        return conv.phone?.toLowerCase().includes(search);
+      }).forEach(conv => {
+        const unread = conv.unread_count > 0 ? `<span class="badge red">${conv.unread_count}</span>` : '';
+        html += `<div style="padding: 12px; border-bottom: 1px solid #1f2937; cursor: pointer;" onclick='viewConversation("${conv.phone}")'>`;
+        html += `<div style="display: flex; justify-content: space-between;">`;
+        html += `<div><strong>${conv.phone}</strong> ${unread}</div>`;
+        html += `<div style="font-size: 11px; color: #9ca3af;">${conv.last_inbound_at || conv.last_outbound_at || 'No messages'}</div>`;
+        html += `</div><div style="font-size: 12px; color: #9ca3af; margin-top: 4px;">State: ${conv.state || 'unknown'}</div>`;
+        html += `</div>`;
+      });
+
+      document.getElementById('conversationsList').innerHTML = html || '<div style="padding: 20px; text-align: center; color: #9ca3af;">No conversations</div>';
+    }
+
+    async function viewConversation(phone) {
+      if (!phone) return;
+      selectedPhone = phone;
+      document.getElementById('messageThread').style.display = 'block';
+
+      try {
+        const res = await fetch(`${BACKEND}/rep/messages/${encodeURIComponent(phone)}`, { headers });
+        const data = await res.json();
+        const messages = data.messages || [];
+
+        let html = '';
+        messages.forEach(msg => {
+          const isOutbound = msg.direction === 'outbound';
+          const time = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : '';
+          html += `<div class="message ${msg.direction}">`;
+          html += `<div>${msg.text}</div>`;
+          html += `<div class="message-time">${time} - ${msg.sender || 'unknown'}</div>`;
+          html += `</div>`;
+        });
+
+        document.getElementById('messageThreadContent').innerHTML = html || '<div style="text-align: center; color: #9ca3af;">No messages yet</div>';
+        document.getElementById('messageThreadContent').scrollTop = document.getElementById('messageThreadContent').scrollHeight;
+      } catch (error) {
+        console.error('Error loading messages:', error);
+      }
+    }
+
+    document.getElementById('sendMessageBtn').addEventListener('click', async () => {
+      if (!selectedPhone) return;
+      const message = document.getElementById('messageInput').value.trim();
+      if (!message) return;
+
+      // Find card_id from phone
+      const card = allCards.find(c => c.card_data?.phone === selectedPhone);
+      if (!card) {
+        alert('Card not found for this phone number');
+        return;
+      }
+
+      try {
+        const res = await fetch(`${BACKEND}/rep/messages/send`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ card_id: card.id, message })
+        });
+
+        const data = await res.json();
+        if (data.ok) {
+          document.getElementById('messageInput').value = '';
+          viewConversation(selectedPhone);
+          loadConversations();
+        } else {
+          alert(`Failed to send: ${data.detail || 'Unknown error'}`);
+        }
+      } catch (error) {
+        alert(`Error: ${error.message}`);
+      }
+    });
+
+    async function loadStats() {
+      try {
+        const res = await fetch(`${BACKEND}/rep/stats`, { headers });
+        if (res.status === 401) {
+          window.location.href = 'login.html';
+          return;
+        }
+        
+        const data = await res.json();
+        const stats = data.stats || {};
+
+        let html = '';
+        html += `<div class="stat-card"><div class="stat-value">${stats.assigned || 0}</div><div class="stat-label">Assigned</div></div>`;
+        html += `<div class="stat-card"><div class="stat-value">${stats.active || 0}</div><div class="stat-label">Active</div></div>`;
+        html += `<div class="stat-card"><div class="stat-value">${stats.closed || 0}</div><div class="stat-label">Closed</div></div>`;
+        html += `<div class="stat-card"><div class="stat-value">${stats.lost || 0}</div><div class="stat-label">Lost</div></div>`;
+        html += `<div class="stat-card"><div class="stat-value">${stats.total_conversations || 0}</div><div class="stat-label">Conversations</div></div>`;
+
+        document.getElementById('statsGrid').innerHTML = html;
+      } catch (error) {
+        console.error('Error loading stats:', error);
+      }
+    }
+
+    // Load initial data
+    loadCards();
+
+    // Auto-refresh
+    setInterval(() => {
+      if (currentView === 'cards') loadCards();
+      else if (currentView === 'conversations') {
+        loadConversations();
+        if (selectedPhone) viewConversation(selectedPhone);
+      }
+      else if (currentView === 'stats') loadStats();
+    }, 30000);
+
+    function logout() {
+      localStorage.removeItem('apiToken');
+      window.location.href = 'login.html';
+    }
+
+    window.viewConversation = viewConversation;
+  </script>
+</body>
+</html>

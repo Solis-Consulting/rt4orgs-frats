@@ -302,6 +302,7 @@
         html += `<td>${owner}</td>`;
         html += `<td>${updated}</td>`;
         html += `<td><a class='link' href='card.html?id=${encodeURIComponent(card.id)}' style='margin-right: 8px;'>View</a>`;
+        html += `<a class='link' href='#' onclick='assignCard("${card.id}"); return false;' style='margin-right: 8px;'>Assign</a>`;
         html += `<a class='link' href='#' onclick='deleteCard("${card.id}"); return false;' style='color: #fecaca;'>Delete</a></td>`;
         html += "</tr>";
       });
@@ -467,6 +468,77 @@
 
     // Expose deleteCard to global scope for inline onclick
     window.deleteCard = deleteCard;
+    
+    async function assignCard(cardId) {
+      // Get list of users for assignment
+      const apiToken = localStorage.getItem('apiToken');
+      if (!apiToken) {
+        alert('Please login as admin to assign cards');
+        window.location.href = 'login.html';
+        return;
+      }
+      
+      try {
+        const res = await fetch(`${BACKEND}/admin/users`, {
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (res.status === 401 || res.status === 403) {
+          alert('Admin access required');
+          return;
+        }
+        
+        const data = await res.json();
+        const users = data.users || [];
+        
+        if (users.length === 0) {
+          alert('No users found. Create a user first in the admin dashboard.');
+          return;
+        }
+        
+        const userOptions = users.map(u => `${u.id}:${u.username}`).join('\n');
+        const selection = prompt(`Assign card to user:\n\n${users.map((u, i) => `${i + 1}. ${u.username} (${u.id})`).join('\n')}\n\nEnter username or ID:`);
+        
+        if (!selection) return;
+        
+        // Find user by username or ID
+        const user = users.find(u => u.username.toLowerCase() === selection.toLowerCase() || u.id.toLowerCase() === selection.toLowerCase());
+        if (!user) {
+          alert('User not found');
+          return;
+        }
+        
+        const notes = prompt('Assignment notes (optional):') || null;
+        
+        const assignRes = await fetch(`${BACKEND}/admin/assignments`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            card_id: cardId,
+            user_id: user.id,
+            notes: notes
+          })
+        });
+        
+        const assignData = await assignRes.json();
+        if (assignData.ok) {
+          alert(`Card assigned to ${user.username} successfully`);
+          loadCards();
+        } else {
+          alert(`Failed to assign: ${assignData.detail || 'Unknown error'}`);
+        }
+      } catch (error) {
+        alert(`Error: ${error.message}`);
+      }
+    }
+    
+    window.assignCard = assignCard;
 
     document.getElementById("cardSearch").addEventListener("input", renderCards);
     document.getElementById("cardTypeFilter").addEventListener("change", loadCards);

@@ -1,0 +1,437 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RT4 Admin Dashboard</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: #0f172a; color: #e5e7eb; }
+    .shell { max-width: 1400px; margin: 32px auto; padding: 0 16px; }
+    .card { background: #020617; border-radius: 16px; padding: 20px 24px; box-shadow: 0 18px 60px rgba(0,0,0,0.6); border: 1px solid #1f2937; margin-bottom: 24px; }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    .sub { margin-bottom: 16px; color: #9ca3af; font-size: 14px; }
+    .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    input, select, textarea { background: #020617; border: 1px solid #4b5563; border-radius: 8px; padding: 6px 10px; color: #e5e7eb; font-size: 13px; }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: #38bdf8; }
+    button { background: #0ea5e9; color: #0f172a; border: none; border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    button:hover { background: #38bdf8; }
+    button:disabled { background: #4b5563; cursor: not-allowed; }
+    button.danger { background: #ef4444; }
+    button.danger:hover { background: #dc2626; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+    th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid #1f2937; }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; }
+    tr:hover td { background: #020617; }
+    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+    .badge.green { background: rgba(34,197,94,0.15); color: #bbf7d0; }
+    .badge.red { background: rgba(248,113,113,0.15); color: #fecaca; }
+    .badge.amber { background: rgba(245,158,11,0.15); color: #fed7aa; }
+    .badge.gray { background: rgba(75,85,99,0.4); color: #e5e7eb; }
+    .link { color: #38bdf8; text-decoration: none; font-weight: 500; cursor: pointer; }
+    .link:hover { text-decoration: underline; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid #1f2937; }
+    .tab { padding: 8px 16px; cursor: pointer; color: #9ca3af; border-bottom: 2px solid transparent; }
+    .tab.active { color: #38bdf8; border-bottom-color: #38bdf8; }
+    .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center; }
+    .modal.show { display: flex; }
+    .modal-content { background: #020617; border: 1px solid #1f2937; border-radius: 16px; padding: 24px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; }
+    .modal-header { margin-bottom: 16px; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; margin-bottom: 6px; font-size: 13px; color: #9ca3af; }
+    .form-group input, .form-group select, .form-group textarea { width: 100%; box-sizing: border-box; }
+    .header-actions { display: flex; gap: 12px; align-items: center; margin-left: auto; }
+    .token-display { background: #1e293b; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 12px; word-break: break-all; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="card">
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div>
+          <h1>RT4 Admin Dashboard</h1>
+          <div class="sub">Manage users and card assignments</div>
+        </div>
+        <div class="header-actions">
+          <a href="index.html" class="link">Main Console</a>
+          <a href="#" class="link" onclick="logout(); return false;">Logout</a>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active" data-view="users">Users</div>
+        <div class="tab" data-view="assignments">Assignments</div>
+      </div>
+
+      <!-- Users View -->
+      <div id="usersView">
+        <div class="toolbar">
+          <button onclick="showCreateUserModal()">Create New User</button>
+        </div>
+        <div id="usersTableWrap"></div>
+      </div>
+
+      <!-- Assignments View -->
+      <div id="assignmentsView" style="display: none;">
+        <div class="toolbar">
+          <input id="assignSearch" placeholder="Search cards...">
+          <select id="assignUserFilter">
+            <option value="">All users</option>
+          </select>
+          <select id="assignStatusFilter">
+            <option value="">All statuses</option>
+            <option value="assigned">Assigned</option>
+            <option value="active">Active</option>
+            <option value="closed">Closed</option>
+            <option value="lost">Lost</option>
+          </select>
+          <button onclick="showAssignCardModal()">Assign Card</button>
+        </div>
+        <div id="assignmentsTableWrap"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create User Modal -->
+  <div id="createUserModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Create New User</h2>
+      </div>
+      <form id="createUserForm">
+        <div class="form-group">
+          <label>Username</label>
+          <input type="text" id="newUsername" required>
+        </div>
+        <div class="form-group">
+          <label>Role</label>
+          <select id="newRole">
+            <option value="rep">Rep</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Twilio Phone Number (optional)</label>
+          <input type="text" id="newTwilioPhone" placeholder="+1234567890">
+        </div>
+        <div class="form-group">
+          <label>Twilio Account SID (optional)</label>
+          <input type="text" id="newTwilioSid">
+        </div>
+        <div class="form-group">
+          <label>Twilio Auth Token (optional)</label>
+          <input type="password" id="newTwilioToken">
+        </div>
+        <div style="display: flex; gap: 12px; margin-top: 20px;">
+          <button type="submit">Create User</button>
+          <button type="button" onclick="hideCreateUserModal()">Cancel</button>
+        </div>
+      </form>
+      <div id="newUserToken" style="display: none; margin-top: 16px;">
+        <div style="color: #9ca3af; font-size: 12px; margin-bottom: 8px;">API Token (save this - it won't be shown again):</div>
+        <div class="token-display" id="newUserTokenValue"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Assign Card Modal -->
+  <div id="assignCardModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Assign Card to Rep</h2>
+      </div>
+      <form id="assignCardForm">
+        <div class="form-group">
+          <label>Card ID</label>
+          <input type="text" id="assignCardId" placeholder="Enter card ID" required>
+        </div>
+        <div class="form-group">
+          <label>Assign to User</label>
+          <select id="assignUserId" required>
+            <option value="">Select user...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Notes (optional)</label>
+          <textarea id="assignNotes" rows="3"></textarea>
+        </div>
+        <div style="display: flex; gap: 12px; margin-top: 20px;">
+          <button type="submit">Assign</button>
+          <button type="button" onclick="hideAssignCardModal()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module">
+    import { BACKEND_URL } from '/config.js';
+    const BACKEND = BACKEND_URL;
+
+    let currentView = 'users';
+    let allUsers = [];
+    let allAssignments = [];
+    let apiToken = localStorage.getItem('apiToken');
+
+    if (!apiToken) {
+      window.location.href = 'login.html';
+    }
+
+    const headers = {
+      'Authorization': `Bearer ${apiToken}`,
+      'Content-Type': 'application/json'
+    };
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const view = tab.getAttribute('data-view');
+        currentView = view;
+        
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        
+        document.getElementById('usersView').style.display = view === 'users' ? 'block' : 'none';
+        document.getElementById('assignmentsView').style.display = view === 'assignments' ? 'block' : 'none';
+        
+        if (view === 'users') loadUsers();
+        else if (view === 'assignments') loadAssignments();
+      });
+    });
+
+    async function loadUsers() {
+      try {
+        const res = await fetch(`${BACKEND}/admin/users`, { headers });
+        if (res.status === 401 || res.status === 403) {
+          window.location.href = 'login.html';
+          return;
+        }
+        
+        const data = await res.json();
+        allUsers = data.users || [];
+        renderUsers();
+        populateUserSelects();
+      } catch (error) {
+        console.error('Error loading users:', error);
+      }
+    }
+
+    function renderUsers() {
+      let html = '<table><thead><tr>';
+      html += '<th>Username</th><th>Role</th><th>Twilio Phone</th><th>Created</th><th>Actions</th>';
+      html += '</tr></thead><tbody>';
+
+      allUsers.forEach(user => {
+        html += '<tr>';
+        html += `<td>${user.username}</td>`;
+        html += `<td><span class='badge ${user.role === 'admin' ? 'amber' : 'gray'}'>${user.role}</span></td>`;
+        html += `<td>${user.twilio_phone_number || '-'}</td>`;
+        html += `<td>${user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}</td>`;
+        html += `<td><a class='link' href='#' onclick='editUser("${user.id}"); return false;'>Edit</a></td>`;
+        html += '</tr>';
+      });
+
+      html += '</tbody></table>';
+      document.getElementById('usersTableWrap').innerHTML = html || '<div style="padding: 20px; text-align: center; color: #9ca3af;">No users</div>';
+    }
+
+    function populateUserSelects() {
+      const select = document.getElementById('assignUserId');
+      const filterSelect = document.getElementById('assignUserFilter');
+      
+      [select, filterSelect].forEach(sel => {
+        if (!sel) return;
+        const currentValue = sel.value;
+        sel.innerHTML = sel === filterSelect ? '<option value="">All users</option>' : '<option value="">Select user...</option>';
+        
+        allUsers.forEach(user => {
+          const option = document.createElement('option');
+          option.value = user.id;
+          option.textContent = user.username;
+          sel.appendChild(option);
+        });
+        
+        if (currentValue) sel.value = currentValue;
+      });
+    }
+
+    function showCreateUserModal() {
+      document.getElementById('createUserModal').classList.add('show');
+      document.getElementById('createUserForm').reset();
+      document.getElementById('newUserToken').style.display = 'none';
+    }
+
+    function hideCreateUserModal() {
+      document.getElementById('createUserModal').classList.remove('show');
+    }
+
+    document.getElementById('createUserForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const payload = {
+        username: document.getElementById('newUsername').value.trim(),
+        role: document.getElementById('newRole').value,
+        twilio_phone_number: document.getElementById('newTwilioPhone').value.trim() || null,
+        twilio_account_sid: document.getElementById('newTwilioSid').value.trim() || null,
+        twilio_auth_token: document.getElementById('newTwilioToken').value.trim() || null,
+      };
+
+      try {
+        const res = await fetch(`${BACKEND}/admin/users`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (data.ok && data.user) {
+          // Show token
+          document.getElementById('newUserTokenValue').textContent = data.user.api_token;
+          document.getElementById('newUserToken').style.display = 'block';
+          
+          // Reload users after a delay
+          setTimeout(() => {
+            loadUsers();
+            hideCreateUserModal();
+          }, 2000);
+        } else {
+          alert(`Failed to create user: ${data.detail || 'Unknown error'}`);
+        }
+      } catch (error) {
+        alert(`Error: ${error.message}`);
+      }
+    });
+
+    function showAssignCardModal() {
+      document.getElementById('assignCardModal').classList.add('show');
+      document.getElementById('assignCardForm').reset();
+    }
+
+    function hideAssignCardModal() {
+      document.getElementById('assignCardModal').classList.remove('show');
+    }
+
+    document.getElementById('assignCardForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const payload = {
+        card_id: document.getElementById('assignCardId').value.trim(),
+        user_id: document.getElementById('assignUserId').value,
+        notes: document.getElementById('assignNotes').value.trim() || null,
+      };
+
+      try {
+        const res = await fetch(`${BACKEND}/admin/assignments`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (data.ok) {
+          alert('Card assigned successfully');
+          hideAssignCardModal();
+          loadAssignments();
+        } else {
+          alert(`Failed to assign card: ${data.detail || 'Unknown error'}`);
+        }
+      } catch (error) {
+        alert(`Error: ${error.message}`);
+      }
+    });
+
+    async function loadAssignments() {
+      try {
+        const userFilter = document.getElementById('assignUserFilter')?.value;
+        const statusFilter = document.getElementById('assignStatusFilter')?.value;
+        
+        let url = `${BACKEND}/admin/assignments`;
+        const params = [];
+        if (userFilter) params.push(`user_id=${encodeURIComponent(userFilter)}`);
+        if (statusFilter) params.push(`status=${encodeURIComponent(statusFilter)}`);
+        if (params.length) url += '?' + params.join('&');
+        
+        const res = await fetch(url, { headers });
+        if (res.status === 401 || res.status === 403) {
+          window.location.href = 'login.html';
+          return;
+        }
+        
+        const data = await res.json();
+        allAssignments = data.assignments || [];
+        renderAssignments();
+      } catch (error) {
+        console.error('Error loading assignments:', error);
+      }
+    }
+
+    function renderAssignments() {
+      const search = document.getElementById('assignSearch')?.value.toLowerCase() || '';
+      
+      let rows = allAssignments.filter(assign => {
+        if (!search) return true;
+        const cardName = assign.card?.card_data?.name || '';
+        const cardId = assign.card_id || '';
+        const username = assign.username || '';
+        return cardName.toLowerCase().includes(search) || 
+               cardId.toLowerCase().includes(search) ||
+               username.toLowerCase().includes(search);
+      });
+
+      let html = '<table><thead><tr>';
+      html += '<th>Card</th><th>Assigned To</th><th>Status</th><th>Assigned At</th><th>Notes</th><th>Actions</th>';
+      html += '</tr></thead><tbody>';
+
+      rows.forEach(assign => {
+        const cardName = assign.card?.card_data?.name || assign.card_id;
+        html += '<tr>';
+        html += `<td>${cardName}</td>`;
+        html += `<td>${assign.username}</td>`;
+        html += `<td><span class='badge ${assign.status === 'active' ? 'green' : assign.status === 'closed' ? 'green' : assign.status === 'lost' ? 'red' : 'gray'}'>${assign.status}</span></td>`;
+        html += `<td>${assign.assigned_at ? new Date(assign.assigned_at).toLocaleDateString() : '-'}</td>`;
+        html += `<td>${assign.notes || '-'}</td>`;
+        html += `<td><a class='link' href='#' onclick='updateAssignmentStatus("${assign.card_id}", "${assign.user_id}"); return false;'>Update Status</a></td>`;
+        html += '</tr>';
+      });
+
+      html += '</tbody></table>';
+      document.getElementById('assignmentsTableWrap').innerHTML = html || '<div style="padding: 20px; text-align: center; color: #9ca3af;">No assignments</div>';
+    }
+
+    function updateAssignmentStatus(cardId, userId) {
+      const status = prompt('Enter new status (assigned, active, closed, lost):');
+      if (!status || !['assigned', 'active', 'closed', 'lost'].includes(status)) return;
+
+      fetch(`${BACKEND}/admin/assignments/${encodeURIComponent(cardId)}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ status })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.ok) {
+          alert('Status updated');
+          loadAssignments();
+        } else {
+          alert(`Failed: ${data.detail || 'Unknown error'}`);
+        }
+      })
+      .catch(error => alert(`Error: ${error.message}`));
+    }
+
+    document.getElementById('assignSearch')?.addEventListener('input', renderAssignments);
+    document.getElementById('assignUserFilter')?.addEventListener('change', loadAssignments);
+    document.getElementById('assignStatusFilter')?.addEventListener('change', loadAssignments);
+
+    // Load initial data
+    loadUsers();
+
+    function logout() {
+      localStorage.removeItem('apiToken');
+      window.location.href = 'login.html';
+    }
+
+    window.editUser = (userId) => {
+      alert('Edit user functionality - to be implemented');
+    };
+    window.updateAssignmentStatus = updateAssignmentStatus;
+  </script>
+</body>
+</html>
