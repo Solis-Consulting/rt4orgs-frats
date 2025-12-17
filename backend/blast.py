@@ -11,7 +11,7 @@ Runs outbound blasts for a specific set of card IDs by:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 from datetime import datetime
 from pathlib import Path
 import json
@@ -225,10 +225,10 @@ def _insert_blast_run_row(
 def run_blast_for_cards(
     conn: Any,
     card_ids: List[str],
-    limit: int | None,
+    limit: Optional[int],
     owner: str,
     source: str,
-    auth_token: str | None = None,
+    auth_token: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Run outbound blast for a specific set of card IDs.
@@ -520,10 +520,13 @@ def run_blast_for_cards(
             )
         except Exception as e:
             skipped_count += 1
+            import traceback
+            error_trace = traceback.format_exc()
             print(
                 f"[BLAST_ERROR] card_id={card_id} phone={phone} error={e}",
                 flush=True,
             )
+            print(f"[BLAST_ERROR] Traceback:\n{error_trace}", flush=True)
             results.append(
                 {
                     "card_id": card_id,

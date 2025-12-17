@@ -5,7 +5,7 @@ import time
 import random
 import json
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from twilio.rest import Client
 import requests
@@ -165,7 +165,7 @@ def find_unblasted_contacts(leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return unblasted
 
 
-def send_sms(to_number: str, body: str, auth_token: str | None = None) -> Dict[str, Any]:
+def send_sms(to_number: str, body: str, auth_token: Optional[str] = None) -> Dict[str, Any]:
     """
     Send SMS via Twilio.
     
@@ -175,7 +175,12 @@ def send_sms(to_number: str, body: str, auth_token: str | None = None) -> Dict[s
         auth_token: Optional Twilio auth token (overrides TWILIO_AUTH_TOKEN env var)
     """
     # Use provided auth_token or fall back to environment variable
-    token_to_use = auth_token or TWILIO_AUTH_TOKEN
+    # Only use auth_token if it's a non-empty string
+    if auth_token and auth_token.strip():
+        token_to_use = auth_token.strip()
+    else:
+        token_to_use = TWILIO_AUTH_TOKEN
+    
     if not token_to_use:
         raise ValueError("Twilio auth token not provided and TWILIO_AUTH_TOKEN not set")
     
