@@ -368,7 +368,7 @@
 
       // Get auth token from input and save to localStorage
       const authTokenInput = document.getElementById("authToken");
-      const authToken = authTokenInput.value.trim();
+      const authToken = authTokenInput ? authTokenInput.value.trim() : "";
       if (authToken) {
         localStorage.setItem("blastAuthToken", authToken);
       }
@@ -376,22 +376,32 @@
       // Build headers with auth token if available
       const headers = { "Content-Type": "application/json" };
       const storedToken = localStorage.getItem("blastAuthToken");
-      const tokenToUse = authToken || storedToken;
+      const tokenToUse = authToken || storedToken || null;
+      
+      console.log("[BLAST] Auth token from input:", authToken ? "***" : "empty");
+      console.log("[BLAST] Auth token from storage:", storedToken ? "***" : "empty");
+      console.log("[BLAST] Token to use:", tokenToUse ? "***" : "none");
+      
       if (tokenToUse) {
         headers["Authorization"] = `Bearer ${tokenToUse}`;
+      }
+
+      // Build payload - only include auth_token if we have one
+      const payload = {
+        card_ids: selectedIds,
+        limit: selectedIds.length,
+        owner: "system",
+        source: "cards_ui"
+      };
+      if (tokenToUse) {
+        payload.auth_token = tokenToUse;
       }
 
       try {
         const res = await fetch(`${BACKEND}/blast/run`, {
           method: "POST",
           headers: headers,
-          body: JSON.stringify({
-            card_ids: selectedIds,
-            limit: selectedIds.length,
-            owner: "system",
-            source: "cards_ui",
-            auth_token: tokenToUse || undefined
-          })
+          body: JSON.stringify(payload)
         });
 
         const data = await res.json();

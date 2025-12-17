@@ -249,6 +249,7 @@ def run_blast_for_cards(
             "limit": limit,
             "owner": owner,
             "source": source,
+            "auth_token_provided": bool(auth_token),
         },
         flush=True,
     )

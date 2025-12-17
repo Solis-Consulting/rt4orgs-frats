@@ -178,8 +178,10 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None) -> Dic
     # Only use auth_token if it's a non-empty string
     if auth_token and auth_token.strip():
         token_to_use = auth_token.strip()
+        print(f"[SEND_SMS] Using provided auth token: {token_to_use[:10]}..." if len(token_to_use) > 10 else "[SEND_SMS] Using provided auth token")
     else:
         token_to_use = TWILIO_AUTH_TOKEN
+        print("[SEND_SMS] Using environment variable TWILIO_AUTH_TOKEN")
     
     if not token_to_use:
         raise ValueError("Twilio auth token not provided and TWILIO_AUTH_TOKEN not set")
