@@ -165,8 +165,21 @@ def find_unblasted_contacts(leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return unblasted
 
 
-def send_sms(to_number: str, body: str) -> Dict[str, Any]:
-    client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+def send_sms(to_number: str, body: str, auth_token: str | None = None) -> Dict[str, Any]:
+    """
+    Send SMS via Twilio.
+    
+    Args:
+        to_number: Recipient phone number
+        body: Message body
+        auth_token: Optional Twilio auth token (overrides TWILIO_AUTH_TOKEN env var)
+    """
+    # Use provided auth_token or fall back to environment variable
+    token_to_use = auth_token or TWILIO_AUTH_TOKEN
+    if not token_to_use:
+        raise ValueError("Twilio auth token not provided and TWILIO_AUTH_TOKEN not set")
+    
+    client = Client(TWILIO_ACCOUNT_SID, token_to_use)
     if TWILIO_MESSAGING_SERVICE_SID:
         # Preferred: send via Messaging Service for A2P / compliance
         msg = client.messages.create(

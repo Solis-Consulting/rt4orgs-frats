@@ -2269,7 +2269,7 @@ def get_initial_outreach_message(conn: Any) -> Optional[str]:
 # ============================================================================
 
 @app.post("/blast/run")
-async def blast_run(payload: Dict[str, Any] = Body(...)):
+async def blast_run(request: Request, payload: Dict[str, Any] = Body(...)):
     """
     Trigger outbound blast for a specific set of card IDs.
 
@@ -2278,8 +2278,11 @@ async def blast_run(payload: Dict[str, Any] = Body(...)):
       "card_ids": ["card_1", "card_2"],  # required
       "limit": 10,                       # optional, cap number of cards
       "owner": "system",                 # optional, defaults to 'system'
-      "source": "cards_ui"               # optional, defaults to 'cards_ui'
+      "source": "cards_ui",              # optional, defaults to 'cards_ui'
+      "auth_token": "token"              # optional, authorization token
     }
+    
+    Authorization can also be provided via Authorization header (Bearer token).
     """
     card_ids = payload.get("card_ids") or []
     if not isinstance(card_ids, list) or not card_ids:
@@ -2294,6 +2297,13 @@ async def blast_run(payload: Dict[str, Any] = Body(...)):
 
     owner = payload.get("owner") or "system"
     source = payload.get("source") or "cards_ui"
+    
+    # Get auth token from payload or Authorization header
+    auth_token = payload.get("auth_token")
+    if not auth_token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            auth_token = auth_header[7:]
 
     conn = get_conn()
 
@@ -2304,6 +2314,7 @@ async def blast_run(payload: Dict[str, Any] = Body(...)):
             limit=limit,
             owner=owner,
             source=source,
+            auth_token=auth_token,
         )
         return result
     except Exception as e:

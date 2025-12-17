@@ -228,6 +228,7 @@ def run_blast_for_cards(
     limit: int | None,
     owner: str,
     source: str,
+    auth_token: str | None = None,
 ) -> Dict[str, Any]:
     """
     Run outbound blast for a specific set of card IDs.
@@ -236,6 +237,9 @@ def run_blast_for_cards(
     - Generates messages using archive_intelligence templates
     - Sends via Twilio (using scripts.blast.send_sms)
     - Records conversations and blast_run summary
+    
+    Args:
+        auth_token: Optional authorization token to use for Twilio (overrides env var)
     """
     # High-level run visibility
     print(
@@ -419,7 +423,7 @@ def run_blast_for_cards(
                 f"[BLAST_SEND_ATTEMPT] card_id={card_id} phone={phone}",
                 flush=True,
             )
-            sms_result = send_sms(phone, message)
+            sms_result = send_sms(phone, message, auth_token=auth_token)
 
             # Create legacy contact event folder for archive_intelligence compatibility
             folder = make_contact_event_folder(data.get("name") or card_id)

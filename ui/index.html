@@ -95,6 +95,7 @@
           </select>
           <button id="blastSelectedBtn" disabled>Run Blast on Selected Cards</button>
           <button id="deleteSelectedBtn" disabled style="background: #ef4444; margin-left: 8px;">Delete Selected Cards</button>
+          <input id="authToken" type="password" placeholder="Auth Token (optional)" style="width: 180px; margin-left: 8px;">
         </div>
         <div class="meta" id="cardSummary"></div>
         <div id="cardTableWrap"></div>
@@ -220,6 +221,17 @@
       } catch (error) {
         console.error("Error loading leads:", error);
         document.getElementById("tableWrap").innerHTML = `<div style='color: #fecaca; padding: 20px;'>Error loading leads: ${error.message}. Make sure BACKEND URL is set correctly.</div>`;
+      }
+    }
+
+    // Load saved auth token from localStorage on page load
+    function loadSavedAuthToken() {
+      const savedToken = localStorage.getItem("blastAuthToken");
+      if (savedToken) {
+        const authTokenInput = document.getElementById("authToken");
+        if (authTokenInput) {
+          authTokenInput.value = savedToken;
+        }
       }
     }
 
@@ -354,15 +366,31 @@
       blastBtn.disabled = true;
       blastBtn.textContent = "Blasting...";
 
+      // Get auth token from input and save to localStorage
+      const authTokenInput = document.getElementById("authToken");
+      const authToken = authTokenInput.value.trim();
+      if (authToken) {
+        localStorage.setItem("blastAuthToken", authToken);
+      }
+
+      // Build headers with auth token if available
+      const headers = { "Content-Type": "application/json" };
+      const storedToken = localStorage.getItem("blastAuthToken");
+      const tokenToUse = authToken || storedToken;
+      if (tokenToUse) {
+        headers["Authorization"] = `Bearer ${tokenToUse}`;
+      }
+
       try {
         const res = await fetch(`${BACKEND}/blast/run`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: headers,
           body: JSON.stringify({
             card_ids: selectedIds,
             limit: selectedIds.length,
             owner: "system",
-            source: "cards_ui"
+            source: "cards_ui",
+            auth_token: tokenToUse || undefined
           })
         });
 
@@ -397,6 +425,7 @@
         
         if (view === "cards") {
           loadCards();
+          loadSavedAuthToken();
         }
       });
     });
@@ -503,6 +532,8 @@
     });
 
     load();
+    // Load saved auth token on initial page load
+    loadSavedAuthToken();
     // Auto-refresh every 30 seconds
     setInterval(() => {
       if (currentView === "leads") {
