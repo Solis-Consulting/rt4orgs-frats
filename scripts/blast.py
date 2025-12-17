@@ -197,6 +197,11 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None) -> Dic
     if not token_to_use:
         raise ValueError("Twilio auth token not provided and TWILIO_AUTH_TOKEN not set")
     
+    # Log which account and token are being used
+    account_sid_preview = TWILIO_ACCOUNT_SID[:10] + "..." if TWILIO_ACCOUNT_SID and len(TWILIO_ACCOUNT_SID) > 10 else str(TWILIO_ACCOUNT_SID)
+    print(f"[SEND_SMS] Creating Twilio Client with Account SID: {account_sid_preview}")
+    print(f"[SEND_SMS] Using Auth Token: {token_to_use[:15]}... (length: {len(token_to_use)})")
+    
     client = Client(TWILIO_ACCOUNT_SID, token_to_use)
     if TWILIO_MESSAGING_SERVICE_SID:
         # Preferred: send via Messaging Service for A2P / compliance
@@ -216,6 +221,13 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None) -> Dic
         raise ValueError(
             "Twilio configuration error: set TWILIO_MESSAGING_SERVICE_SID or TWILIO_PHONE_NUMBER"
         )
+    
+    # Log successful send with token confirmation
+    print(f"[SEND_SMS] ✅ Message sent successfully!")
+    print(f"[SEND_SMS]   Twilio SID: {msg.sid}")
+    print(f"[SEND_SMS]   Status: {msg.status}")
+    print(f"[SEND_SMS]   Token used: {token_to_use[:15]}... (length: {len(token_to_use)})")
+    
     return {"sid": msg.sid, "status": msg.status}
 
 

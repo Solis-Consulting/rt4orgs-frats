@@ -424,6 +424,10 @@ def run_blast_for_cards(
                 f"[BLAST_SEND_ATTEMPT] card_id={card_id} phone={phone}",
                 flush=True,
             )
+            if auth_token:
+                print(f"[BLAST_SEND_ATTEMPT] Passing auth_token to send_sms: {auth_token[:15]}... (length: {len(auth_token)})", flush=True)
+            else:
+                print(f"[BLAST_SEND_ATTEMPT] No auth_token provided, send_sms will use environment variable", flush=True)
             sms_result = send_sms(phone, message, auth_token=auth_token)
 
             # Create legacy contact event folder for archive_intelligence compatibility
