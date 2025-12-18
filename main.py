@@ -242,6 +242,29 @@ async def lifespan(app: FastAPI):
         import traceback
         print(f"📋 Traceback: {traceback.format_exc()}")
         # Continue startup even if migration fails
+    # Validate critical Twilio configuration
+    import os
+    twilio_account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+    twilio_auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+    twilio_messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
+    
+    print("=" * 60)
+    print("🔍 TWILIO CONFIGURATION CHECK")
+    print("=" * 60)
+    print(f"TWILIO_ACCOUNT_SID: {'✅ SET' if twilio_account_sid else '❌ NOT SET'}")
+    if twilio_account_sid:
+        print(f"  Value: {twilio_account_sid[:10]}...{twilio_account_sid[-4:] if len(twilio_account_sid) > 14 else twilio_account_sid} (length: {len(twilio_account_sid)})")
+    print(f"TWILIO_AUTH_TOKEN: {'✅ SET' if twilio_auth_token else '❌ NOT SET'}")
+    if twilio_auth_token:
+        print(f"  Value: {twilio_auth_token[:10]}...{twilio_auth_token[-4:] if len(twilio_auth_token) > 14 else twilio_auth_token} (length: {len(twilio_auth_token)})")
+    print(f"TWILIO_MESSAGING_SERVICE_SID: {'✅ SET' if twilio_messaging_service_sid else '❌ NOT SET - BLAST WILL FAIL!'}")
+    if twilio_messaging_service_sid:
+        print(f"  Value: {twilio_messaging_service_sid}")
+        print(f"  Length: {len(twilio_messaging_service_sid)}")
+        print(f"  System phone: (919) 443-6288 (configured in Messaging Service)")
+    else:
+        print(f"  ⚠️  WARNING: Messaging Service SID not configured!")
+        print(f"  ⚠️  All blast operations will fail until this is set in Railway environment variables")
     print("=" * 60)
     print("✅ LIFESPAN STARTUP COMPLETE")
     print("=" * 60)
@@ -2872,17 +2895,26 @@ async def rep_blast(
         # All users (admin and reps) use system phone number via Messaging Service
         rep_user_id = None if current_user.get("role") == "admin" else current_user["id"]
         
+        # Validate Messaging Service SID is configured
+        import os
+        messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
+        if not messaging_service_sid:
+            error_msg = "TWILIO_MESSAGING_SERVICE_SID is not set in environment variables. Blast cannot proceed."
+            logger.error(f"[BLAST] ❌ {error_msg}")
+            return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
+        
         # All users use system Account SID and Auth Token (from env vars)
-        # All messages sent from system phone number via Messaging Service
+        # All messages sent from system phone number (919) 443-6288 via Messaging Service
         rep_account_sid = None
         rep_auth_token = None
         if rep_user_id:
             # Reps use system Account SID and Auth Token (same for all)
-            import os
             rep_account_sid = os.getenv("TWILIO_ACCOUNT_SID")  # Use system Account SID for all users
             rep_auth_token = os.getenv("TWILIO_AUTH_TOKEN")  # Use system Auth Token for all users
             
             logger.info(f"[BLAST] Rep {rep_user_id} using system Account SID: {rep_account_sid[:10] if rep_account_sid else 'NOT SET'}...")
+            logger.info(f"[BLAST] Messaging Service SID: {messaging_service_sid}")
+            logger.info(f"[BLAST] System phone: (919) 443-6288 (configured in Messaging Service)")
         
         logger.info(f"[BLAST] Running blast for {len(card_ids)} cards, rep_user_id={rep_user_id}, using_system_account_sid={bool(rep_account_sid)}")
         
