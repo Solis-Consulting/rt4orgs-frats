@@ -74,7 +74,7 @@
         <div id="tableWrap"></div>
       </div>
 
-      <!-- Cards View -->
+      <!-- Cards View (Read-only, no blast) -->
       <div id="cardsView" style="display: none;">
         <div class="toolbar">
           <input id="cardSearch" placeholder="Search by name or ID">
@@ -93,19 +93,8 @@
             <option value="won">Won</option>
             <option value="lost">Lost</option>
           </select>
-          <!-- Legacy admin blast - GATE-LOCKED: Owner API key required -->
-          <div id="legacyBlastSection" style="display: none; padding: 12px; background: #1e293b; border-radius: 8px; border: 1px solid #374151; margin-bottom: 16px;">
-            <div style="margin-bottom: 8px; font-weight: 600; color: #fecaca;">⚠️ Legacy Blast (Owner Only)</div>
-            <div style="margin-bottom: 8px; font-size: 12px; color: #9ca3af;">Enter owner API token to unlock legacy blast:</div>
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <input type="password" id="legacyOwnerToken" placeholder="Owner API Token" style="flex: 1; padding: 6px 10px; background: #020617; border: 1px solid #4b5563; border-radius: 8px; color: #e5e7eb; font-size: 13px;">
-              <button id="unlockLegacyBlastBtn" style="padding: 6px 12px;">Unlock</button>
-            </div>
-            <div id="legacyBlastError" style="margin-top: 8px; color: #fecaca; font-size: 12px; display: none;"></div>
-          </div>
-          <button id="blastSelectedBtn" disabled style="display: none; background: #ef4444; opacity: 0.6;" title="Legacy mode - requires owner API token">⚠️ Legacy Blast (Owner Only)</button>
           <button id="deleteSelectedBtn" disabled style="background: #ef4444; margin-left: 8px;">Delete Selected Cards</button>
-          <!-- Auth token input removed - tokens should never be pasted in UI -->
+          <div style="margin-left: auto; color: #9ca3af; font-size: 12px;">Card view - use Admin Dashboard → Blast for blasting</div>
         </div>
         <div class="meta" id="cardSummary"></div>
         <div id="cardTableWrap"></div>
@@ -180,24 +169,31 @@
         "<div><strong>" + rows.length + "</strong> shown</div>";
 
       let html = "<table><thead><tr>";
-      html += "<th>Name</th><th>State</th><th>Messages</th><th>Open</th>";
+      html += "<th>Name</th><th>State</th><th>Messages</th><th>Assigned To</th><th>Actions</th>";
       html += "</tr></thead><tbody>";
 
       rows.forEach(l => {
         const s = l.latest_state?.next_state || "";
         const cls = stateBadgeClass(s);
         const inboundCount = l.inbound_count || 0;
+        const cardId = l.card_id || "";
+        const assignedTo = l.assigned_to || '-';
+        
         html += "<tr>";
         html += "<td>" + l.name + "</td>";
         html += "<td><span class='badge " + cls + "'>" + s + "</span></td>";
         html += "<td>" + inboundCount + " message" + (inboundCount !== 1 ? "s" : "") + "</td>";
-        // Link to card detail page instead of lead.html
-        const cardId = l.card_id || "";
+        html += "<td>" + assignedTo + "</td>";
+        html += "<td>";
         if (cardId) {
-          html += "<td><a class='link' href='card.html?id=" + encodeURIComponent(cardId) + "'>View</a></td>";
-        } else {
-          html += "<td>-</td>";
+          html += "<a class='link' href='card.html?id=" + encodeURIComponent(cardId) + "' style='margin-right: 8px;'>View</a>";
         }
+        if (cardId) {
+          html += "<a class='link' href='#' onclick='assignLead(\"" + cardId + "\", \"" + l.name.replace(/'/g, "\\'") + "\"); return false;'>Assign</a>";
+        } else {
+          html += "-";
+        }
+        html += "</td>";
         html += "</tr>";
       });
 
@@ -252,6 +248,27 @@
         const res = await fetch(url);
         const data = await res.json();
         allCards = data.cards || [];
+        
+        // Load assignments for cards
+        try {
+          const assignRes = await fetch(`${BACKEND}/admin/assignments`);
+          if (assignRes.ok) {
+            const assignData = await assignRes.json();
+            const assignments = assignData.assignments || [];
+            const assignmentMap = {};
+            assignments.forEach(a => {
+              assignmentMap[a.card_id] = a;
+            });
+            // Merge assignment data into cards
+            allCards = allCards.map(card => ({
+              ...card,
+              assignment: assignmentMap[card.id]
+            }));
+          }
+        } catch (e) {
+          console.log('Could not load assignments (may need admin auth):', e);
+        }
+        
         renderCards();
       } catch (error) {
         document.getElementById("cardTableWrap").innerHTML = `<div style='color: #fecaca; padding: 20px;'>Error loading cards: ${error.message}</div>`;
@@ -288,14 +305,14 @@
         `<div><strong>${shown}</strong> shown</div>`;
 
       let html = "<table><thead><tr>";
-      html += "<th><input type='checkbox' id='selectAllCheckbox' title='Select all cards'></th><th>Name</th><th>Type</th><th>Sales State</th><th>Owner</th><th>Updated</th><th>Actions</th>";
+      html += "<th><input type='checkbox' id='selectAllCheckbox' title='Select all cards'></th><th>Name</th><th>Type</th><th>Sales State</th><th>Assigned To</th><th>Updated</th><th>Actions</th>";
       html += "</tr></thead><tbody>";
 
       rows.forEach(card => {
         const name = card.card_data?.name || card.id;
         const type = card.type || 'person';
         const salesState = card.sales_state || 'cold';
-        const owner = card.owner || '-';
+        const assignedTo = card.assignment?.username || card.assignment?.user_id || '-';
         const updated = card.updated_at ? new Date(card.updated_at).toLocaleDateString() : '-';
         
         html += "<tr>";
@@ -303,7 +320,7 @@
         html += `<td>${name}</td>`;
         html += `<td><span class='badge ${type}'>${type}</span></td>`;
         html += `<td><span class='badge gray'>${salesState}</span></td>`;
-        html += `<td>${owner}</td>`;
+        html += `<td>${assignedTo}</td>`;
         html += `<td>${updated}</td>`;
         html += `<td><a class='link' href='card.html?id=${encodeURIComponent(card.id)}' style='margin-right: 8px;'>View</a>`;
         html += `<a class='link' href='#' onclick='assignCard("${card.id}"); return false;' style='margin-right: 8px;'>Assign</a>`;
@@ -506,7 +523,6 @@
         
         if (view === "cards") {
           loadCards();
-          showLegacyBlastSection(); // Show legacy blast unlock when viewing cards
         }
       });
     });
@@ -613,7 +629,6 @@
     document.getElementById("cardSearch").addEventListener("input", renderCards);
     document.getElementById("cardTypeFilter").addEventListener("change", loadCards);
     document.getElementById("cardStateFilter").addEventListener("change", loadCards);
-    document.getElementById("blastSelectedBtn").addEventListener("click", runBlastOnSelectedCards);
     
     async function deleteSelectedCards() {
       const selectedIds = getSelectedCardIds();

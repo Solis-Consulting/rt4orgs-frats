@@ -56,6 +56,17 @@
         </div>
       </div>
 
+      <!-- Owner API Token Prompt (shown on load for Blast view) -->
+      <div id="ownerTokenPrompt" style="display: none; margin-top: 24px; padding: 20px; background: #1e293b; border-radius: 8px; border: 1px solid #374151;">
+        <div style="margin-bottom: 12px; font-weight: 600; color: #fecaca;">⚠️ Owner API Token Required</div>
+        <div style="margin-bottom: 12px; font-size: 12px; color: #9ca3af;">The Blast view requires owner API token for security. Enter your owner API token to continue.</div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <input type="password" id="ownerApiToken" placeholder="Owner API Token" style="flex: 1; padding: 8px 12px; background: #020617; border: 1px solid #4b5563; border-radius: 8px; color: #e5e7eb; font-size: 14px;" autofocus>
+          <button id="ownerTokenSubmitBtn" style="padding: 8px 16px;">Continue</button>
+        </div>
+        <div id="ownerTokenError" style="margin-top: 8px; color: #fecaca; font-size: 12px; display: none;"></div>
+      </div>
+
       <div class="tabs">
         <div class="tab active" data-view="users">Users & Phone Pairing</div>
         <div class="tab" data-view="assignments">Card Assignments</div>
@@ -585,11 +596,25 @@
     let allBlastCards = [];
 
     async function loadBlastCards() {
+      if (!ownerToken) {
+        ownerTokenPrompt.style.display = 'block';
+        return;
+      }
+
       try {
-        const res = await fetch(`${BACKEND}/rep/cards`, { headers });
+        const res = await fetch(`${BACKEND}/rep/cards`, { headers: getOwnerHeaders() });
         if (res.status === 401 || res.status === 403) {
-          window.location.href = 'login.html';
+          // Owner token invalid - reset and show prompt
+          ownerToken = null;
+          ownerTokenInput.value = '';
+          ownerTokenPrompt.style.display = 'block';
+          showOwnerTokenError('Owner API token expired or invalid. Please enter again.');
           return;
+        }
+        
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`HTTP ${res.status}: ${text}`);
         }
         
         const data = await res.json();
@@ -597,6 +622,12 @@
         renderBlastCards();
       } catch (error) {
         console.error('Error loading cards:', error);
+        if (error.message.includes('Owner API token')) {
+          ownerTokenPrompt.style.display = 'block';
+          showOwnerTokenError(error.message);
+        } else {
+          alert(`Error loading cards: ${error.message}`);
+        }
       }
     }
 
@@ -661,6 +692,13 @@
     document.getElementById('blastStateFilter')?.addEventListener('change', renderBlastCards);
 
     document.getElementById('ownerBlastBtn')?.addEventListener('click', async () => {
+      if (!ownerToken) {
+        alert('Owner API token required. Please enter it first.');
+        ownerTokenPrompt.style.display = 'block';
+        ownerTokenInput.focus();
+        return;
+      }
+
       const selected = Array.from(document.querySelectorAll('.blast-card-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
       if (selected.length === 0) {
         alert('No cards selected');
@@ -673,10 +711,7 @@
       btn.disabled = true;
       btn.textContent = 'Blasting...';
 
-      // Get auth token from input
-      const authTokenInput = document.getElementById('ownerAuthToken');
-      const authToken = authTokenInput?.value.trim() || null;
-      if (authToken) {
+      try {
         localStorage.setItem('blastAuthToken', authToken);
       }
 
