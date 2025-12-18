@@ -1362,7 +1362,7 @@ async def upload_cards(
     print("=" * 60)
     print("UPLOAD HIT")
     print("=" * 60)
-    print(f"📤 Upload request: {len(cards)} card(s)}")
+    print(f"📤 Upload request: {len(cards)} card(s)")
     
     try:
         conn = get_conn()
