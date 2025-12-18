@@ -46,6 +46,7 @@ from backend.cards import (
     store_card,
     get_card,
     get_card_relationships,
+    delete_card,
 )
 from backend.query import build_list_query
 from backend.resolve import resolve_target, extract_phones_from_cards
@@ -935,41 +936,58 @@ async def twilio_inbound(request: Request):
         # This ensures rep-specific responses work even if the conversation was created before rep assignment
         print(f"[TWILIO_INBOUND] 🔍 Step 3: Rep hydration check...", flush=True)
         print(f"[TWILIO_INBOUND]   DEBUG: card_id={card_id}, rep_user_id={rep_user_id}", flush=True)
-        if not rep_user_id and card_id:
-            print(f"[TWILIO_INBOUND] 🔍 rep_user_id is NULL, attempting to resolve from card_assignments...", flush=True)
-            print(f"[TWILIO_INBOUND]   Querying card_assignments for card_id: {card_id}", flush=True)
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT user_id FROM card_assignments
-                    WHERE card_id = %s
-                    ORDER BY assigned_at DESC
-                    LIMIT 1
-                """, (card_id,))
-                assignment_row = cur.fetchone()
-                if assignment_row and assignment_row[0]:
-                    rep_user_id = assignment_row[0]
-                    print(f"[TWILIO_INBOUND] ✅✅✅ Resolved rep_user_id from card_assignments: {rep_user_id} ✅✅✅", flush=True)
-                    
-                    # Update the conversation with the resolved rep_user_id for future lookups
-                    with conn.cursor() as update_cur:
-                        update_cur.execute("""
-                            UPDATE conversations
-                            SET rep_user_id = %s
-                            WHERE phone = %s
-                        """, (rep_user_id, normalized_phone))
-                        print(f"[TWILIO_INBOUND] ✅ Updated conversation with resolved rep_user_id: {rep_user_id}", flush=True)
-                else:
-                    print(f"[TWILIO_INBOUND] ⚠️ No card assignment found for card_id: {card_id}", flush=True)
-                    # Debug: Check if card_assignments has any entries for this card
-                    cur.execute("""
-                        SELECT COUNT(*) FROM card_assignments WHERE card_id = %s
-                    """, (card_id,))
-                    count_row = cur.fetchone()
-                    print(f"[TWILIO_INBOUND]   Debug: Total assignments for card_id {card_id}: {count_row[0] if count_row else 0}", flush=True)
-        elif not card_id:
-            print(f"[TWILIO_INBOUND] ⚠️ Cannot resolve rep_user_id: card_id is None", flush=True)
-        elif rep_user_id:
-            print(f"[TWILIO_INBOUND] ✅ rep_user_id already set: {rep_user_id}", flush=True)
+        
+        # Resolve current rep from card_assignments (source of truth)
+        resolved_rep_user_id = None
+        if card_id:
+            from backend.handoffs import resolve_current_rep
+            resolved_rep_user_id = resolve_current_rep(conn, card_id)
+            print(f"[TWILIO_INBOUND]   Resolved rep from card_assignments: {resolved_rep_user_id}", flush=True)
+        
+        # 🔧 Runtime safety check: idempotent mismatch detection
+        # Only reset if conversation.rep_user_id is not null AND differs from resolved
+        # Must be idempotent - log only once per inbound, don't loop
+        if conversation_exists and card_id:
+            if rep_user_id is not None and rep_user_id != resolved_rep_user_id:
+                # Mismatch detected - reset state (idempotent: only if different)
+                print(f"[TWILIO_INBOUND] ⚠️ Runtime mismatch detected: conversation.rep_user_id={rep_user_id}, resolved={resolved_rep_user_id}", flush=True)
+                from backend.handoffs import reset_markov_for_card, log_handoff, get_conversation_state
+                state_before = get_conversation_state(conn, card_id) or conversation_state
+                reset_markov_for_card(conn, card_id, resolved_rep_user_id, 'runtime_mismatch', 'system')
+                log_handoff(
+                    conn=conn,
+                    card_id=card_id,
+                    from_rep=rep_user_id,
+                    to_rep=resolved_rep_user_id,
+                    reason='runtime_mismatch',
+                    state_before=state_before,
+                    state_after='initial_outreach',
+                    assigned_by='system'
+                )
+                # Update conversation with new rep_user_id atomically
+                with conn.cursor() as update_cur:
+                    update_cur.execute("""
+                        UPDATE conversations
+                        SET rep_user_id = %s, state = 'initial_outreach', updated_at = NOW()
+                        WHERE phone = %s
+                    """, (resolved_rep_user_id, normalized_phone))
+                rep_user_id = resolved_rep_user_id  # Update local variable
+                print(f"[TWILIO_INBOUND] ✅ Fixed mismatch: updated rep_user_id to {rep_user_id}", flush=True)
+            elif rep_user_id is None and resolved_rep_user_id:
+                # First inbound - set rep_user_id without reset (or reset if needed)
+                print(f"[TWILIO_INBOUND] ✅ First inbound for this conversation, setting rep_user_id: {resolved_rep_user_id}", flush=True)
+                with conn.cursor() as update_cur:
+                    update_cur.execute("""
+                        UPDATE conversations
+                        SET rep_user_id = %s, updated_at = NOW()
+                        WHERE phone = %s
+                    """, (resolved_rep_user_id, normalized_phone))
+                rep_user_id = resolved_rep_user_id  # Update local variable
+        
+        # If no conversation exists yet but we have resolved_rep, use it
+        if not conversation_exists and resolved_rep_user_id:
+            rep_user_id = resolved_rep_user_id
+            print(f"[TWILIO_INBOUND] ✅ Using resolved rep_user_id for new conversation: {rep_user_id}", flush=True)
         
         print(f"[TWILIO_INBOUND] 📋 Conversation Summary:", flush=True)
         print(f"[TWILIO_INBOUND]   Phone: {normalized_phone} (original: {From})", flush=True)
@@ -1682,40 +1700,35 @@ async def get_card_endpoint(card_id: str):
 
 
 @app.delete("/cards/{card_id}")
-async def delete_card_endpoint(card_id: str):
-    """Delete a card by ID. Also deletes related relationships and conversations."""
+async def delete_card_endpoint(card_id: str, request: Request):
+    """
+    Delete a card by ID. Also deletes related relationships, conversations, and assignments.
+    Logs terminal handoff event (not a handoff - to_rep=NULL indicates deletion).
+    Requires owner authentication.
+    """
+    # Authenticate user (owner only for deletion)
+    try:
+        current_user = await get_current_admin_user(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[CARD_DELETE] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
     conn = get_conn()
     
     # Check if card exists
     card = get_card(conn, card_id)
     if not card:
         raise HTTPException(status_code=404, detail=f"Card not found: {card_id}")
+
+    # Use the new delete_card function which handles cleanup and handoff logging
+    success, error_message = delete_card(conn, card_id, current_user['id'])
     
-    try:
-        with conn.cursor() as cur:
-            # Delete relationships (cascade should handle this, but explicit is safer)
-            cur.execute(
-                "DELETE FROM card_relationships WHERE parent_card_id = %s OR child_card_id = %s",
-                (card_id, card_id)
-            )
-            
-            # Delete conversations linked to this card
-            cur.execute(
-                "DELETE FROM conversations WHERE card_id = %s",
-                (card_id,)
-            )
-            
-            # Delete the card itself
-            cur.execute("DELETE FROM cards WHERE id = %s", (card_id,))
-            
-            if cur.rowcount == 0:
-                raise HTTPException(status_code=404, detail=f"Card not found: {card_id}")
-        
-        return {"ok": True, "message": f"Card {card_id} deleted successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error deleting card: {str(e)}")
+    if not success:
+        raise HTTPException(status_code=500, detail=error_message or f"Error deleting card: {card_id}")
+
+    return {"ok": True, "message": f"Card {card_id} deleted successfully"}
 
 
 @app.get("/cards")

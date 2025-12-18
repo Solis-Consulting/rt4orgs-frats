@@ -321,6 +321,78 @@ def get_card(conn: Any, card_id: str) -> Optional[Dict[str, Any]]:
         }
 
 
+def delete_card(conn: Any, card_id: str, deleted_by: str) -> tuple[bool, Optional[str]]:
+    """
+    Delete a card and all associated data. Terminal cleanup event.
+    
+    Steps:
+    1. Get current assignments and conversations for logging
+    2. Get current Markov state before deletion
+    3. Delete card_assignments (explicit, before card deletion)
+    4. Delete card (cascades to conversations via FK)
+    5. Log terminal event (NOT a handoff): to_rep=NULL indicates deletion
+    
+    Args:
+        conn: Database connection
+        card_id: Card ID to delete
+        deleted_by: User/admin who triggered deletion
+        
+    Returns:
+        (success: bool, error_message: Optional[str])
+    """
+    from backend.handoffs import get_conversation_state, log_handoff, resolve_current_rep
+    
+    try:
+        with conn.cursor() as cur:
+            # Step 1: Get current assignment and state for logging
+            current_rep = resolve_current_rep(conn, card_id)
+            state_before = get_conversation_state(conn, card_id)
+            
+            # Step 2: Delete card_assignments (explicit, before card deletion)
+            cur.execute("""
+                DELETE FROM card_assignments
+                WHERE card_id = %s
+            """, (card_id,))
+            assignments_deleted = cur.rowcount
+            
+            # Step 3: Delete card (cascades to conversations via FK)
+            cur.execute("""
+                DELETE FROM cards
+                WHERE id = %s
+            """, (card_id,))
+            
+            if cur.rowcount == 0:
+                return False, f"Card {card_id} not found"
+            
+            # Step 4: Log terminal event (NOT a handoff)
+            # to_rep=NULL indicates deletion, not a handoff
+            log_handoff(
+                conn=conn,
+                card_id=card_id,
+                from_rep=current_rep,
+                to_rep=None,  # NULL for terminal events
+                reason='card_deleted',
+                state_before=state_before,
+                state_after=None,  # NULL for deletions
+                assigned_by=deleted_by
+            )
+            
+            print(f"[CARD_DELETE] ✅ Deleted card {card_id}", flush=True)
+            print(f"[CARD_DELETE]   Removed {assignments_deleted} assignment(s)", flush=True)
+            print(f"[CARD_DELETE]   Conversations cascaded via FK", flush=True)
+            
+            return True, None
+            
+    except psycopg2.Error as e:
+        error_msg = f"Database error deleting card {card_id}: {str(e)}"
+        print(f"[CARD_DELETE] ❌ {error_msg}", flush=True)
+        return False, error_msg
+    except Exception as e:
+        error_msg = f"Error deleting card {card_id}: {str(e)}"
+        print(f"[CARD_DELETE] ❌ {error_msg}", flush=True)
+        return False, error_msg
+
+
 def get_card_relationships(conn: Any, card_id: str) -> List[Dict[str, Any]]:
     """Get all relationships for a card (both as parent and child)."""
     with conn.cursor() as cur:

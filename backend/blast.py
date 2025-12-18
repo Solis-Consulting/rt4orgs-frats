@@ -593,6 +593,22 @@ def run_blast_for_cards(
                 
                 print(f"[BLAST] 📝 Recording conversation: phone={phone}, rep_user_id={rep_user_id}, routing_mode={routing_mode}", flush=True)
                 
+                # 🔧 Blast-time epoch claim: Check if conversation exists with different rep
+                # If rep changed via blast, claim ownership and reset state
+                existing_rep = None
+                existing_state = None
+                if rep_user_id:
+                    # Check existing conversation before INSERT/UPDATE
+                    cur.execute("""
+                        SELECT rep_user_id, state FROM conversations
+                        WHERE phone = %s
+                        LIMIT 1
+                    """, (phone,))
+                    existing_row = cur.fetchone()
+                    if existing_row:
+                        existing_rep = existing_row[0]
+                        existing_state = existing_row[1]
+                
                 # Insert or update conversation with history
                 # CRITICAL: Conflict resolution - if multiple reps message the same contact,
                 # we use the LAST rep to message (most recent last_outbound_at).
@@ -629,6 +645,22 @@ def run_blast_for_cards(
                         ),
                     )
                     print(f"[BLAST] ✅ Conversation recorded/updated: phone={phone}, rep_user_id={rep_user_id}", flush=True)
+                    
+                    # If rep changed via blast, claim ownership and log handoff
+                    if existing_rep and existing_rep != rep_user_id:
+                        from backend.handoffs import reset_markov_for_card, log_handoff
+                        print(f"[BLAST] 🔄 Rep changed via blast: {existing_rep} → {rep_user_id}", flush=True)
+                        reset_markov_for_card(conn, card_id, rep_user_id, 'blast_claim', rep_user_id)
+                        log_handoff(
+                            conn=conn,
+                            card_id=card_id,
+                            from_rep=existing_rep,
+                            to_rep=rep_user_id,
+                            reason='blast_claim',
+                            state_before=existing_state,
+                            state_after='initial_outreach',
+                            assigned_by=rep_user_id
+                        )
                     
                     # Verify the rep_user_id was actually saved
                     cur.execute("""

@@ -17,7 +17,25 @@ def assign_card_to_rep(
     assigned_by: str,
     notes: Optional[str] = None,
 ) -> bool:
-    """Assign a card to a rep. Returns True if successful."""
+    """
+    Assign a card to a rep. Returns True if successful.
+    
+    Source of truth: card_assignments is authoritative owner.
+    If rep changes, resets Markov state and logs handoff event.
+    """
+    from backend.handoffs import (
+        get_conversation_state,
+        reset_markov_for_card,
+        log_handoff
+    )
+    
+    # Get current assignment from card_assignments (source of truth)
+    current_assignment = get_card_assignment(conn, card_id)
+    from_rep = current_assignment['user_id'] if current_assignment else None
+    
+    # Get current Markov state before reset (may be None if no conversation)
+    state_before = get_conversation_state(conn, card_id)
+    
     with conn.cursor() as cur:
         try:
             cur.execute("""
@@ -34,6 +52,20 @@ def assign_card_to_rep(
                         ELSE 'assigned'
                     END
             """, (card_id, user_id, assigned_by, notes))
+            
+            # If rep changed, reset Markov and log handoff
+            if from_rep and from_rep != user_id:
+                reset_markov_for_card(conn, card_id, user_id, 'rep_reassign', assigned_by)
+                log_handoff(
+                    conn=conn,
+                    card_id=card_id,
+                    from_rep=from_rep,
+                    to_rep=user_id,
+                    reason='rep_reassign',
+                    state_before=state_before,
+                    state_after='initial_outreach',
+                    assigned_by=assigned_by
+                )
             
             return True
         except psycopg2.Error as e:
@@ -149,6 +181,17 @@ def get_card_assignment(conn: Any, card_id: str) -> Optional[Dict[str, Any]]:
             "status": row[4],
             "notes": row[5],
         }
+
+
+# Export get_card_assignment for use in handoffs module
+__all__ = [
+    'assign_card_to_rep',
+    'get_rep_assigned_cards',
+    'unassign_card',
+    'get_card_assignment',
+    'update_assignment_status',
+    'list_assignments',
+]
 
 
 def update_assignment_status(
