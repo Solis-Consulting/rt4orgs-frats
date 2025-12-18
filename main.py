@@ -26,9 +26,10 @@ from twilio.rest import Client
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s [%(levelname)s] %(message)s'
 )
-logger = logging.getLogger("markov")
+logger = logging.getLogger(__name__)
+markov_logger = logging.getLogger("markov")
 
 # Load environment variables from .env file
 load_dotenv()
@@ -2332,7 +2333,11 @@ async def blast_run(request: Request, payload: Dict[str, Any] = Body(...)):
 async def get_current_user(request: Request) -> Dict[str, Any]:
     """FastAPI dependency to get current user from Authorization header."""
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
+    
+    logger.info(f"[AUTH] Authorization header: {auth_header[:30] + '...' if auth_header and len(auth_header) > 30 else auth_header}")
+    
+    if not auth_header or not auth_header.startswith("Bearer "):
+        logger.warning("[AUTH] Missing or invalid Authorization header")
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
     
     token = auth_header[7:]
@@ -2340,8 +2345,10 @@ async def get_current_user(request: Request) -> Dict[str, Any]:
     user = get_user_by_token(conn, token)
     
     if not user:
+        logger.warning(f"[AUTH] Invalid API token (token preview: {token[:15]}...)")
         raise HTTPException(status_code=401, detail="Invalid API token")
     
+    logger.info(f"[AUTH] Authenticated user: {user['id']} role={user['role']} username={user.get('username', 'N/A')}")
     return user
 
 
@@ -2350,7 +2357,9 @@ async def get_current_admin_user(request: Request) -> Dict[str, Any]:
     user = await get_current_user(request)
     # Owner (admin role) has full access
     if user.get("role") != "admin":
+        logger.warning(f"[AUTH] Forbidden admin access by {user['id']} (role: {user.get('role')})")
         raise HTTPException(status_code=403, detail="Owner/Admin access required")
+    logger.info(f"[AUTH] Admin access granted to {user['id']}")
     return user
 
 
@@ -2369,6 +2378,9 @@ async def admin_create_user(
     current_user: Dict = Depends(get_current_admin_user)
 ):
     """Create a new rep user."""
+    logger.info(f"[ADMIN] create_user called by {current_user['id']}")
+    logger.info(f"[ADMIN] payload = {payload}")
+    
     username = payload.get("username")
     role = payload.get("role", "rep")
     twilio_phone = payload.get("twilio_phone_number")
@@ -2377,6 +2389,7 @@ async def admin_create_user(
     user_id = payload.get("user_id")
     
     if not username:
+        logger.warning(f"[ADMIN] create_user failed: username required")
         raise HTTPException(status_code=400, detail="username is required")
     
     conn = get_conn()
@@ -2385,8 +2398,10 @@ async def admin_create_user(
             conn, username, role, twilio_phone,
             twilio_account_sid, twilio_auth_token, user_id
         )
+        logger.info(f"[ADMIN] create_user success: {user['id']} ({user['username']})")
         return {"ok": True, "user": user}
     except Exception as e:
+        logger.error(f"[ADMIN] create_user failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to create user: {str(e)}")
 
 
@@ -2405,18 +2420,27 @@ async def admin_update_user(
     current_user: Dict = Depends(get_current_admin_user)
 ):
     """Update a user's Twilio configuration (phone pairing)."""
+    logger.info(f"[ADMIN] update_user called by {current_user['id']} for {user_id}")
+    logger.info(f"[ADMIN] payload = {payload}")
+    
     conn = get_conn()
     
     phone = payload.get("twilio_phone_number")
     account_sid = payload.get("twilio_account_sid")
     auth_token = payload.get("twilio_auth_token")
     
-    success = update_user_twilio_config(conn, user_id, phone, account_sid, auth_token)
-    
-    if success:
-        return {"ok": True, "message": "User updated successfully"}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to update user")
+    try:
+        success = update_user_twilio_config(conn, user_id, phone, account_sid, auth_token)
+        
+        if success:
+            logger.info(f"[ADMIN] update_user success: {user_id}")
+            return {"ok": True, "message": "User updated successfully"}
+        else:
+            logger.warning(f"[ADMIN] update_user failed: no rows updated for {user_id}")
+            raise HTTPException(status_code=500, detail="Failed to update user")
+    except Exception as e:
+        logger.error(f"[ADMIN] update_user exception: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update user: {str(e)}")
 
 
 @app.post("/admin/assignments")
@@ -2425,20 +2449,30 @@ async def admin_assign_card(
     current_user: Dict = Depends(get_current_admin_user)
 ):
     """Assign a card to a rep."""
+    logger.info(f"[ADMIN] assign_card called by {current_user['id']}")
+    logger.info(f"[ADMIN] payload = {payload}")
+    
     card_id = payload.get("card_id")
     user_id = payload.get("user_id")
     notes = payload.get("notes")
     
     if not card_id or not user_id:
+        logger.warning(f"[ADMIN] assign_card failed: missing card_id or user_id")
         raise HTTPException(status_code=400, detail="card_id and user_id are required")
     
     conn = get_conn()
-    success = assign_card_to_rep(conn, card_id, user_id, current_user["id"], notes)
-    
-    if success:
-        return {"ok": True, "message": "Card assigned successfully"}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to assign card")
+    try:
+        success = assign_card_to_rep(conn, card_id, user_id, current_user["id"], notes)
+        
+        if success:
+            logger.info(f"[ADMIN] assign_card success: {card_id} -> {user_id}")
+            return {"ok": True, "message": "Card assigned successfully"}
+        else:
+            logger.warning(f"[ADMIN] assign_card failed: assignment function returned False")
+            raise HTTPException(status_code=500, detail="Failed to assign card")
+    except Exception as e:
+        logger.error(f"[ADMIN] assign_card exception: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to assign card: {str(e)}")
 
 
 @app.get("/admin/assignments")
@@ -2570,6 +2604,9 @@ async def rep_blast(
     current_user: Dict = Depends(get_current_owner_or_rep)
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
+    logger.info(f"[BLAST] rep_blast called by {current_user['id']} (role: {current_user.get('role')})")
+    logger.info(f"[BLAST] payload = {payload}")
+    
     limit = payload.get("limit")
     status_filter = payload.get("status", "assigned")
     card_ids = payload.get("card_ids")  # Optional: specific card IDs to blast
@@ -2623,6 +2660,8 @@ async def rep_blast(
         rep_user_id = None if current_user.get("role") == "admin" else current_user["id"]
         rep_phone_number = None if current_user.get("role") == "admin" else current_user.get("twilio_phone_number")
         
+        logger.info(f"[BLAST] Running blast for {len(card_ids)} cards, rep_user_id={rep_user_id}, rep_phone={rep_phone_number}")
+        
         result = run_blast_for_cards(
             conn=conn,
             card_ids=card_ids,
@@ -2633,8 +2672,11 @@ async def rep_blast(
             rep_user_id=rep_user_id,
             rep_phone_number=rep_phone_number,
         )
+        
+        logger.info(f"[BLAST] Blast completed: sent={result.get('sent', 0)}, skipped={result.get('skipped', 0)}")
         return result
     except Exception as e:
+        logger.error(f"[BLAST] Blast failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Blast failed: {str(e)}")
 
 

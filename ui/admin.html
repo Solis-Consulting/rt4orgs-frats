@@ -307,13 +307,25 @@
       };
 
       try {
+        console.log('[ADMIN] Creating user:', payload);
         const res = await fetch(`${BACKEND}/admin/users`, {
           method: 'POST',
           headers,
           body: JSON.stringify(payload)
         });
 
+        console.log('[ADMIN] Response status:', res.status);
+        
+        if (!res.ok) {
+          const text = await res.text();
+          console.error('[ADMIN] Error response:', text);
+          alert(`Error ${res.status}: ${text}`);
+          return;
+        }
+
         const data = await res.json();
+        console.log('[ADMIN] Response data:', data);
+        
         if (data.ok && data.user) {
           // Show token
           document.getElementById('newUserTokenValue').textContent = data.user.api_token;
@@ -328,6 +340,7 @@
           alert(`Failed to create user: ${data.detail || 'Unknown error'}`);
         }
       } catch (error) {
+        console.error('[ADMIN] Exception:', error);
         alert(`Error: ${error.message}`);
       }
     });
@@ -351,13 +364,25 @@
       };
 
       try {
+        console.log('[ADMIN] Assigning card:', payload);
         const res = await fetch(`${BACKEND}/admin/assignments`, {
           method: 'POST',
           headers,
           body: JSON.stringify(payload)
         });
 
+        console.log('[ADMIN] Response status:', res.status);
+        
+        if (!res.ok) {
+          const text = await res.text();
+          console.error('[ADMIN] Error response:', text);
+          alert(`Error ${res.status}: ${text}`);
+          return;
+        }
+
         const data = await res.json();
+        console.log('[ADMIN] Response data:', data);
+        
         if (data.ok) {
           alert('Card assigned successfully');
           hideAssignCardModal();
@@ -366,6 +391,7 @@
           alert(`Failed to assign card: ${data.detail || 'Unknown error'}`);
         }
       } catch (error) {
+        console.error('[ADMIN] Exception:', error);
         alert(`Error: ${error.message}`);
       }
     });
@@ -592,17 +618,31 @@
       const authToken = prompt('Enter Twilio Auth Token (optional, leave empty to keep current):', '');
 
       try {
+        const updatePayload = {
+          twilio_phone_number: phone || null,
+          twilio_account_sid: accountSid || null,
+          twilio_auth_token: authToken || null,
+        };
+        console.log('[ADMIN] Updating user:', userId, updatePayload);
+        
         const res = await fetch(`${BACKEND}/admin/users/${encodeURIComponent(userId)}`, {
           method: 'PUT',
           headers,
-          body: JSON.stringify({
-            twilio_phone_number: phone || null,
-            twilio_account_sid: accountSid || null,
-            twilio_auth_token: authToken || null,
-          })
+          body: JSON.stringify(updatePayload)
         });
 
+        console.log('[ADMIN] Response status:', res.status);
+        
+        if (!res.ok) {
+          const text = await res.text();
+          console.error('[ADMIN] Error response:', text);
+          alert(`Error ${res.status}: ${text}`);
+          return;
+        }
+
         const data = await res.json();
+        console.log('[ADMIN] Response data:', data);
+        
         if (data.ok) {
           alert('User updated successfully');
           loadUsers();
@@ -610,6 +650,7 @@
           alert(`Failed: ${data.detail || 'Unknown error'}`);
         }
       } catch (error) {
+        console.error('[ADMIN] Exception:', error);
         alert(`Error: ${error.message}`);
       }
     }
