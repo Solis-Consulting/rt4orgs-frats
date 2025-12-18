@@ -2274,12 +2274,7 @@ async def blast_run(
     """
     LEGACY BLAST ENDPOINT - Owner/Admin only.
     This is the old global blast endpoint. Use /rep/blast for rep-scoped blasting.
-    """
-    logger.info(f"[LEGACY_BLAST] Called by {current_user['id']} (role: {current_user.get('role')})")
-    logger.warning(f"[LEGACY_BLAST] Legacy endpoint used - should migrate to admin dashboard or /rep/blast")
-    """
-    Trigger outbound blast for a specific set of card IDs.
-
+    
     Payload:
     {
       "card_ids": ["card_1", "card_2"],  # required
@@ -2291,6 +2286,8 @@ async def blast_run(
     
     Authorization can also be provided via Authorization header (Bearer token).
     """
+    logger.info(f"[LEGACY_BLAST] Called by {current_user['id']} (role: {current_user.get('role')})")
+    logger.warning(f"[LEGACY_BLAST] Legacy endpoint used - should migrate to admin dashboard or /rep/blast")
     card_ids = payload.get("card_ids") or []
     if not isinstance(card_ids, list) or not card_ids:
         raise HTTPException(status_code=400, detail="card_ids must be a non-empty array")
