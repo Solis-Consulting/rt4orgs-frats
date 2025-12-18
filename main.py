@@ -2266,7 +2266,17 @@ def get_initial_outreach_message(conn: Any) -> Optional[str]:
 # ============================================================================
 
 @app.post("/blast/run")
-async def blast_run(request: Request, payload: Dict[str, Any] = Body(...)):
+async def blast_run(
+    request: Request, 
+    payload: Dict[str, Any] = Body(...),
+    current_user: Dict = Depends(get_current_admin_user)  # GATE-LOCKED: Owner only
+):
+    """
+    LEGACY BLAST ENDPOINT - Owner/Admin only.
+    This is the old global blast endpoint. Use /rep/blast for rep-scoped blasting.
+    """
+    logger.info(f"[LEGACY_BLAST] Called by {current_user['id']} (role: {current_user.get('role')})")
+    logger.warning(f"[LEGACY_BLAST] Legacy endpoint used - should migrate to admin dashboard or /rep/blast")
     """
     Trigger outbound blast for a specific set of card IDs.
 
@@ -2523,12 +2533,18 @@ async def rep_get_cards(
     status: Optional[str] = None,
     current_user: Dict = Depends(get_current_owner_or_rep)
 ):
-    """Get rep's assigned cards. Owner sees all cards, reps see only their assignments."""
+    """Get rep's assigned cards. Owner sees all cards, reps see ONLY their assignments."""
     conn = get_conn()
     
-    # Owner can see all cards, reps see only their assignments
-    if current_user.get("role") == "admin":
-        # Owner: get all cards
+    user_role = current_user.get("role")
+    user_id = current_user.get("id")
+    
+    logger.info(f"[REP_CARDS] Request from user_id={user_id}, role={user_role}")
+    
+    # CRITICAL: Reps can ONLY see assigned cards, never all cards
+    if user_role == "admin":
+        # Owner: get all cards (for admin dashboard)
+        logger.info(f"[REP_CARDS] Owner access - returning all cards")
         from backend.query import build_list_query
         query, params = build_list_query(where={}, limit=10000)
         
@@ -2546,8 +2562,10 @@ async def rep_get_cards(
                     "updated_at": row[6].isoformat() if row[6] else None,
                 })
     else:
-        # Rep: get only assigned cards
-        cards = get_rep_assigned_cards(conn, current_user["id"], status=status)
+        # Rep: STRICT enforcement - ONLY assigned cards
+        logger.info(f"[REP_CARDS] Rep access - filtering to assigned cards only for user_id={user_id}")
+        cards = get_rep_assigned_cards(conn, user_id, status=status)
+        logger.info(f"[REP_CARDS] Rep {user_id} - found {len(cards)} assigned cards")
     
     return {"ok": True, "cards": cards}
 

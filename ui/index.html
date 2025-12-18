@@ -93,8 +93,17 @@
             <option value="won">Won</option>
             <option value="lost">Lost</option>
           </select>
-          <!-- Legacy admin blast - emergency use only -->
-          <button id="blastSelectedBtn" disabled style="display: none; background: #ef4444; opacity: 0.6;" title="Legacy mode - use admin dashboard instead">⚠️ Legacy Blast (Emergency Only)</button>
+          <!-- Legacy admin blast - GATE-LOCKED: Owner API key required -->
+          <div id="legacyBlastSection" style="display: none; padding: 12px; background: #1e293b; border-radius: 8px; border: 1px solid #374151; margin-bottom: 16px;">
+            <div style="margin-bottom: 8px; font-weight: 600; color: #fecaca;">⚠️ Legacy Blast (Owner Only)</div>
+            <div style="margin-bottom: 8px; font-size: 12px; color: #9ca3af;">Enter owner API token to unlock legacy blast:</div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input type="password" id="legacyOwnerToken" placeholder="Owner API Token" style="flex: 1; padding: 6px 10px; background: #020617; border: 1px solid #4b5563; border-radius: 8px; color: #e5e7eb; font-size: 13px;">
+              <button id="unlockLegacyBlastBtn" style="padding: 6px 12px;">Unlock</button>
+            </div>
+            <div id="legacyBlastError" style="margin-top: 8px; color: #fecaca; font-size: 12px; display: none;"></div>
+          </div>
+          <button id="blastSelectedBtn" disabled style="display: none; background: #ef4444; opacity: 0.6;" title="Legacy mode - requires owner API token">⚠️ Legacy Blast (Owner Only)</button>
           <button id="deleteSelectedBtn" disabled style="background: #ef4444; margin-left: 8px;">Delete Selected Cards</button>
           <!-- Auth token input removed - tokens should never be pasted in UI -->
         </div>
@@ -347,9 +356,14 @@
       updateBlastButtonState();
     }
 
-    // LEGACY FUNCTION - Deprecated. Use admin dashboard or rep dashboard instead.
-    // This is kept for emergency use only and should be hidden by default.
+    // LEGACY FUNCTION - GATE-LOCKED: Requires owner API token
     async function runBlastOnSelectedCards() {
+      if (!legacyOwnerToken) {
+        alert("⚠️ Legacy blast requires owner API token. Please unlock it first.");
+        showLegacyBlastSection();
+        return;
+      }
+      
       // Double confirmation for legacy mode
       if (!confirm("⚠️ LEGACY MODE: This is deprecated. Use Admin Dashboard for blasting.\n\nContinue anyway?")) {
         return;
@@ -369,8 +383,11 @@
       blastBtn.disabled = true;
       blastBtn.textContent = "Blasting...";
 
-      // Legacy mode - no auth token, use system defaults
-      const headers = { "Content-Type": "application/json" };
+      // Legacy mode - use owner token
+      const headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${legacyOwnerToken}`
+      };
       const payload = {
         card_ids: selectedIds,
         limit: selectedIds.length,
@@ -379,29 +396,101 @@
       };
 
       try {
-        console.log("[LEGACY_BLAST] Using legacy blast endpoint");
+        console.log("[LEGACY_BLAST] Using legacy blast endpoint with owner token");
         const res = await fetch(`${BACKEND}/blast/run`, {
           method: "POST",
           headers: headers,
           body: JSON.stringify(payload)
         });
 
+        if (!res.ok) {
+          const text = await res.text();
+          console.error("[LEGACY_BLAST] Error:", text);
+          alert(`Legacy blast failed: HTTP ${res.status} - ${text}`);
+          // If unauthorized, clear token and show unlock again
+          if (res.status === 401 || res.status === 403) {
+            legacyOwnerToken = null;
+            showLegacyBlastSection();
+            blastSelectedBtn.style.display = 'none';
+          }
+          return;
+        }
+
         const data = await res.json();
 
-        if (!res.ok || !data.ok) {
-          const msg = data.error || `HTTP ${res.status}`;
+        if (!data.ok) {
+          const msg = data.error || 'Unknown error';
           alert(`Legacy blast failed: ${msg}`);
           return;
         }
 
         alert(`Legacy blast complete.\nSent: ${data.sent}\nSkipped: ${data.skipped}`);
       } catch (error) {
+        console.error("[LEGACY_BLAST] Exception:", error);
         alert(`Legacy blast error: ${error.message}`);
       } finally {
         blastBtn.disabled = false;
-        blastBtn.textContent = "⚠️ Legacy Blast (Emergency Only)";
+        blastBtn.textContent = "⚠️ Legacy Blast (Owner Only)";
       }
     }
+
+    // Legacy blast unlock (owner token required)
+    let legacyOwnerToken = null;
+    const legacyBlastSection = document.getElementById('legacyBlastSection');
+    const legacyOwnerTokenInput = document.getElementById('legacyOwnerToken');
+    const unlockLegacyBlastBtn = document.getElementById('unlockLegacyBlastBtn');
+    const legacyBlastError = document.getElementById('legacyBlastError');
+    const blastSelectedBtn = document.getElementById('blastSelectedBtn');
+
+    // Show legacy blast section in cards view
+    function showLegacyBlastSection() {
+      legacyBlastSection.style.display = 'block';
+    }
+
+    async function unlockLegacyBlast() {
+      const token = legacyOwnerTokenInput.value.trim();
+      if (!token) {
+        legacyBlastError.textContent = 'Please enter owner API token';
+        legacyBlastError.style.display = 'block';
+        return;
+      }
+
+      // Validate token by trying to access admin endpoint
+      try {
+        const res = await fetch(`${BACKEND}/admin/users`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (res.status === 401 || res.status === 403) {
+          legacyBlastError.textContent = 'Invalid owner API token';
+          legacyBlastError.style.display = 'block';
+          return;
+        }
+
+        if (!res.ok) {
+          legacyBlastError.textContent = `Error validating token: HTTP ${res.status}`;
+          legacyBlastError.style.display = 'block';
+          return;
+        }
+
+        // Token is valid owner token
+        legacyOwnerToken = token;
+        legacyBlastSection.style.display = 'none';
+        blastSelectedBtn.style.display = 'inline-block';
+        legacyBlastError.style.display = 'none';
+      } catch (error) {
+        legacyBlastError.textContent = `Error: ${error.message}`;
+        legacyBlastError.style.display = 'block';
+      }
+    }
+
+    unlockLegacyBlastBtn.addEventListener('click', unlockLegacyBlast);
+    legacyOwnerTokenInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') unlockLegacyBlast();
+    });
 
     // Tab switching
     document.querySelectorAll(".tab").forEach(tab => {
@@ -417,7 +506,7 @@
         
         if (view === "cards") {
           loadCards();
-          loadSavedAuthToken();
+          showLegacyBlastSection(); // Show legacy blast unlock when viewing cards
         }
       });
     });
