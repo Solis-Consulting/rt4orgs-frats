@@ -230,18 +230,30 @@
 
     async function loadUsers() {
       try {
+        console.log('[ADMIN] Loading users...');
         const res = await fetch(`${BACKEND}/admin/users`, { headers });
+        console.log('[ADMIN] Response status:', res.status);
+        
         if (res.status === 401 || res.status === 403) {
           window.location.href = 'login.html';
           return;
         }
         
+        if (!res.ok) {
+          const text = await res.text();
+          console.error('[ADMIN] Error loading users:', text);
+          alert(`Error ${res.status}: ${text}`);
+          return;
+        }
+        
         const data = await res.json();
+        console.log('[ADMIN] Users loaded:', data.users?.length || 0);
         allUsers = data.users || [];
         renderUsers();
         populateUserSelects();
       } catch (error) {
-        console.error('Error loading users:', error);
+        console.error('[ADMIN] Exception loading users:', error);
+        alert(`Error loading users: ${error.message}`);
       }
     }
 
