@@ -461,9 +461,25 @@ def run_blast_for_cards(
             
             print(f"[BLAST_SEND_ATTEMPT] send_sms() will use system Twilio credentials from environment variables", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Calling send_sms() NOW...", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Request timestamp: {datetime.utcnow().isoformat()}", flush=True)
             # send_sms() now always uses environment variables - no parameters needed
-            sms_result = send_sms(phone, message)
+            try:
+                sms_result = send_sms(phone, message)
+                print(f"[BLAST_SEND_ATTEMPT] send_sms() returned successfully", flush=True)
+            except Exception as send_error:
+                print("=" * 80, flush=True)
+                print(f"[BLAST_SEND_ATTEMPT] ❌ EXCEPTION in send_sms()", flush=True)
+                print("=" * 80, flush=True)
+                print(f"[BLAST_SEND_ATTEMPT] Error type: {type(send_error).__name__}", flush=True)
+                print(f"[BLAST_SEND_ATTEMPT] Error message: {str(send_error)}", flush=True)
+                import traceback
+                print(f"[BLAST_SEND_ATTEMPT] Full traceback:", flush=True)
+                traceback.print_exc()
+                print("=" * 80, flush=True)
+                raise
+            
             print(f"[BLAST_SEND_ATTEMPT] send_sms() returned, processing result...", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Response timestamp: {datetime.utcnow().isoformat()}", flush=True)
             
             # #region agent log - After send attempt
             try:
@@ -488,13 +504,31 @@ def run_blast_for_cards(
             print("=" * 80, flush=True)
             print(f"[BLAST_SEND_ATTEMPT] ✅ send_sms() RETURNED", flush=True)
             print("=" * 80, flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Full result dictionary:", flush=True)
+            for key, value in sms_result.items():
+                print(f"[BLAST_SEND_ATTEMPT]   {key}: {value}", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Result SID: {sms_result.get('sid')}", flush=True)
-            print(f"[BLAST_SEND_ATTEMPT] Result Status: {sms_result.get('status')} {'⚠️' if sms_result.get('status') in ['failed', 'undelivered'] else '✅' if sms_result.get('status') in ['sent', 'delivered', 'queued', 'accepted'] else ''}", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Result Status: {sms_result.get('status')} {'⚠️' if sms_result.get('status') in ['failed', 'undelivered', 'queued', 'accepted'] else '✅' if sms_result.get('status') in ['sent', 'delivered'] else ''}", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Result To: {sms_result.get('to')}", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Result From (actual sender): {sms_result.get('from')}", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Error Code: {sms_result.get('error_code') or 'None (no error)'}", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Error Message: {sms_result.get('error_message') or 'None (no error)'}", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Date Sent: {sms_result.get('date_sent') or 'Not sent yet'}", flush=True)
+            
+            # CRITICAL: Log status interpretation
+            status = sms_result.get('status', '').lower()
+            if status in ['queued', 'accepted']:
+                print("=" * 80, flush=True)
+                print(f"[BLAST_SEND_ATTEMPT] ⚠️⚠️⚠️ MESSAGE QUEUED - A2P 10DLC ISSUE", flush=True)
+                print("=" * 80, flush=True)
+                print(f"[BLAST_SEND_ATTEMPT] Status '{status}' means:", flush=True)
+                print(f"[BLAST_SEND_ATTEMPT]   - Twilio accepted the message", flush=True)
+                print(f"[BLAST_SEND_ATTEMPT]   - Message is queued by carrier", flush=True)
+                print(f"[BLAST_SEND_ATTEMPT]   - Likely cause: A2P 10DLC registration incomplete", flush=True)
+                print(f"[BLAST_SEND_ATTEMPT]   - Check: Phone number in Messaging Service sender pool?", flush=True)
+                print(f"[BLAST_SEND_ATTEMPT]   - Check: Campaign fully approved and active?", flush=True)
+                print(f"[BLAST_SEND_ATTEMPT]   - Check: Carrier routing configured?", flush=True)
+                print("=" * 80, flush=True)
             
             # Enhanced status checking
             if sms_result.get('status') in ['failed', 'undelivered']:

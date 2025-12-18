@@ -168,6 +168,7 @@ def send_sms(to_number: str, body: str) -> Dict[str, Any]:
     """
     import traceback
     import os
+    from datetime import datetime
     
     print("=" * 80, flush=True)
     print(f"[SEND_SMS] 🚀 STARTING SMS SEND", flush=True)
@@ -249,13 +250,29 @@ def send_sms(to_number: str, body: str) -> Dict[str, Any]:
         
         # Make the API call
         print(f"[SEND_SMS] 🚀 Calling client.messages.create() NOW...", flush=True)
-        msg = client.messages.create(**message_params)
+        print(f"[SEND_SMS] Request timestamp: {datetime.now().isoformat()}", flush=True)
+        try:
+            msg = client.messages.create(**message_params)
+            print(f"[SEND_SMS] ✅ API call completed successfully", flush=True)
+        except Exception as api_error:
+            print("=" * 80, flush=True)
+            print(f"[SEND_SMS] ❌ TWILIO API CALL EXCEPTION", flush=True)
+            print("=" * 80, flush=True)
+            print(f"[SEND_SMS] Exception type: {type(api_error).__name__}", flush=True)
+            print(f"[SEND_SMS] Exception message: {str(api_error)}", flush=True)
+            print(f"[SEND_SMS] Full exception details:", flush=True)
+            import traceback
+            traceback.print_exc()
+            print("=" * 80, flush=True)
+            raise
+        
         print(f"[SEND_SMS] ✅ API call completed, processing response...", flush=True)
         
         # ENHANCED LOGGING: Log comprehensive response details
         print("=" * 80, flush=True)
         print(f"[SEND_SMS] ✅ TWILIO API RESPONSE RECEIVED", flush=True)
         print("=" * 80, flush=True)
+        print(f"[SEND_SMS] Response timestamp: {datetime.now().isoformat()}", flush=True)
         print(f"[SEND_SMS] Message SID: {msg.sid}", flush=True)
         print(f"[SEND_SMS] Status: {msg.status} {'⚠️' if msg.status in ['failed', 'undelivered'] else '✅' if msg.status in ['sent', 'delivered', 'queued', 'accepted'] else ''}", flush=True)
         print(f"[SEND_SMS] To: {msg.to}", flush=True)
@@ -270,6 +287,17 @@ def send_sms(to_number: str, body: str) -> Dict[str, Any]:
         print(f"[SEND_SMS] Price: {msg.price or 'None'}", flush=True)
         print(f"[SEND_SMS] Price Unit: {msg.price_unit or 'None'}", flush=True)
         print(f"[SEND_SMS] URI: {msg.uri or 'None'}", flush=True)
+        
+        # Log ALL available attributes for debugging
+        print(f"[SEND_SMS] All response attributes:", flush=True)
+        for attr in dir(msg):
+            if not attr.startswith('_'):
+                try:
+                    value = getattr(msg, attr)
+                    if not callable(value):
+                        print(f"[SEND_SMS]   {attr}: {value}", flush=True)
+                except:
+                    pass
         
         # Log all available attributes for debugging
         print(f"[SEND_SMS] All response attributes: {dir(msg)}")
