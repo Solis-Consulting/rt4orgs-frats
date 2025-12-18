@@ -2265,6 +2265,48 @@ def get_initial_outreach_message(conn: Any) -> Optional[str]:
 # Card-centric Blast Endpoint
 # ============================================================================
 
+# ============================================================================
+# Authentication Dependency (must be defined before endpoints that use it)
+# ============================================================================
+
+async def get_current_user(request: Request) -> Dict[str, Any]:
+    """FastAPI dependency to get current user from Authorization header."""
+    auth_header = request.headers.get("Authorization", "")
+    
+    logger.info(f"[AUTH] Authorization header: {auth_header[:30] + '...' if auth_header and len(auth_header) > 30 else auth_header}")
+    
+    if not auth_header or not auth_header.startswith("Bearer "):
+        logger.warning("[AUTH] Missing or invalid Authorization header")
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    
+    token = auth_header[7:]
+    conn = get_conn()
+    user = get_user_by_token(conn, token)
+    
+    if not user:
+        logger.warning(f"[AUTH] Invalid API token (token preview: {token[:15]}...)")
+        raise HTTPException(status_code=401, detail="Invalid API token")
+    
+    logger.info(f"[AUTH] Authenticated user: {user['id']} role={user['role']} username={user.get('username', 'N/A')}")
+    return user
+
+
+async def get_current_admin_user(request: Request) -> Dict[str, Any]:
+    """FastAPI dependency to get current admin/owner user."""
+    user = await get_current_user(request)
+    # Owner (admin role) has full access
+    if user.get("role") != "admin":
+        logger.warning(f"[AUTH] Forbidden admin access by {user['id']} (role: {user.get('role')})")
+        raise HTTPException(status_code=403, detail="Owner/Admin access required")
+    logger.info(f"[AUTH] Admin access granted to {user['id']}")
+    return user
+
+
+async def get_current_owner_or_rep(request: Request) -> Dict[str, Any]:
+    """FastAPI dependency that allows both owner and rep access."""
+    return await get_current_user(request)
+
+
 @app.post("/blast/run")
 async def blast_run(
     request: Request, 
@@ -2333,46 +2375,7 @@ async def blast_run(
         raise HTTPException(status_code=500, detail=f"Blast failed: {str(e)}")
 
 
-# ============================================================================
-# Authentication Dependency
-# ============================================================================
-
-async def get_current_user(request: Request) -> Dict[str, Any]:
-    """FastAPI dependency to get current user from Authorization header."""
-    auth_header = request.headers.get("Authorization", "")
-    
-    logger.info(f"[AUTH] Authorization header: {auth_header[:30] + '...' if auth_header and len(auth_header) > 30 else auth_header}")
-    
-    if not auth_header or not auth_header.startswith("Bearer "):
-        logger.warning("[AUTH] Missing or invalid Authorization header")
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
-    
-    token = auth_header[7:]
-    conn = get_conn()
-    user = get_user_by_token(conn, token)
-    
-    if not user:
-        logger.warning(f"[AUTH] Invalid API token (token preview: {token[:15]}...)")
-        raise HTTPException(status_code=401, detail="Invalid API token")
-    
-    logger.info(f"[AUTH] Authenticated user: {user['id']} role={user['role']} username={user.get('username', 'N/A')}")
-    return user
-
-
-async def get_current_admin_user(request: Request) -> Dict[str, Any]:
-    """FastAPI dependency to get current admin/owner user."""
-    user = await get_current_user(request)
-    # Owner (admin role) has full access
-    if user.get("role") != "admin":
-        logger.warning(f"[AUTH] Forbidden admin access by {user['id']} (role: {user.get('role')})")
-        raise HTTPException(status_code=403, detail="Owner/Admin access required")
-    logger.info(f"[AUTH] Admin access granted to {user['id']}")
-    return user
-
-
-async def get_current_owner_or_rep(request: Request) -> Dict[str, Any]:
-    """FastAPI dependency that allows both owner and rep access."""
-    return await get_current_user(request)
+# Authentication dependencies are defined above, before /blast/run endpoint
 
 
 # ============================================================================
