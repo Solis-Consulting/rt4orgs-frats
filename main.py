@@ -3021,7 +3021,18 @@ async def rep_blast(
             logger.error(f"[DEBUG_LOG] Failed to write debug log: {log_err}")
         # #endregion
         
-        logger.error(f"[BLAST] Blast failed: {str(e)}", exc_info=True)
+        # CRITICAL: Log exception immediately
+        print("=" * 80, flush=True)
+        print(f"[BLAST_ENDPOINT] ❌ EXCEPTION CAUGHT", flush=True)
+        print(f"[BLAST_ENDPOINT] Error: {str(e)}", flush=True)
+        print(f"[BLAST_ENDPOINT] Error type: {type(e).__name__}", flush=True)
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"[BLAST_ENDPOINT] Full traceback:\n{error_trace}", flush=True)
+        print("=" * 80, flush=True)
+        
+        logger.error(f"[BLAST] ❌ EXCEPTION in rep_blast: {e}")
+        logger.error(f"[BLAST] Traceback:\n{error_trace}")
         raise HTTPException(status_code=500, detail=f"Blast failed: {str(e)}")
 
 
