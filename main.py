@@ -2784,6 +2784,14 @@ async def rep_blast(
     current_user: Dict = Depends(get_current_owner_or_rep)
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
+    # CRITICAL: Log immediately when endpoint is hit
+    print("=" * 80, flush=True)
+    print(f"[BLAST_ENDPOINT] 🚀 ENDPOINT CALLED", flush=True)
+    print("=" * 80, flush=True)
+    logger.info("=" * 80)
+    logger.info("[BLAST_ENDPOINT] 🚀 ENDPOINT CALLED")
+    logger.info("=" * 80)
+    
     # #region agent log - Blast endpoint entry
     try:
         import json as _json
@@ -2807,10 +2815,19 @@ async def rep_blast(
     
     logger.info(f"[BLAST] rep_blast called by {current_user['id']} (role: {current_user.get('role')})")
     logger.info(f"[BLAST] payload = {payload}")
+    print(f"[BLAST_ENDPOINT] User: {current_user['id']} (role: {current_user.get('role')})", flush=True)
+    print(f"[BLAST_ENDPOINT] Payload keys: {list(payload.keys())}", flush=True)
+    print(f"[BLAST_ENDPOINT] Payload: {payload}", flush=True)
     
     limit = payload.get("limit")
     status_filter = payload.get("status", "assigned")
     card_ids = payload.get("card_ids")  # Optional: specific card IDs to blast
+    
+    print(f"[BLAST_ENDPOINT] Extracted parameters:", flush=True)
+    print(f"[BLAST_ENDPOINT]   limit: {limit}", flush=True)
+    print(f"[BLAST_ENDPOINT]   status_filter: {status_filter}", flush=True)
+    print(f"[BLAST_ENDPOINT]   card_ids: {card_ids} (type: {type(card_ids)}, length: {len(card_ids) if card_ids else 0})", flush=True)
+    logger.info(f"[BLAST] limit={limit}, status_filter={status_filter}, card_ids={card_ids} (count: {len(card_ids) if card_ids else 0})")
     
     # #region agent log - Blast parameters
     try:
