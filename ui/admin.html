@@ -298,17 +298,24 @@
     }
 
     function showCreateUserModal() {
+      console.log('🔥 BUTTON CLICKED: showCreateUserModal');
       document.getElementById('createUserModal').classList.add('show');
       document.getElementById('createUserForm').reset();
       document.getElementById('newUserToken').style.display = 'none';
     }
 
     function hideCreateUserModal() {
+      console.log('🔥 BUTTON CLICKED: hideCreateUserModal');
       document.getElementById('createUserModal').classList.remove('show');
     }
 
+    // Expose to window for inline onclick handlers
+    window.showCreateUserModal = showCreateUserModal;
+    window.hideCreateUserModal = hideCreateUserModal;
+
     document.getElementById('createUserForm').addEventListener('submit', async (e) => {
       e.preventDefault();
+      console.log('🔥 FORM SUBMIT: createUserForm');
       
       const payload = {
         username: document.getElementById('newUsername').value.trim(),
@@ -318,8 +325,13 @@
         twilio_auth_token: document.getElementById('newTwilioToken').value.trim() || null,
       };
 
+      console.log('🔥 ABOUT TO FETCH /admin/users', payload);
+      console.log('🔥 Headers:', headers);
+      console.log('🔥 BACKEND URL:', BACKEND);
+
       try {
         console.log('[ADMIN] Creating user:', payload);
+        console.log('🔥 FETCHING /admin/users');
         const res = await fetch(`${BACKEND}/admin/users`, {
           method: 'POST',
           headers,
@@ -358,16 +370,23 @@
     });
 
     function showAssignCardModal() {
+      console.log('🔥 BUTTON CLICKED: showAssignCardModal');
       document.getElementById('assignCardModal').classList.add('show');
       document.getElementById('assignCardForm').reset();
     }
 
     function hideAssignCardModal() {
+      console.log('🔥 BUTTON CLICKED: hideAssignCardModal');
       document.getElementById('assignCardModal').classList.remove('show');
     }
 
+    // Expose to window for inline onclick handlers
+    window.showAssignCardModal = showAssignCardModal;
+    window.hideAssignCardModal = hideAssignCardModal;
+
     document.getElementById('assignCardForm').addEventListener('submit', async (e) => {
       e.preventDefault();
+      console.log('🔥 FORM SUBMIT: assignCardForm');
       
       const payload = {
         card_id: document.getElementById('assignCardId').value.trim(),
@@ -375,8 +394,13 @@
         notes: document.getElementById('assignNotes').value.trim() || null,
       };
 
+      console.log('🔥 ABOUT TO FETCH /admin/assignments', payload);
+      console.log('🔥 Headers:', headers);
+      console.log('🔥 BACKEND URL:', BACKEND);
+
       try {
         console.log('[ADMIN] Assigning card:', payload);
+        console.log('🔥 FETCHING /admin/assignments');
         const res = await fetch(`${BACKEND}/admin/assignments`, {
           method: 'POST',
           headers,
@@ -615,28 +639,41 @@
     loadUsers();
 
     function logout() {
+      console.log('🔥 BUTTON CLICKED: logout');
       localStorage.removeItem('apiToken');
       window.location.href = 'login.html';
     }
 
     async function editUser(userId) {
+      console.log('🔥 BUTTON CLICKED: editUser', userId);
       const user = allUsers.find(u => u.id === userId);
-      if (!user) return;
+      if (!user) {
+        console.log('🔥 editUser: user not found');
+        return;
+      }
 
       const phone = prompt('Enter Twilio phone number:', user.twilio_phone_number || '');
-      if (phone === null) return; // User cancelled
+      if (phone === null) {
+        console.log('🔥 editUser: cancelled');
+        return; // User cancelled
+      }
 
       const accountSid = prompt('Enter Twilio Account SID (optional):', user.twilio_account_sid || '');
       const authToken = prompt('Enter Twilio Auth Token (optional, leave empty to keep current):', '');
 
+      const updatePayload = {
+        twilio_phone_number: phone || null,
+        twilio_account_sid: accountSid || null,
+        twilio_auth_token: authToken || null,
+      };
+      
+      console.log('🔥 ABOUT TO FETCH /admin/users/' + userId, updatePayload);
+      console.log('🔥 Headers:', headers);
+      console.log('🔥 BACKEND URL:', BACKEND);
+
       try {
-        const updatePayload = {
-          twilio_phone_number: phone || null,
-          twilio_account_sid: accountSid || null,
-          twilio_auth_token: authToken || null,
-        };
         console.log('[ADMIN] Updating user:', userId, updatePayload);
-        
+        console.log('🔥 FETCHING /admin/users/' + userId);
         const res = await fetch(`${BACKEND}/admin/users/${encodeURIComponent(userId)}`, {
           method: 'PUT',
           headers,
@@ -666,6 +703,9 @@
         alert(`Error: ${error.message}`);
       }
     }
+    // Expose all functions to window for inline onclick handlers
+    window.logout = logout;
+    window.editUser = editUser;
     window.updateAssignmentStatus = updateAssignmentStatus;
   </script>
 </body>
