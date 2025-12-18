@@ -712,13 +712,9 @@
       btn.textContent = 'Blasting...';
 
       try {
-        localStorage.setItem('blastAuthToken', authToken);
-      }
-
-      try {
         const res = await fetch(`${BACKEND}/rep/blast`, {
           method: 'POST',
-          headers: headers,
+          headers: getOwnerHeaders(),
           body: JSON.stringify({ card_ids: selected })
         });
 

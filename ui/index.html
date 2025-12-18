@@ -358,9 +358,8 @@
       // Enable/disable buttons based on selection
       const blastBtn = document.getElementById("blastSelectedBtn");
       const deleteBtn = document.getElementById("deleteSelectedBtn");
-      const updateBlastButtonState = () => {
+      const updateDeleteButtonState = () => {
         const anySelected = getSelectedCardIds().length > 0;
-        blastBtn.disabled = !anySelected;
         if (deleteBtn) {
           deleteBtn.disabled = !anySelected;
         }
@@ -368,146 +367,12 @@
       };
       
       cardCheckboxes.forEach(cb => {
-        cb.addEventListener("change", updateBlastButtonState);
+        cb.addEventListener("change", updateDeleteButtonState);
       });
-      updateBlastButtonState();
+      updateDeleteButtonState();
     }
 
-    // LEGACY FUNCTION - GATE-LOCKED: Requires owner API token
-    async function runBlastOnSelectedCards() {
-      if (!legacyOwnerToken) {
-        alert("⚠️ Legacy blast requires owner API token. Please unlock it first.");
-        showLegacyBlastSection();
-        return;
-      }
-      
-      // Double confirmation for legacy mode
-      if (!confirm("⚠️ LEGACY MODE: This is deprecated. Use Admin Dashboard for blasting.\n\nContinue anyway?")) {
-        return;
-      }
-      
-      const selectedIds = getSelectedCardIds();
-      if (selectedIds.length === 0) {
-        alert("Please select at least one card to blast.");
-        return;
-      }
-
-      if (!confirm(`⚠️ Run legacy blast on ${selectedIds.length} card(s)?`)) {
-        return;
-      }
-
-      const blastBtn = document.getElementById("blastSelectedBtn");
-      blastBtn.disabled = true;
-      blastBtn.textContent = "Blasting...";
-
-      // Legacy mode - use owner token
-      const headers = {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${legacyOwnerToken}`
-      };
-      const payload = {
-        card_ids: selectedIds,
-        limit: selectedIds.length,
-        owner: "system",
-        source: "legacy_cards_ui"
-      };
-
-      try {
-        console.log("[LEGACY_BLAST] Using legacy blast endpoint with owner token");
-        const res = await fetch(`${BACKEND}/blast/run`, {
-          method: "POST",
-          headers: headers,
-          body: JSON.stringify(payload)
-        });
-
-        if (!res.ok) {
-          const text = await res.text();
-          console.error("[LEGACY_BLAST] Error:", text);
-          alert(`Legacy blast failed: HTTP ${res.status} - ${text}`);
-          // If unauthorized, clear token and show unlock again
-          if (res.status === 401 || res.status === 403) {
-            legacyOwnerToken = null;
-            showLegacyBlastSection();
-            blastSelectedBtn.style.display = 'none';
-          }
-          return;
-        }
-
-        const data = await res.json();
-
-        if (!data.ok) {
-          const msg = data.error || 'Unknown error';
-          alert(`Legacy blast failed: ${msg}`);
-          return;
-        }
-
-        alert(`Legacy blast complete.\nSent: ${data.sent}\nSkipped: ${data.skipped}`);
-      } catch (error) {
-        console.error("[LEGACY_BLAST] Exception:", error);
-        alert(`Legacy blast error: ${error.message}`);
-      } finally {
-        blastBtn.disabled = false;
-        blastBtn.textContent = "⚠️ Legacy Blast (Owner Only)";
-      }
-    }
-
-    // Legacy blast unlock (owner token required)
-    let legacyOwnerToken = null;
-    const legacyBlastSection = document.getElementById('legacyBlastSection');
-    const legacyOwnerTokenInput = document.getElementById('legacyOwnerToken');
-    const unlockLegacyBlastBtn = document.getElementById('unlockLegacyBlastBtn');
-    const legacyBlastError = document.getElementById('legacyBlastError');
-    const blastSelectedBtn = document.getElementById('blastSelectedBtn');
-
-    // Show legacy blast section in cards view
-    function showLegacyBlastSection() {
-      legacyBlastSection.style.display = 'block';
-    }
-
-    async function unlockLegacyBlast() {
-      const token = legacyOwnerTokenInput.value.trim();
-      if (!token) {
-        legacyBlastError.textContent = 'Please enter owner API token';
-        legacyBlastError.style.display = 'block';
-        return;
-      }
-
-      // Validate token by trying to access admin endpoint
-      try {
-        const res = await fetch(`${BACKEND}/admin/users`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (res.status === 401 || res.status === 403) {
-          legacyBlastError.textContent = 'Invalid owner API token';
-          legacyBlastError.style.display = 'block';
-          return;
-        }
-
-        if (!res.ok) {
-          legacyBlastError.textContent = `Error validating token: HTTP ${res.status}`;
-          legacyBlastError.style.display = 'block';
-          return;
-        }
-
-        // Token is valid owner token
-        legacyOwnerToken = token;
-        legacyBlastSection.style.display = 'none';
-        blastSelectedBtn.style.display = 'inline-block';
-        legacyBlastError.style.display = 'none';
-      } catch (error) {
-        legacyBlastError.textContent = `Error: ${error.message}`;
-        legacyBlastError.style.display = 'block';
-      }
-    }
-
-    unlockLegacyBlastBtn.addEventListener('click', unlockLegacyBlast);
-    legacyOwnerTokenInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') unlockLegacyBlast();
-    });
+    // Legacy blast functionality removed - use Admin Dashboard → Blast instead
 
     // Tab switching
     document.querySelectorAll(".tab").forEach(tab => {
