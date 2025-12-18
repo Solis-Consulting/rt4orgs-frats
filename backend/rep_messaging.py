@@ -76,26 +76,24 @@ def send_rep_message(
         client = Client(account_sid, auth_token)
         print(f"[REP_MESSAGE] ✅ Twilio Client created")
         
-        messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
-        print(f"[REP_MESSAGE] Messaging Service SID: {messaging_service_sid or 'NOT SET'}")
-        
-        if not messaging_service_sid:
-            error_msg = "TWILIO_MESSAGING_SERVICE_SID must be set in environment variables"
+        # Use rep's phone directly as "from" - this guarantees the message comes from their number
+        # All reps use same Account SID (AC...) for auth, but different phone numbers as "from"
+        rep_phone = user["twilio_phone_number"]
+        if not rep_phone:
+            error_msg = f"User {user_id} does not have a Twilio phone number configured"
             print(f"[REP_MESSAGE] ❌ {error_msg}")
             raise ValueError(error_msg)
         
-        # Always use Messaging Service for traceability and A2P compliance
-        # The rep's phone number should be added to the Messaging Service in Twilio console
-        print(f"[REP_MESSAGE] Using Messaging Service: {messaging_service_sid}")
-        print(f"[REP_MESSAGE] Rep Phone: {user['twilio_phone_number']} (should be added to Messaging Service in Twilio console)")
+        print(f"[REP_MESSAGE] Using Rep Phone as From: {rep_phone}")
+        print(f"[REP_MESSAGE] Using System Account SID: {account_sid[:10]}... (same for all reps)")
         print(f"[REP_MESSAGE] Calling client.messages.create() with:")
         print(f"[REP_MESSAGE]   to: {phone}")
-        print(f"[REP_MESSAGE]   messaging_service_sid: {messaging_service_sid}")
+        print(f"[REP_MESSAGE]   from_: {rep_phone}")
         print(f"[REP_MESSAGE]   body length: {len(message)}")
-        print(f"[REP_MESSAGE] Note: Messages will route through Messaging Service, which should include rep's phone number")
+        print(f"[REP_MESSAGE] Note: Message will come from rep's specific phone number")
         msg = client.messages.create(
             to=phone,
-            messaging_service_sid=messaging_service_sid,
+            from_=rep_phone,
             body=message
         )
         
