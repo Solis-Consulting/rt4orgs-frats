@@ -770,6 +770,44 @@
     window.logout = logout;
     window.editUser = editUser;
     window.updateAssignmentStatus = updateAssignmentStatus;
+
+    async function unassignCard(cardId, userId, cardName) {
+      if (!confirm(`Unassign "${cardName}" from ${userId}? This will remove the assignment.`)) {
+        return;
+      }
+
+      try {
+        console.log('[ADMIN] Unassigning card:', { cardId, userId });
+        const res = await fetch(`${BACKEND}/admin/assignments/${encodeURIComponent(cardId)}/${encodeURIComponent(userId)}`, {
+          method: 'DELETE',
+          headers
+        });
+
+        console.log('[ADMIN] Unassign response status:', res.status);
+
+        if (!res.ok) {
+          const text = await res.text();
+          console.error('[ADMIN] Error response:', text);
+          alert(`Error ${res.status}: ${text}`);
+          return;
+        }
+
+        const data = await res.json();
+        console.log('[ADMIN] Unassign response data:', data);
+
+        if (data.ok) {
+          alert('Card unassigned successfully');
+          loadAssignments();
+        } else {
+          alert(`Failed to unassign card: ${data.detail || 'Unknown error'}`);
+        }
+      } catch (error) {
+        console.error('[ADMIN] Unassign exception:', error);
+        alert(`Error: ${error.message}`);
+      }
+    }
+
+    window.unassignCard = unassignCard;
   </script>
 </body>
 </html>

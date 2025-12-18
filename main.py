@@ -2524,6 +2524,31 @@ async def admin_update_assignment(
         raise HTTPException(status_code=500, detail="Failed to update assignment")
 
 
+@app.delete("/admin/assignments/{card_id}/{user_id}")
+async def admin_unassign_card(
+    card_id: str,
+    user_id: str,
+    current_user: Dict = Depends(get_current_admin_user)
+):
+    """Unassign a card from a rep."""
+    logger.info(f"[ADMIN] unassign_card called by {current_user['id']} for card {card_id} from user {user_id}")
+    
+    conn = get_conn()
+    try:
+        from backend.assignments import unassign_card
+        success = unassign_card(conn, card_id, user_id)
+        
+        if success:
+            logger.info(f"[ADMIN] unassign_card success: {card_id} unassigned from {user_id}")
+            return {"ok": True, "message": "Card unassigned successfully"}
+        else:
+            logger.warning(f"[ADMIN] unassign_card failed: card {card_id} not assigned to {user_id}")
+            raise HTTPException(status_code=404, detail="Assignment not found")
+    except Exception as e:
+        logger.error(f"[ADMIN] unassign_card exception: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to unassign card: {str(e)}")
+
+
 # ============================================================================
 # Rep Endpoints
 # ============================================================================
