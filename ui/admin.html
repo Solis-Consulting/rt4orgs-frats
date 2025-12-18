@@ -259,15 +259,16 @@
 
     function renderUsers() {
       let html = '<table><thead><tr>';
-      html += '<th>Username</th><th>Role</th><th>Twilio Phone</th><th>Twilio Account SID</th><th>Created</th><th>Actions</th>';
+      html += '<th>Username</th><th>User ID</th><th>Role</th><th>Twilio Phone</th><th>Twilio Account SID</th><th>Created</th><th>Actions</th>';
       html += '</tr></thead><tbody>';
 
       allUsers.forEach(user => {
         html += '<tr>';
         html += `<td>${user.username}</td>`;
+        html += `<td style="font-family: monospace; font-size: 11px; word-break: break-all;">${user.id || '-'}</td>`;
         html += `<td><span class='badge ${user.role === 'admin' ? 'amber' : 'gray'}'>${user.role === 'admin' ? 'Owner' : 'Rep'}</span></td>`;
-        html += `<td>${user.twilio_phone_number || '-'}</td>`;
-        html += `<td>${user.twilio_account_sid ? (user.twilio_account_sid.substring(0, 10) + '...') : '-'}</td>`;
+        html += `<td style="font-family: monospace; font-size: 11px;">${user.twilio_phone_number || '-'}</td>`;
+        html += `<td style="font-family: monospace; font-size: 11px; word-break: break-all; max-width: 400px;">${user.twilio_account_sid || '-'}</td>`;
         html += `<td>${user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}</td>`;
         html += `<td><a class='link' href='#' onclick='editUser("${user.id}"); return false;'>Edit Phone Pairing</a></td>`;
         html += '</tr>';
@@ -471,14 +472,16 @@
       });
 
       let html = '<table><thead><tr>';
-      html += '<th>Card</th><th>Assigned To</th><th>Status</th><th>Assigned At</th><th>Notes</th><th>Actions</th>';
+      html += '<th>Card Name</th><th>Card ID</th><th>Assigned To</th><th>User ID</th><th>Status</th><th>Assigned At</th><th>Notes</th><th>Actions</th>';
       html += '</tr></thead><tbody>';
 
       rows.forEach(assign => {
         const cardName = assign.card?.card_data?.name || assign.card_id;
         html += '<tr>';
         html += `<td>${cardName}</td>`;
+        html += `<td style="font-family: monospace; font-size: 11px; word-break: break-all;">${assign.card_id || '-'}</td>`;
         html += `<td>${assign.username}</td>`;
+        html += `<td style="font-family: monospace; font-size: 11px; word-break: break-all;">${assign.user_id || '-'}</td>`;
         html += `<td><span class='badge ${assign.status === 'active' ? 'green' : assign.status === 'closed' ? 'green' : assign.status === 'lost' ? 'red' : 'gray'}'>${assign.status}</span></td>`;
         html += `<td>${assign.assigned_at ? new Date(assign.assigned_at).toLocaleDateString() : '-'}</td>`;
         html += `<td>${assign.notes || '-'}</td>`;
@@ -576,7 +579,7 @@
       });
 
       let html = '<table><thead><tr>';
-      html += '<th><input type="checkbox" id="blastSelectAll"></th><th>Name</th><th>Type</th><th>Sales State</th><th>Updated</th>';
+      html += '<th><input type="checkbox" id="blastSelectAll"></th><th>Name</th><th>Card ID</th><th>Type</th><th>Sales State</th><th>Updated</th>';
       html += '</tr></thead><tbody>';
 
       rows.forEach(card => {
@@ -584,6 +587,7 @@
         html += '<tr>';
         html += `<td><input type="checkbox" class="blast-card-checkbox" data-id="${card.id}"></td>`;
         html += `<td>${name}</td>`;
+        html += `<td style="font-family: monospace; font-size: 11px; word-break: break-all;">${card.id || '-'}</td>`;
         html += `<td><span class='badge ${card.type || 'person'}'>${card.type || 'person'}</span></td>`;
         html += `<td><span class='badge gray'>${card.sales_state || 'cold'}</span></td>`;
         html += `<td>${card.updated_at ? new Date(card.updated_at).toLocaleDateString() : '-'}</td>`;
