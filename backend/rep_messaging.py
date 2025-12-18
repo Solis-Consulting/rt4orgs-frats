@@ -225,15 +225,15 @@ def get_rep_conversations(conn: Any, user_id: str) -> List[Dict[str, Any]]:
             SELECT DISTINCT
                 c.phone, c.card_id, c.state, c.routing_mode, c.rep_phone_number,
                 c.last_outbound_at, c.last_inbound_at, c.created_at, c.updated_at,
-                c.history
+                c.history,
+                COALESCE(c.last_inbound_at, c.last_outbound_at, c.updated_at) as sort_date
             FROM conversations c
             LEFT JOIN card_assignments ca ON c.card_id = ca.card_id
             WHERE (
                 c.rep_user_id = %s
                 OR (c.card_id IS NOT NULL AND ca.user_id = %s)
             )
-            ORDER BY 
-                COALESCE(c.last_inbound_at, c.last_outbound_at, c.updated_at) DESC NULLS LAST
+            ORDER BY sort_date DESC NULLS LAST
         """, (user_id, user_id))
         
         conversations = []
