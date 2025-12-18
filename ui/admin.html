@@ -521,7 +521,11 @@
         html += `<td><span class='badge ${assign.status === 'active' ? 'green' : assign.status === 'closed' ? 'green' : assign.status === 'lost' ? 'red' : 'gray'}'>${assign.status}</span></td>`;
         html += `<td>${assign.assigned_at ? new Date(assign.assigned_at).toLocaleDateString() : '-'}</td>`;
         html += `<td>${assign.notes || '-'}</td>`;
-        html += `<td><a class='link' href='#' onclick='updateAssignmentStatus("${assign.card_id}", "${assign.user_id}"); return false;'>Update Status</a></td>`;
+        html += `<td style="display: flex; gap: 8px; align-items: center;">`;
+        html += `<a class='link' href='#' onclick='updateAssignmentStatus("${assign.card_id}", "${assign.user_id}"); return false;'>Update Status</a>`;
+        html += `<span style="color: #6b7280;">|</span>`;
+        html += `<a class='link' href='#' onclick='unassignCard("${assign.card_id}", "${assign.user_id}", "${cardName.replace(/'/g, "\\'")}"); return false;' style="color: #ef4444;">Unassign</a>`;
+        html += `</td>`;
         html += '</tr>';
       });
 
