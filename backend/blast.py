@@ -394,19 +394,34 @@ def run_blast_for_cards(
             print("[BLAST_MATCH] ❌ No match found - purchased_example is None", flush=True)
             print("[BLAST_MATCH] ⚠️ Template placeholders will not be substituted", flush=True)
 
-        # Generate message text - try configured initial outreach first, fallback to template
+        # Generate message text - try configured initial outreach first (rep-specific if available), fallback to template
         message = None
         try:
-            # Check for configured initial outreach
+            # Check for configured initial outreach (rep-specific first, then global)
             with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT response_text FROM markov_responses WHERE state_key = '__initial_outreach__'
-                """)
-                row = cur.fetchone()
-                if row and row[0]:
-                    configured_outreach = row[0]
-                    message = _substitute_template(configured_outreach, data, purchased_example)
-                    print(f"[BLAST] Using configured initial outreach message")
+                if rep_user_id:
+                    # Try rep-specific first
+                    cur.execute("""
+                        SELECT response_text FROM markov_responses 
+                        WHERE state_key = '__initial_outreach__' AND user_id = %s
+                    """, (rep_user_id,))
+                    row = cur.fetchone()
+                    if row and row[0]:
+                        configured_outreach = row[0]
+                        message = _substitute_template(configured_outreach, data, purchased_example)
+                        print(f"[BLAST] Using rep-specific configured initial outreach message (user_id: {rep_user_id})")
+                
+                # Fallback to global if no rep-specific found
+                if not message:
+                    cur.execute("""
+                        SELECT response_text FROM markov_responses 
+                        WHERE state_key = '__initial_outreach__' AND user_id IS NULL
+                    """)
+                    row = cur.fetchone()
+                    if row and row[0]:
+                        configured_outreach = row[0]
+                        message = _substitute_template(configured_outreach, data, purchased_example)
+                        print(f"[BLAST] Using global configured initial outreach message")
         except Exception as e:
             print(f"[BLAST] Could not load configured outreach, using template: {e}")
         

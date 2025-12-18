@@ -122,6 +122,57 @@
     
     import { BACKEND_URL } from '/config.js';
     const BACKEND = BACKEND_URL;
+
+    // Authentication check (owner or rep)
+    (async function checkAuth() {
+      const apiToken = localStorage.getItem('apiToken');
+      if (!apiToken) {
+        window.location.href = 'login.html';
+        return;
+      }
+
+      // Verify token by trying to fetch rep cards (works for both owner and rep)
+      try {
+        const res = await fetch(`${BACKEND}/rep/cards`, {
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem('apiToken');
+          window.location.href = 'login.html';
+          return;
+        }
+
+        if (!res.ok) {
+          localStorage.removeItem('apiToken');
+          window.location.href = 'login.html';
+          return;
+        }
+
+        // Token validated - continue loading page
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        localStorage.removeItem('apiToken');
+        window.location.href = 'login.html';
+        return;
+      }
+    })();
+
+    // Get headers function
+    function getHeaders() {
+      const apiToken = localStorage.getItem('apiToken');
+      if (!apiToken) {
+        window.location.href = 'login.html';
+        return {};
+      }
+      return {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json'
+      };
+    }
     
     // Log backend URL on load for debugging
     console.log('========================================');
@@ -147,25 +198,40 @@
     }
 
     async function loadResponses() {
+      const headers = getHeaders();
+      if (!headers.Authorization) {
+        return; // Already redirected
+      }
+
       try {
         console.log('LOAD: BACKEND URL =', BACKEND);
         
         // Step 1: Fetch all states from the registry (authoritative source)
         const statesUrl = `${BACKEND}/markov/states`;
         console.log('LOAD: Fetching states from', statesUrl);
-        const statesRes = await fetch(statesUrl);
+        const statesRes = await fetch(statesUrl, { headers });
         console.log('LOAD: States response status =', statesRes.status);
+        if (statesRes.status === 401 || statesRes.status === 403) {
+          localStorage.removeItem('apiToken');
+          window.location.href = 'login.html';
+          return;
+        }
         if (!statesRes.ok) {
           throw new Error(`Failed to load states: ${statesRes.status}`);
         }
         MARKOV_STATES = await statesRes.json();
         console.log('LOAD: Loaded', MARKOV_STATES.length, 'states');
 
-        // Step 2: Fetch configured responses from DB
+        // Step 2: Fetch configured responses from DB (rep-specific if rep, global if owner)
         const responsesUrl = `${BACKEND}/markov/responses`;
         console.log('LOAD: Fetching responses from', responsesUrl);
-        const responsesRes = await fetch(responsesUrl);
+        const responsesRes = await fetch(responsesUrl, { headers });
         console.log('LOAD: Responses response status =', responsesRes.status);
+        if (responsesRes.status === 401 || responsesRes.status === 403) {
+          localStorage.removeItem('apiToken');
+          window.location.href = 'login.html';
+          return;
+        }
         if (!responsesRes.ok) {
           throw new Error(`Failed to load responses: ${responsesRes.status}`);
         }
@@ -265,20 +331,26 @@
           description: cfg.description || '',
         };
 
+        const headers = getHeaders();
+        if (!headers.Authorization) {
+          setStateStatus(stateKey, 'error', 'Not authenticated');
+          return false;
+        }
+
         const url = `${BACKEND}/markov/response`;
         console.log('[SAVE] URL:', url);
         console.log('[SAVE] Payload:', JSON.stringify(payload, null, 2));
         console.log('[SAVE] About to call fetch()...');
         console.log('[SAVE] Fetch options:', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: headers,
           body: JSON.stringify(payload),
         });
 
         // Create fetch promise and log it immediately
         const fetchPromise = fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: headers,
           body: JSON.stringify(payload),
         });
         console.log('[SAVE] ✅ fetch() called, promise created:', fetchPromise);

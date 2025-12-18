@@ -73,6 +73,7 @@
         <div class="tab active" data-view="cards">My Cards</div>
         <div class="tab" data-view="conversations">Conversations</div>
         <div class="tab" data-view="stats">Stats</div>
+        <div class="tab" data-view="markov">Markov Editor</div>
       </div>
 
       <!-- Cards View -->
@@ -109,6 +110,17 @@
       <!-- Stats View -->
       <div id="statsView" style="display: none;">
         <div class="stats" id="statsGrid"></div>
+      </div>
+
+      <!-- Markov Editor View -->
+      <div id="markovView" style="display: none;">
+        <div style="margin-bottom: 16px;">
+          <a href="markov_responses.html" class="link" target="_blank">Open Markov Editor in New Tab →</a>
+        </div>
+        <div style="padding: 20px; background: #1e293b; border-radius: 8px; color: #9ca3af; font-size: 13px;">
+          <strong style="color: #38bdf8;">Markov Response Editor</strong><br>
+          Configure auto-responses for your blasts. Each rep has their own microenvironment with custom responses.
+        </div>
       </div>
       </div>
     </div>
@@ -228,10 +240,15 @@
         document.getElementById('cardsView').style.display = view === 'cards' ? 'block' : 'none';
         document.getElementById('conversationsView').style.display = view === 'conversations' ? 'block' : 'none';
         document.getElementById('statsView').style.display = view === 'stats' ? 'block' : 'none';
+        document.getElementById('markovView').style.display = view === 'markov' ? 'block' : 'none';
         
         if (view === 'cards') loadCards();
         else if (view === 'conversations') loadConversations();
         else if (view === 'stats') loadStats();
+        else if (view === 'markov') {
+          // Redirect to markov editor (it will handle auth)
+          window.location.href = 'markov_responses.html';
+        }
       });
     });
 

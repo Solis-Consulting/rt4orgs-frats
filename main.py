@@ -915,8 +915,8 @@ async def twilio_inbound(request: Request):
             
             print(f"[TWILIO_INBOUND] State transition: {previous_state} → {next_state}")
             
-            # Try to get configured response for this state
-            configured_response = get_markov_response(conn, next_state)
+            # Try to get configured response for this state (rep-specific if available)
+            configured_response = get_markov_response(conn, next_state, rep_user_id)
             
             if configured_response:
                 # If we have a card, substitute template placeholders
@@ -2137,16 +2137,30 @@ async def get_markov_states():
 
 
 @app.get("/markov/responses")
-async def get_markov_responses():
-    """Get all configured Markov state responses."""
+async def get_markov_responses(
+    current_user: Dict = Depends(get_current_owner_or_rep)
+):
+    """Get all configured Markov state responses. Owner gets global, reps get their own."""
     conn = get_conn()
+    user_id = None if current_user.get("role") == "admin" else current_user.get("id")
     
     with conn.cursor() as cur:
-        cur.execute("""
-            SELECT state_key, response_text, description, updated_at
-            FROM markov_responses
-            ORDER BY state_key;
-        """)
+        if user_id:
+            # Rep: get rep-specific responses
+            cur.execute("""
+                SELECT state_key, response_text, description, updated_at
+                FROM markov_responses
+                WHERE user_id = %s
+                ORDER BY state_key;
+            """, (user_id,))
+        else:
+            # Owner: get global responses (user_id IS NULL)
+            cur.execute("""
+                SELECT state_key, response_text, description, updated_at
+                FROM markov_responses
+                WHERE user_id IS NULL
+                ORDER BY state_key;
+            """)
         rows = cur.fetchall()
     
     responses = {
@@ -2160,10 +2174,27 @@ async def get_markov_responses():
     
     # Also get initial outreach (stored as special key)
     with conn.cursor() as cur:
-        cur.execute("""
-            SELECT response_text FROM markov_responses WHERE state_key = '__initial_outreach__'
-        """)
-        row = cur.fetchone()
+        if user_id:
+            # Try rep-specific first
+            cur.execute("""
+                SELECT response_text FROM markov_responses 
+                WHERE state_key = '__initial_outreach__' AND user_id = %s
+            """, (user_id,))
+            row = cur.fetchone()
+            if not row:
+                # Fallback to global
+                cur.execute("""
+                    SELECT response_text FROM markov_responses 
+                    WHERE state_key = '__initial_outreach__' AND user_id IS NULL
+                """)
+                row = cur.fetchone()
+        else:
+            # Owner: get global
+            cur.execute("""
+                SELECT response_text FROM markov_responses 
+                WHERE state_key = '__initial_outreach__' AND user_id IS NULL
+            """)
+            row = cur.fetchone()
         initial_outreach = row[0] if row else None
     
     return {
@@ -2173,12 +2204,16 @@ async def get_markov_responses():
 
 
 @app.post("/markov/response")
-async def update_single_markov_response(payload: Dict[str, Any] = Body(...)):
-    """Update a single Markov state response. Payload: {state_key: str, response_text: str, description: str?}"""
+async def update_single_markov_response(
+    payload: Dict[str, Any] = Body(...),
+    current_user: Dict = Depends(get_current_owner_or_rep)
+):
+    """Update a single Markov state response. Owner saves global, reps save their own."""
     logger.info("🧠 ENTER save_markov_response")
     logger.info(f"📦 payload={json.dumps(payload, indent=2)}")
     
     conn = get_conn()
+    user_id = None if current_user.get("role") == "admin" else current_user.get("id")
     
     state_key = payload.get("state_key")
     response_text = payload.get("response_text", "")
@@ -2188,20 +2223,33 @@ async def update_single_markov_response(payload: Dict[str, Any] = Body(...)):
         logger.error("❌ Missing state_key in payload")
         raise HTTPException(status_code=400, detail="state_key is required")
     
-    logger.info(f"✏️ Saving state: {state_key}")
+    logger.info(f"✏️ Saving state: {state_key} (user_id: {user_id or 'global'})")
     logger.debug(f"Response text length: {len(response_text)}")
     
     try:
         with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO markov_responses (state_key, response_text, description, updated_at)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (state_key)
-                DO UPDATE SET
-                    response_text = EXCLUDED.response_text,
-                    description = EXCLUDED.description,
-                    updated_at = EXCLUDED.updated_at;
-            """, (state_key, response_text, description, datetime.utcnow()))
+            if user_id:
+                # Rep: save with user_id
+                cur.execute("""
+                    INSERT INTO markov_responses (state_key, response_text, description, updated_at, user_id)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (state_key, COALESCE(user_id, ''))
+                    DO UPDATE SET
+                        response_text = EXCLUDED.response_text,
+                        description = EXCLUDED.description,
+                        updated_at = EXCLUDED.updated_at;
+                """, (state_key, response_text, description, datetime.utcnow(), user_id))
+            else:
+                # Owner: save global (user_id IS NULL)
+                cur.execute("""
+                    INSERT INTO markov_responses (state_key, response_text, description, updated_at, user_id)
+                    VALUES (%s, %s, %s, %s, NULL)
+                    ON CONFLICT (state_key) WHERE user_id IS NULL
+                    DO UPDATE SET
+                        response_text = EXCLUDED.response_text,
+                        description = EXCLUDED.description,
+                        updated_at = EXCLUDED.updated_at;
+                """, (state_key, response_text, description, datetime.utcnow()))
         
         logger.info(f"✅ Saved state: {state_key}")
         logger.info("✅ SAVE COMPLETE")
@@ -2213,19 +2261,23 @@ async def update_single_markov_response(payload: Dict[str, Any] = Body(...)):
 
 
 @app.post("/markov/responses")
-async def update_markov_responses(payload: Dict[str, Any] = Body(...)):
-    """Update Markov state responses. Payload: {responses: {state_key: {response_text, description}}, initial_outreach: str}"""
+async def update_markov_responses(
+    payload: Dict[str, Any] = Body(...),
+    current_user: Dict = Depends(get_current_owner_or_rep)
+):
+    """Update Markov state responses. Owner saves global, reps save their own."""
     logger.info("📥 POST /markov/responses called (batch)")
     logger.info(f"📦 Payload keys: {list(payload.keys())}")
+    
+    conn = get_conn()
+    user_id = None if current_user.get("role") == "admin" else current_user.get("id")
     
     responses = payload.get("responses", {})
     initial_outreach = payload.get("initial_outreach")
     
-    logger.info(f"📥 JSON import triggered")
+    logger.info(f"📥 JSON import triggered (user_id: {user_id or 'global'})")
     logger.info(f"States in import: {list(responses.keys())}")
     logger.info(f"Initial outreach present: {initial_outreach is not None}")
-    
-    conn = get_conn()
     
     saved_count = 0
     failed_count = 0
@@ -2240,15 +2292,28 @@ async def update_markov_responses(payload: Dict[str, Any] = Body(...)):
                 logger.debug(f"Response text length: {len(response_text)}")
                 
                 try:
-                    cur.execute("""
-                        INSERT INTO markov_responses (state_key, response_text, description, updated_at)
-                        VALUES (%s, %s, %s, %s)
-                        ON CONFLICT (state_key)
-                        DO UPDATE SET
-                            response_text = EXCLUDED.response_text,
-                            description = EXCLUDED.description,
-                            updated_at = EXCLUDED.updated_at;
-                    """, (state_key, response_text, description, datetime.utcnow()))
+                    if user_id:
+                        # Rep: save with user_id
+                        cur.execute("""
+                            INSERT INTO markov_responses (state_key, response_text, description, updated_at, user_id)
+                            VALUES (%s, %s, %s, %s, %s)
+                            ON CONFLICT (state_key, COALESCE(user_id, ''))
+                            DO UPDATE SET
+                                response_text = EXCLUDED.response_text,
+                                description = EXCLUDED.description,
+                                updated_at = EXCLUDED.updated_at;
+                        """, (state_key, response_text, description, datetime.utcnow(), user_id))
+                    else:
+                        # Owner: save global
+                        cur.execute("""
+                            INSERT INTO markov_responses (state_key, response_text, description, updated_at, user_id)
+                            VALUES (%s, %s, %s, %s, NULL)
+                            ON CONFLICT (state_key) WHERE user_id IS NULL
+                            DO UPDATE SET
+                                response_text = EXCLUDED.response_text,
+                                description = EXCLUDED.description,
+                                updated_at = EXCLUDED.updated_at;
+                        """, (state_key, response_text, description, datetime.utcnow()))
                     logger.info(f"✅ Saved state: {state_key}")
                     saved_count += 1
                 except Exception as e:
@@ -2260,14 +2325,26 @@ async def update_markov_responses(payload: Dict[str, Any] = Body(...)):
             if initial_outreach is not None:
                 logger.info("✏️ Saving initial_outreach")
                 try:
-                    cur.execute("""
-                        INSERT INTO markov_responses (state_key, response_text, updated_at)
-                        VALUES ('__initial_outreach__', %s, %s)
-                        ON CONFLICT (state_key)
-                        DO UPDATE SET
-                            response_text = EXCLUDED.response_text,
-                            updated_at = EXCLUDED.updated_at;
-                    """, (initial_outreach, datetime.utcnow()))
+                    if user_id:
+                        # Rep: save with user_id
+                        cur.execute("""
+                            INSERT INTO markov_responses (state_key, response_text, updated_at, user_id)
+                            VALUES ('__initial_outreach__', %s, %s, %s)
+                            ON CONFLICT (state_key, COALESCE(user_id, ''))
+                            DO UPDATE SET
+                                response_text = EXCLUDED.response_text,
+                                updated_at = EXCLUDED.updated_at;
+                        """, (initial_outreach, datetime.utcnow(), user_id))
+                    else:
+                        # Owner: save global
+                        cur.execute("""
+                            INSERT INTO markov_responses (state_key, response_text, updated_at, user_id)
+                            VALUES ('__initial_outreach__', %s, %s, NULL)
+                            ON CONFLICT (state_key) WHERE user_id IS NULL
+                            DO UPDATE SET
+                                response_text = EXCLUDED.response_text,
+                                updated_at = EXCLUDED.updated_at;
+                        """, (initial_outreach, datetime.utcnow()))
                     logger.info("✅ Saved initial_outreach")
                     saved_count += 1
                 except Exception as e:
@@ -2324,19 +2401,42 @@ def classify_intent_simple(text: str) -> Dict[str, Any]:
     return {}
 
 
-def get_markov_response(conn: Any, state_key: str) -> Optional[str]:
-    """Get configured response text for a Markov state, or None if not configured."""
+def get_markov_response(conn: Any, state_key: str, user_id: Optional[str] = None) -> Optional[str]:
+    """
+    Get configured response text for a Markov state, or None if not configured.
+    
+    Args:
+        conn: Database connection
+        state_key: The Markov state key
+        user_id: Optional user ID for rep-scoped responses. If None, returns global response.
+                 If provided, tries rep-specific first, then falls back to global.
+    
+    Returns:
+        Response text or None
+    """
     with conn.cursor() as cur:
+        if user_id:
+            # Try rep-specific first
+            cur.execute("""
+                SELECT response_text FROM markov_responses 
+                WHERE state_key = %s AND user_id = %s
+            """, (state_key, user_id))
+            row = cur.fetchone()
+            if row:
+                return row[0]
+        
+        # Fallback to global (user_id IS NULL)
         cur.execute("""
-            SELECT response_text FROM markov_responses WHERE state_key = %s
+            SELECT response_text FROM markov_responses 
+            WHERE state_key = %s AND user_id IS NULL
         """, (state_key,))
         row = cur.fetchone()
         return row[0] if row else None
 
 
-def get_initial_outreach_message(conn: Any) -> Optional[str]:
+def get_initial_outreach_message(conn: Any, user_id: Optional[str] = None) -> Optional[str]:
     """Get configured initial outreach message, or None if not configured."""
-    return get_markov_response(conn, "__initial_outreach__")
+    return get_markov_response(conn, "__initial_outreach__", user_id)
 
 
 # ============================================================================
