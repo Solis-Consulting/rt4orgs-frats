@@ -580,9 +580,12 @@ def run_blast_for_cards(
                 {
                     "card_id": card_id,
                     "phone": phone,
-                    "status": "sent",
+                    "status": "sent",  # Our internal status (message was accepted by Twilio)
                     "twilio_sid": sms_result.get("sid"),
-                    "twilio_status": sms_result.get("status"),
+                    "twilio_status": sms_result.get("status"),  # Actual Twilio status (accepted, queued, sent, delivered, failed, etc.)
+                    "twilio_error_code": sms_result.get("error_code"),
+                    "twilio_error_message": sms_result.get("error_message"),
+                    "twilio_date_sent": sms_result.get("date_sent"),
                 }
             )
         except Exception as e:
