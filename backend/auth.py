@@ -27,13 +27,21 @@ def verify_token(token: str, hashed: str) -> bool:
 
 
 def get_user_by_token(conn: Any, token: str) -> Optional[Dict[str, Any]]:
-    """Lookup user by API token. Returns user dict or None."""
+    """
+    Lookup user by API token. Returns user dict or None.
+    
+    Token matching strategy:
+    - Owner/Admin tokens: Hashed and stored in api_token column
+    - Rep tokens: Stored in plaintext in api_token_plaintext column
+    - We check both to support both token types
+    """
     if not token:
         return None
     
     hashed_token = hash_token(token)
     
     with conn.cursor() as cur:
+        # First, try to match against hashed token (for owner/admin)
         cur.execute("""
             SELECT id, username, role, twilio_phone_number, twilio_account_sid, 
                    twilio_auth_token, created_at, updated_at, is_active
@@ -42,20 +50,57 @@ def get_user_by_token(conn: Any, token: str) -> Optional[Dict[str, Any]]:
         """, (hashed_token,))
         
         row = cur.fetchone()
-        if not row:
-            return None
+        if row:
+            return {
+                "id": row[0],
+                "username": row[1],
+                "role": row[2],
+                "twilio_phone_number": row[3],
+                "twilio_account_sid": row[4],
+                "twilio_auth_token": row[5],
+                "created_at": row[6],
+                "updated_at": row[7],
+                "is_active": row[8],
+            }
         
-        return {
-            "id": row[0],
-            "username": row[1],
-            "role": row[2],
-            "twilio_phone_number": row[3],
-            "twilio_account_sid": row[4],
-            "twilio_auth_token": row[5],
-            "created_at": row[6],
-            "updated_at": row[7],
-            "is_active": row[8],
-        }
+        # If no match on hashed token, try plaintext token (for reps)
+        # Check if api_token_plaintext column exists first
+        try:
+            cur.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                AND table_name = 'users'
+                AND column_name = 'api_token_plaintext'
+            """)
+            column_exists = cur.fetchone() is not None
+        except Exception:
+            column_exists = False
+        
+        if column_exists:
+            cur.execute("""
+                SELECT id, username, role, twilio_phone_number, twilio_account_sid, 
+                       twilio_auth_token, created_at, updated_at, is_active
+                FROM users
+                WHERE api_token_plaintext = %s AND is_active = TRUE
+            """, (token,))
+            
+            row = cur.fetchone()
+            if row:
+                return {
+                    "id": row[0],
+                    "username": row[1],
+                    "role": row[2],
+                    "twilio_phone_number": row[3],
+                    "twilio_account_sid": row[4],
+                    "twilio_auth_token": row[5],
+                    "created_at": row[6],
+                    "updated_at": row[7],
+                    "is_active": row[8],
+                }
+        
+        # No match found
+        return None
 
 
 def is_owner(conn: Any, token: str) -> bool:
