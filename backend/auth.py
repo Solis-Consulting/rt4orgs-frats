@@ -97,25 +97,28 @@ def create_user(
         user_id = username.lower().replace(" ", "_").replace("-", "_")
     
     # API Token Strategy:
-    # - All users (admin and reps): Always generate random token
-    # - No longer using Twilio Account SID as API token
+    # - Owner (admin): Hashed token only (secure, never stored in plaintext)
+    # - Reps: Both hashed (for auth) and plaintext (for display in admin UI)
     # - All messaging goes through system Messaging Service
     plaintext_token = generate_api_token()
-    
     hashed_token = hash_token(plaintext_token)
+    
+    # Store plaintext token only for reps (not for owner/admin)
+    api_token_plaintext = plaintext_token if role == "rep" else None
     
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO users (
-                id, username, api_token, role, twilio_phone_number,
+                id, username, api_token, api_token_plaintext, role, twilio_phone_number,
                 twilio_account_sid, twilio_auth_token
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id, username, role, created_at
         """, (
             user_id,
             username,
             hashed_token,
+            api_token_plaintext,  # Plaintext for reps, NULL for owner
             role,
             twilio_phone,
             twilio_account_sid,
@@ -129,7 +132,7 @@ def create_user(
             "username": row[1],
             "role": row[2],
             "created_at": row[3],
-            "api_token": plaintext_token,  # Only returned on creation
+            "api_token": plaintext_token,  # Always returned on creation
         }
 
 
@@ -200,9 +203,10 @@ def get_user(conn: Any, user_id: str) -> Optional[Dict[str, Any]]:
 
 
 def list_users(conn: Any, include_inactive: bool = False) -> list[Dict[str, Any]]:
-    """List all users."""
+    """List all users. Returns plaintext tokens for reps, but not for owner/admin."""
     query = """
-        SELECT id, username, role, twilio_phone_number, twilio_account_sid, created_at, updated_at, is_active
+        SELECT id, username, role, twilio_phone_number, twilio_account_sid, 
+               created_at, updated_at, is_active, api_token_plaintext
         FROM users
     """
     params = []
@@ -226,6 +230,7 @@ def list_users(conn: Any, include_inactive: bool = False) -> list[Dict[str, Any]
                 "created_at": row[5],
                 "updated_at": row[6],
                 "is_active": row[7],
+                "api_token": row[8],  # Plaintext token for reps, NULL for owner
             })
         
         return users
@@ -266,16 +271,28 @@ def regenerate_api_token(conn: Any, user_id: str) -> Optional[str]:
     """
     Regenerate API token for a user.
     Returns the new plaintext token (only shown once).
+    
+    For reps: Stores both hashed and plaintext tokens.
+    For owner: Stores only hashed token (plaintext never stored).
     """
+    # First get the user's role to determine if we should store plaintext
+    user = get_user(conn, user_id)
+    if not user:
+        return None
+    
+    role = user.get("role")
     plaintext_token = generate_api_token()
     hashed_token = hash_token(plaintext_token)
+    
+    # Store plaintext token only for reps (not for owner/admin)
+    api_token_plaintext = plaintext_token if role == "rep" else None
     
     with conn.cursor() as cur:
         cur.execute("""
             UPDATE users
-            SET api_token = %s, updated_at = NOW()
+            SET api_token = %s, api_token_plaintext = %s, updated_at = NOW()
             WHERE id = %s
-        """, (hashed_token, user_id))
+        """, (hashed_token, api_token_plaintext, user_id))
         
         if cur.rowcount > 0:
             return plaintext_token

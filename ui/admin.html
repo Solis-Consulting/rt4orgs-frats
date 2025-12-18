@@ -270,7 +270,11 @@
         html += `<td>${user.username}</td>`;
         html += `<td style="font-family: monospace; font-size: 11px; word-break: break-all;">${user.id || '-'}</td>`;
         html += `<td><span class='badge ${user.role === 'admin' ? 'amber' : 'gray'}'>${user.role === 'admin' ? 'Owner' : 'Rep'}</span></td>`;
-        html += `<td style="font-family: monospace; font-size: 10px; color: #9ca3af;">${user.api_token ? (user.api_token.substring(0, 20) + '...') : 'N/A (hashed)'}</td>`;
+        // Show plaintext token for reps, "N/A (hashed)" for owner/admin
+        const tokenDisplay = user.role === 'admin' 
+          ? 'N/A (hashed)' 
+          : (user.api_token ? user.api_token : 'N/A (hashed)');
+        html += `<td style="font-family: monospace; font-size: 10px; color: ${user.role === 'admin' ? '#9ca3af' : '#38bdf8'}; word-break: break-all;">${tokenDisplay}</td>`;
         html += `<td>${user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}</td>`;
         html += `<td style="display: flex; gap: 8px; align-items: center;">`;
         html += `<a class='link' href='#' onclick='regenerateUserToken("${user.id}", "${user.username.replace(/'/g, "\\'")}"); return false;'>Regenerate Token</a>`;
