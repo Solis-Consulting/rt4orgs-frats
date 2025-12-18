@@ -2932,6 +2932,15 @@ async def rep_get_cards(
     - card_assignments.card_id -> cards.id
     - card_assignments.user_id -> users.id
     """
+    # Authenticate user manually
+    try:
+        current_user = await get_current_owner_or_rep(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[REP_CARDS] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
     conn = get_conn()
     
     user_role = current_user.get("role")
