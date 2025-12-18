@@ -220,6 +220,13 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, accoun
     sid_to_use = account_sid if account_sid else TWILIO_ACCOUNT_SID
     if account_sid:
         sid_source = "PROVIDED"
+        # Validate Account SID format (must start with AC)
+        if not account_sid.startswith('AC'):
+            print(f"[SEND_SMS] ❌ ERROR: Invalid Account SID format: {account_sid[:20]}...")
+            print(f"[SEND_SMS] Account SIDs must start with 'AC', but got '{account_sid[:2]}'")
+            print(f"[SEND_SMS] This looks like a Phone Number SID (PN) or other SID type.")
+            print(f"[SEND_SMS] Please use the Account SID (starts with AC) for authentication.")
+            raise ValueError(f"Invalid Account SID format: Account SIDs must start with 'AC', but got '{account_sid[:2]}...' (this looks like a {account_sid[:2]} SID, not an Account SID)")
         print(f"[SEND_SMS] ✅ Using PROVIDED Account SID: {account_sid[:10]}... (length: {len(account_sid)})")
     else:
         sid_source = "ENV_VAR"
@@ -227,6 +234,11 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, accoun
             print(f"[SEND_SMS] ❌ ERROR: No account SID provided and TWILIO_ACCOUNT_SID not set")
             raise ValueError("Twilio account SID not provided and TWILIO_ACCOUNT_SID not set")
         else:
+            # Validate env var Account SID format
+            if not TWILIO_ACCOUNT_SID.startswith('AC'):
+                print(f"[SEND_SMS] ❌ ERROR: Invalid Account SID in environment variable: {TWILIO_ACCOUNT_SID[:20]}...")
+                print(f"[SEND_SMS] Account SIDs must start with 'AC'")
+                raise ValueError(f"Invalid Account SID in environment: must start with 'AC'")
             print(f"[SEND_SMS] ⚠️ Using environment variable TWILIO_ACCOUNT_SID")
     
     # Log which account and token are being used

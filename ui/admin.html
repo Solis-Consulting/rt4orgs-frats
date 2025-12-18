@@ -755,7 +755,10 @@
         return; // User cancelled
       }
 
-      const accountSid = prompt('Enter Twilio Account SID (optional):', user.twilio_account_sid || '');
+      const accountSid = prompt('Enter Twilio Account SID (must start with AC, optional):', user.twilio_account_sid || '');
+      if (accountSid && accountSid.trim() && !accountSid.trim().startsWith('AC')) {
+        alert('⚠️ Warning: Account SID should start with "AC".\n\nYou entered: ' + accountSid.trim().substring(0, 20) + '...\n\nIf this is a Phone Number SID (starts with PN), please use the Account SID instead (starts with AC).');
+      }
       const authToken = prompt('Enter Twilio Auth Token (optional, leave empty to keep current):', '');
 
       const updatePayload = {

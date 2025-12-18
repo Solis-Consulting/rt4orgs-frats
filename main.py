@@ -2757,7 +2757,19 @@ async def rep_blast(
             if rep_user:
                 rep_account_sid = rep_user.get("twilio_account_sid")
                 rep_auth_token = rep_user.get("twilio_auth_token")
-                logger.info(f"[BLAST] Rep {rep_user_id} Twilio credentials: account_sid={'SET' if rep_account_sid else 'NOT SET'}, auth_token={'SET' if rep_auth_token else 'NOT SET'}")
+                
+                # Validate Account SID format
+                if rep_account_sid and not rep_account_sid.startswith('AC'):
+                    logger.error(f"[BLAST] ❌ Rep {rep_user_id} has invalid Account SID: {rep_account_sid[:20]}...")
+                    logger.error(f"[BLAST] Account SIDs must start with 'AC', but got '{rep_account_sid[:2]}'")
+                    logger.error(f"[BLAST] This looks like a Phone Number SID (PN) or other SID type.")
+                    logger.error(f"[BLAST] Please update the rep's Twilio Account SID in the admin dashboard.")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid Account SID for rep {rep_user_id}: Account SIDs must start with 'AC', but got '{rep_account_sid[:2]}...' (this looks like a {rep_account_sid[:2]} SID, not an Account SID). Please update the rep's Twilio Account SID in the admin dashboard."
+                    )
+                
+                logger.info(f"[BLAST] Rep {rep_user_id} Twilio credentials: account_sid={'SET (' + rep_account_sid[:10] + '...)' if rep_account_sid else 'NOT SET'}, auth_token={'SET' if rep_auth_token else 'NOT SET'}")
             else:
                 logger.warning(f"[BLAST] Rep {rep_user_id} not found in database")
         
