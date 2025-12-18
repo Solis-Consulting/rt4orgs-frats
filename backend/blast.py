@@ -592,6 +592,9 @@ def run_blast_for_cards(
                 routing_mode = 'rep' if rep_user_id else 'ai'
                 
                 # Insert or update conversation with history
+                # CRITICAL: Conflict resolution - if multiple reps message the same contact,
+                # we use the LAST rep to message (most recent last_outbound_at).
+                # This ensures the conversation uses the most recent rep's Markov responses.
                 # Note: rep_phone_number column kept for backward compatibility but not used
                 try:
                     cur.execute(
@@ -608,6 +611,7 @@ def run_blast_for_cards(
                           card_id = COALESCE(EXCLUDED.card_id, conversations.card_id),
                           history = EXCLUDED.history,
                           routing_mode = EXCLUDED.routing_mode,
+                          -- Use the new rep_user_id (last one to message wins)
                           rep_user_id = EXCLUDED.rep_user_id;
                         """,
                         (

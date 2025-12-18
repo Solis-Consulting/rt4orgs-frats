@@ -852,7 +852,10 @@ async def twilio_inbound(request: Request):
         normalized_phone = normalize_phone(From)
         print(f"[TWILIO_INBOUND] Normalized phone: {normalized_phone}")
         
-        # Get conversation to check routing mode
+        # Get conversation to check routing mode and identify which rep owns this conversation
+        # CRITICAL: Each rep has their own Markov handler (response text), but NLP logic is shared.
+        # The rep_user_id determines which rep's configured responses to use.
+        # If multiple reps messaged the same contact, rep_user_id reflects the LAST rep to message.
         conn = get_conn()
         routing_mode = 'ai'  # Default to AI
         rep_user_id = None
@@ -866,6 +869,10 @@ async def twilio_inbound(request: Request):
                 rep_user_id = row[1]
         
         print(f"[TWILIO_INBOUND] Routing mode: {routing_mode}, Rep user ID: {rep_user_id}")
+        if rep_user_id:
+            print(f"[TWILIO_INBOUND] Using rep-specific Markov responses for user_id: {rep_user_id}")
+        else:
+            print(f"[TWILIO_INBOUND] Using global Markov responses (no rep assigned)")
         
         # Store inbound message in history regardless of routing mode
         from backend.rep_messaging import add_message_to_history
@@ -915,7 +922,11 @@ async def twilio_inbound(request: Request):
             
             print(f"[TWILIO_INBOUND] State transition: {previous_state} → {next_state}")
             
-            # Try to get configured response for this state (rep-specific if available)
+            # CRITICAL: Get rep-specific Markov response text
+            # - NLP logic (state transitions) is SHARED across all reps (same conversation tree)
+            # - Response TEXT is REP-SPECIFIC (each rep can customize their pitch/responses)
+            # - If rep_user_id is set, uses that rep's responses; otherwise uses global responses
+            # - If multiple reps messaged, rep_user_id reflects the LAST rep to message (conflict resolution)
             configured_response = get_markov_response(conn, next_state, rep_user_id)
             
             if configured_response:
