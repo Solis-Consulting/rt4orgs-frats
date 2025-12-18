@@ -1343,17 +1343,26 @@ async def admin_migrate():
 @app.post("/cards/upload")
 async def upload_cards(
     cards: List[Dict[str, Any]],
-    current_user: Dict = Depends(get_current_owner_or_rep)
+    request: Request
 ):
     """
     Upload array of heterogeneous JSON card objects.
     Validates schema, normalizes IDs, resolves references, and stores cards.
     Requires owner or rep authentication.
     """
+    # Authenticate user
+    try:
+        current_user = await get_current_owner_or_rep(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[UPLOAD] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
     print("=" * 60)
     print("UPLOAD HIT")
     print("=" * 60)
-    print(f"📤 Upload request: {len(cards)} card(s)")
+    print(f"📤 Upload request: {len(cards)} card(s)}")
     
     try:
         conn = get_conn()
