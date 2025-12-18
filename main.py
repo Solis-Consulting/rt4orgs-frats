@@ -2648,42 +2648,97 @@ def get_markov_response(conn: Any, state_key: str, user_id: Optional[str] = None
     Returns:
         Response text or None
     """
-    print(f"[GET_MARKOV_RESPONSE] 🔍 Looking up state='{state_key}', user_id={user_id}")
+    print("=" * 80, flush=True)
+    print(f"[GET_MARKOV_RESPONSE] 🔍 STARTING RESPONSE LOOKUP", flush=True)
+    print("=" * 80, flush=True)
+    print(f"[GET_MARKOV_RESPONSE]   state_key: '{state_key}'", flush=True)
+    print(f"[GET_MARKOV_RESPONSE]   user_id: {user_id}", flush=True)
+    print(f"[GET_MARKOV_RESPONSE]   user_id type: {type(user_id)}", flush=True)
     
     with conn.cursor() as cur:
         if user_id:
             # Try rep-specific first
+            print(f"[GET_MARKOV_RESPONSE] 🔎 Querying rep-specific response...", flush=True)
+            print(f"[GET_MARKOV_RESPONSE]   SQL: SELECT response_text FROM markov_responses WHERE state_key = '{state_key}' AND user_id = '{user_id}'", flush=True)
             cur.execute("""
                 SELECT response_text FROM markov_responses
                 WHERE state_key = %s AND user_id = %s
             """, (state_key, user_id))
             row = cur.fetchone()
+            print(f"[GET_MARKOV_RESPONSE]   Query returned: {row}", flush=True)
             if row and row[0]:
                 response_text = row[0].strip()
+                print(f"[GET_MARKOV_RESPONSE]   Raw response_text: '{response_text}'", flush=True)
+                print(f"[GET_MARKOV_RESPONSE]   Response_text length: {len(response_text)}", flush=True)
                 if response_text:  # Make sure it's not empty
-                    print(f"[GET_MARKOV_RESPONSE] ✅ Found rep-specific response for state='{state_key}', user_id='{user_id}' (length: {len(response_text)})")
+                    print("=" * 80, flush=True)
+                    print(f"[GET_MARKOV_RESPONSE] ✅✅✅ FOUND REP-SPECIFIC RESPONSE ✅✅✅", flush=True)
+                    print("=" * 80, flush=True)
+                    print(f"[GET_MARKOV_RESPONSE]   state_key: '{state_key}'", flush=True)
+                    print(f"[GET_MARKOV_RESPONSE]   user_id: '{user_id}'", flush=True)
+                    print(f"[GET_MARKOV_RESPONSE]   response_text: '{response_text}'", flush=True)
+                    print(f"[GET_MARKOV_RESPONSE]   length: {len(response_text)} chars", flush=True)
+                    print("=" * 80, flush=True)
                     return response_text
                 else:
-                    print(f"[GET_MARKOV_RESPONSE] ⚠️ Rep-specific response exists but is empty for state='{state_key}', user_id='{user_id}', falling back to global")
+                    print(f"[GET_MARKOV_RESPONSE] ⚠️ Rep-specific response exists but is empty, falling back to global", flush=True)
             else:
-                print(f"[GET_MARKOV_RESPONSE] ⚠️ No rep-specific response found for state='{state_key}', user_id='{user_id}', falling back to global")
+                print(f"[GET_MARKOV_RESPONSE] ⚠️ No rep-specific response found, falling back to global", flush=True)
+                # Debug: Check what responses exist for this user
+                cur.execute("""
+                    SELECT state_key, response_text FROM markov_responses
+                    WHERE user_id = %s
+                    ORDER BY state_key
+                """, (user_id,))
+                all_rep_responses = cur.fetchall()
+                print(f"[GET_MARKOV_RESPONSE]   Debug: All rep responses for user_id='{user_id}': {len(all_rep_responses)} total", flush=True)
+                for resp_row in all_rep_responses[:5]:  # Show first 5
+                    print(f"[GET_MARKOV_RESPONSE]     - {resp_row[0]}: '{resp_row[1][:50] if resp_row[1] else 'EMPTY'}...'", flush=True)
         
         # Fallback to global (user_id IS NULL) - owner's defaults
+        print(f"[GET_MARKOV_RESPONSE] 🔎 Querying global (owner) response...", flush=True)
+        print(f"[GET_MARKOV_RESPONSE]   SQL: SELECT response_text FROM markov_responses WHERE state_key = '{state_key}' AND user_id IS NULL", flush=True)
         cur.execute("""
             SELECT response_text FROM markov_responses
             WHERE state_key = %s AND user_id IS NULL
         """, (state_key,))
         row = cur.fetchone()
+        print(f"[GET_MARKOV_RESPONSE]   Query returned: {row}", flush=True)
         if row and row[0]:
             response_text = row[0].strip()
+            print(f"[GET_MARKOV_RESPONSE]   Raw response_text: '{response_text}'", flush=True)
+            print(f"[GET_MARKOV_RESPONSE]   Response_text length: {len(response_text)}", flush=True)
             if response_text:  # Make sure it's not empty
-                print(f"[GET_MARKOV_RESPONSE] ✅ Found global (owner) response for state='{state_key}' (length: {len(response_text)})")
+                print("=" * 80, flush=True)
+                print(f"[GET_MARKOV_RESPONSE] ✅✅✅ FOUND GLOBAL (OWNER) RESPONSE ✅✅✅", flush=True)
+                print("=" * 80, flush=True)
+                print(f"[GET_MARKOV_RESPONSE]   state_key: '{state_key}'", flush=True)
+                print(f"[GET_MARKOV_RESPONSE]   response_text: '{response_text}'", flush=True)
+                print(f"[GET_MARKOV_RESPONSE]   length: {len(response_text)} chars", flush=True)
+                print("=" * 80, flush=True)
                 return response_text
             else:
-                print(f"[GET_MARKOV_RESPONSE] ⚠️ Global response exists but is empty for state='{state_key}'")
+                print(f"[GET_MARKOV_RESPONSE] ⚠️ Global response exists but is empty", flush=True)
         else:
-            print(f"[GET_MARKOV_RESPONSE] ❌ No response found (neither rep-specific nor global) for state='{state_key}'")
+            print(f"[GET_MARKOV_RESPONSE] ❌ No global response found either", flush=True)
+            # Debug: Check what global responses exist
+            cur.execute("""
+                SELECT state_key, response_text FROM markov_responses
+                WHERE user_id IS NULL
+                ORDER BY state_key
+            """)
+            all_global_responses = cur.fetchall()
+            print(f"[GET_MARKOV_RESPONSE]   Debug: All global responses: {len(all_global_responses)} total", flush=True)
+            for resp_row in all_global_responses[:5]:  # Show first 5
+                print(f"[GET_MARKOV_RESPONSE]     - {resp_row[0]}: '{resp_row[1][:50] if resp_row[1] else 'EMPTY'}...'", flush=True)
         
+        print("=" * 80, flush=True)
+        print(f"[GET_MARKOV_RESPONSE] ❌❌❌ NO RESPONSE FOUND ❌❌❌", flush=True)
+        print("=" * 80, flush=True)
+        print(f"[GET_MARKOV_RESPONSE]   state_key: '{state_key}'", flush=True)
+        print(f"[GET_MARKOV_RESPONSE]   user_id: {user_id}", flush=True)
+        print(f"[GET_MARKOV_RESPONSE]   Result: None", flush=True)
+        print("=" * 80, flush=True)
         return None
 
 
