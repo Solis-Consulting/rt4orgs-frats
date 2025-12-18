@@ -2360,47 +2360,6 @@ async def get_current_owner_or_rep(request: Request) -> Dict[str, Any]:
 
 
 # ============================================================================
-# Owner Key Setup (one-time initialization)
-# ============================================================================
-
-@app.post("/admin/setup/owner-key")
-async def setup_owner_key():
-    """
-    One-time endpoint to create the owner API key.
-    Only works if no owner exists yet.
-    """
-    conn = get_conn()
-    
-    # Check if owner already exists
-    with conn.cursor() as cur:
-        cur.execute("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
-        if cur.fetchone():
-            raise HTTPException(status_code=400, detail="Owner key already exists. Use existing owner key to create more users.")
-    
-    # Create owner user
-    try:
-        user = create_user(
-            conn=conn,
-            username="Owner",
-            role="admin",
-            twilio_phone=None,
-            user_id="owner"
-        )
-        return {
-            "ok": True,
-            "message": "Owner API key created successfully",
-            "user": {
-                "id": user["id"],
-                "username": user["username"],
-                "role": user["role"],
-                "api_token": user["api_token"]  # Only shown on creation
-            }
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create owner key: {str(e)}")
-
-
-# ============================================================================
 # Admin Endpoints
 # ============================================================================
 

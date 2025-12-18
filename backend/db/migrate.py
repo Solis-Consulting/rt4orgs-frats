@@ -340,6 +340,44 @@ def run_migration() -> Tuple[bool, Optional[str]]:
         print(f"📊 Users table exists: {users_exists_after}")
         print(f"📊 Card assignments table exists: {card_assignments_exists}")
         
+        # Create owner key if no owner exists
+        if users_exists_after:
+            try:
+                from backend.auth import create_user, get_user_by_token
+                with conn.cursor() as cur:
+                    cur.execute("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
+                    owner_exists = cur.fetchone() is not None
+                
+                if not owner_exists:
+                    print("🔑 Creating owner API key...")
+                    owner = create_user(
+                        conn=conn,
+                        username="Owner",
+                        role="admin",
+                        twilio_phone=None,
+                        user_id="owner"
+                    )
+                    print("=" * 70)
+                    print("✅ OWNER API KEY CREATED!")
+                    print("=" * 70)
+                    print(f"\n🔑 YOUR OWNER API TOKEN (save this - it won't be shown again):")
+                    print("=" * 70)
+                    print(owner['api_token'])
+                    print("=" * 70)
+                    print("\n📝 Use this token to:")
+                    print("   - Log in at: /ui/login.html")
+                    print("   - Access admin UI: /ui/admin.html")
+                    print("   - Manage phone pairing and blasts")
+                    print("   - Create rep users")
+                    print("\n💡 This is your master key - it has full access to everything!")
+                    print("=" * 70 + "\n")
+                else:
+                    print("✅ Owner key already exists")
+            except Exception as e:
+                print(f"⚠️  Failed to create owner key: {e}")
+                import traceback
+                traceback.print_exc()
+        
         conn.close()
         
         # Check if all critical tables exist
