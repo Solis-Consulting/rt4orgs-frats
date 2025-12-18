@@ -180,7 +180,7 @@ def send_sms(to_number: str, body: str) -> Dict[str, Any]:
     # ALWAYS use environment variables - no parameters
     token_to_use = os.getenv("TWILIO_AUTH_TOKEN")
     sid_to_use = os.getenv("TWILIO_ACCOUNT_SID")
-    messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
+    phone_number = os.getenv("TWILIO_PHONE_NUMBER")  # Send directly from phone number (not Messaging Service)
     
     # Validate immediately - fail fast with clear errors
     if not token_to_use:
@@ -193,8 +193,8 @@ def send_sms(to_number: str, body: str) -> Dict[str, Any]:
         print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
         raise ValueError(error_msg)
     
-    if not messaging_service_sid:
-        error_msg = "TWILIO_MESSAGING_SERVICE_SID not set in environment variables"
+    if not phone_number:
+        error_msg = "TWILIO_PHONE_NUMBER not set in environment variables"
         print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
         raise ValueError(error_msg)
     
@@ -213,23 +213,20 @@ def send_sms(to_number: str, body: str) -> Dict[str, Any]:
     print(f"[SEND_SMS] ✅ Using system Twilio credentials from environment variables", flush=True)
     print(f"[SEND_SMS] Account SID: {sid_to_use[:10]}...{sid_to_use[-4:]} (length: {len(sid_to_use)})", flush=True)
     print(f"[SEND_SMS] Auth Token: {token_to_use[:10]}...{token_to_use[-4:]} (length: {len(token_to_use)})", flush=True)
-    print(f"[SEND_SMS] Messaging Service SID: {messaging_service_sid}", flush=True)
-    print(f"[SEND_SMS] System phone: (919) 443-6288 (configured in Messaging Service)", flush=True)
-    print(f"[SEND_SMS] Note: All messages use Messaging Service for traceability and A2P compliance", flush=True)
+    print(f"[SEND_SMS] Phone Number: {phone_number}", flush=True)
+    print(f"[SEND_SMS] Note: Sending directly from phone number (not Messaging Service) to avoid filtering", flush=True)
     
     try:
         print(f"[SEND_SMS] Creating Twilio Client with Account SID: {sid_to_use[:10]}... and Token: {token_to_use[:15]}...", flush=True)
         client = Client(sid_to_use, token_to_use)
         print(f"[SEND_SMS] ✅ Twilio Client created")
         
-        # Prepare message parameters
+        # Prepare message parameters - send directly from phone number
         message_params = {
+            "from_": phone_number,  # CRITICAL: Use from_ parameter, not Messaging Service
             "to": to_number,
             "body": body
         }
-        
-        # Use Messaging Service only - no from_ parameter
-        message_params["messaging_service_sid"] = messaging_service_sid
         
         # ENHANCED LOGGING: Log all parameters being sent to Twilio
         print("=" * 80, flush=True)
@@ -237,15 +234,14 @@ def send_sms(to_number: str, body: str) -> Dict[str, Any]:
         print("=" * 80, flush=True)
         print(f"[SEND_SMS] Account SID: {sid_to_use[:10]}...{sid_to_use[-4:]} (length: {len(sid_to_use)})", flush=True)
         print(f"[SEND_SMS] Auth Token: {token_to_use[:10]}...{token_to_use[-4:]} (length: {len(token_to_use)})", flush=True)
-        print(f"[SEND_SMS] Messaging Service SID: {messaging_service_sid}", flush=True)
-        print(f"[SEND_SMS] System phone: (919) 443-6288 (configured in Messaging Service)", flush=True)
+        print(f"[SEND_SMS] Phone Number: {phone_number}", flush=True)
         print("=" * 80, flush=True)
         print(f"[SEND_SMS] 📋 EXACT PARAMETERS BEING SENT TO TWILIO:", flush=True)
+        print(f"[SEND_SMS]   from_: {message_params.get('from_')}", flush=True)
         print(f"[SEND_SMS]   to: {message_params.get('to')}", flush=True)
-        print(f"[SEND_SMS]   messaging_service_sid: {message_params.get('messaging_service_sid')}", flush=True)
         print(f"[SEND_SMS]   body: {message_params.get('body', '')[:100]}{'...' if len(message_params.get('body', '')) > 100 else ''}", flush=True)
         print(f"[SEND_SMS]   body length: {len(message_params.get('body', ''))} chars", flush=True)
-        print(f"[SEND_SMS]   from_ parameter: NOT SET (using Messaging Service only)", flush=True)
+        print(f"[SEND_SMS]   messaging_service_sid: NOT SET (using direct phone number)", flush=True)
         print("=" * 80, flush=True)
         
         # Make the API call

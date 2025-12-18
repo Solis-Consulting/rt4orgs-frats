@@ -73,11 +73,10 @@ def send_rep_message(
         client = Client(account_sid, auth_token)
         print(f"[REP_MESSAGE] ✅ Twilio Client created")
         
-        # Always use Messaging Service for traceability and A2P compliance
-        # All messages sent from single system phone number via Messaging Service
-        messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
-        if not messaging_service_sid:
-            error_msg = "TWILIO_MESSAGING_SERVICE_SID must be set in environment variables"
+        # Send directly from phone number (not Messaging Service) to avoid filtering
+        phone_number = os.getenv("TWILIO_PHONE_NUMBER")
+        if not phone_number:
+            error_msg = "TWILIO_PHONE_NUMBER must be set in environment variables"
             print(f"[REP_MESSAGE] ❌ {error_msg}")
             raise ValueError(error_msg)
         
@@ -87,23 +86,22 @@ def send_rep_message(
         print("=" * 80)
         print(f"[REP_MESSAGE] Account SID: {account_sid[:10]}...{account_sid[-4:] if len(account_sid) > 14 else account_sid} (full length: {len(account_sid)})")
         print(f"[REP_MESSAGE] Auth Token: {auth_token[:10]}...{auth_token[-4:] if len(auth_token) > 14 else auth_token} (full length: {len(auth_token)})")
-        print(f"[REP_MESSAGE] Messaging Service SID: {messaging_service_sid}")
-        print(f"[REP_MESSAGE] Messaging Service SID Length: {len(messaging_service_sid)}")
-        print(f"[REP_MESSAGE] Using System Phone Number (via Messaging Service)")
+        print(f"[REP_MESSAGE] Phone Number: {phone_number}")
+        print(f"[REP_MESSAGE] Sending directly from phone number (not Messaging Service) to avoid filtering")
         print(f"[REP_MESSAGE] Rep isolation maintained via card_assignments table")
         print("=" * 80)
         print(f"[REP_MESSAGE] 📋 EXACT PARAMETERS BEING SENT TO TWILIO:")
+        print(f"[REP_MESSAGE]   from_: {phone_number}")
         print(f"[REP_MESSAGE]   to: {phone}")
-        print(f"[REP_MESSAGE]   messaging_service_sid: {messaging_service_sid}")
         print(f"[REP_MESSAGE]   body: {message[:100]}{'...' if len(message) > 100 else ''}")
         print(f"[REP_MESSAGE]   body length: {len(message)} chars")
-        print(f"[REP_MESSAGE]   from_ parameter: NOT SET (using Messaging Service only)")
+        print(f"[REP_MESSAGE]   messaging_service_sid: NOT SET (using direct phone number)")
         print("=" * 80)
         
-        # Use only messaging_service_sid - Messaging Service handles sender selection
+        # Send directly from phone number using from_ parameter
         message_params = {
+            "from_": phone_number,
             "to": phone,
-            "messaging_service_sid": messaging_service_sid,
             "body": message
         }
         
