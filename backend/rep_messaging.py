@@ -96,19 +96,20 @@ def send_rep_message(
         print(f"[REP_MESSAGE]   to: {phone}")
         print(f"[REP_MESSAGE]   messaging_service_sid: {messaging_service_sid}")
         if rep_phone:
-            print(f"[REP_MESSAGE]   from: {rep_phone}")
+            print(f"[REP_MESSAGE]   from_: {rep_phone}")
         print(f"[REP_MESSAGE]   body length: {len(message)}")
         print(f"[REP_MESSAGE] All messages are traceable through Messaging Service logs")
         
-        # Use both messaging_service_sid AND from for deterministic rep identity
+        # Use both messaging_service_sid AND from_ for deterministic rep identity
         # This is the maximum-power configuration Twilio allows
+        # Note: Twilio uses 'from_' (not 'from') because 'from' is a Python keyword
         message_params = {
             "to": phone,
             "messaging_service_sid": messaging_service_sid,
             "body": message
         }
         if rep_phone:
-            message_params["from"] = rep_phone
+            message_params["from_"] = rep_phone
         
         msg = client.messages.create(**message_params)
         
