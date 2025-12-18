@@ -246,21 +246,21 @@ def run_blast_for_cards(
         rep_user_id: Optional rep user ID (if blasting from rep account)
         rep_phone_number: Optional rep phone number (if blasting from rep account)
     """
-    # High-level run visibility
-    print(
-        "[BLAST_RUN]",
-        {
-            "card_ids": card_ids,
-            "limit": limit,
-            "owner": owner,
-            "source": source,
-            "auth_token_provided": bool(auth_token),
-            "account_sid_provided": bool(account_sid),
-            "rep_user_id": rep_user_id,
-            "rep_phone_number": rep_phone_number,
-        },
-        flush=True,
-    )
+    # High-level run visibility with detailed logging
+    print("=" * 80, flush=True)
+    print(f"[BLAST_RUN] 🚀 STARTING BLAST", flush=True)
+    print("=" * 80, flush=True)
+    print(f"[BLAST_RUN] Card IDs: {card_ids}", flush=True)
+    print(f"[BLAST_RUN] Limit: {limit}", flush=True)
+    print(f"[BLAST_RUN] Owner: {owner}", flush=True)
+    print(f"[BLAST_RUN] Source: {source}", flush=True)
+    print(f"[BLAST_RUN] Auth Token Provided: {bool(auth_token)}", flush=True)
+    print(f"[BLAST_RUN] Account SID Provided: {bool(account_sid)}", flush=True)
+    if account_sid:
+        print(f"[BLAST_RUN] Account SID: {account_sid[:10]}... (length: {len(account_sid)})", flush=True)
+    print(f"[BLAST_RUN] Rep User ID: {rep_user_id}", flush=True)
+    print(f"[BLAST_RUN] Rep Phone Number: {rep_phone_number}", flush=True)
+    print("=" * 80, flush=True)
 
     if not card_ids:
         return {
