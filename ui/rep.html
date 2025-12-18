@@ -405,7 +405,15 @@
             
             if (accepted.length > 0) {
               statusMsg += `⚠️ ${accepted.length} message(s) accepted but not yet sent (status: accepted/queued)\n`;
-              statusMsg += `This may indicate A2P 10DLC registration issues.\n\n`;
+              statusMsg += `\n🔴 A2P 10DLC REGISTRATION REQUIRED\n`;
+              statusMsg += `Your phone number (919) 443-6288 needs A2P 10DLC registration.\n`;
+              statusMsg += `Messages are queued by Twilio until registration is complete.\n\n`;
+              statusMsg += `To fix:\n`;
+              statusMsg += `1. Go to Twilio Console → Phone Numbers → (919) 443-6288\n`;
+              statusMsg += `2. Complete A2P 10DLC registration (Brand + Campaign)\n`;
+              statusMsg += `3. Wait 2-5 business days for approval\n`;
+              statusMsg += `4. Messages will then deliver normally\n\n`;
+              statusMsg += `See A2P_10DLC_FIX.md for detailed instructions.\n\n`;
             }
             if (sent.length > 0) {
               statusMsg += `✅ ${sent.length} message(s) sent\n`;
