@@ -2648,12 +2648,21 @@ def get_markov_response(conn: Any, state_key: str, user_id: Optional[str] = None
     Returns:
         Response text or None
     """
+    # Normalize state_key - ensure it's a string and strip whitespace
+    if not isinstance(state_key, str):
+        state_key = str(state_key)
+    state_key = state_key.strip()
+    
     print("=" * 80, flush=True)
     print(f"[GET_MARKOV_RESPONSE] 🔍 STARTING RESPONSE LOOKUP", flush=True)
     print("=" * 80, flush=True)
-    print(f"[GET_MARKOV_RESPONSE]   state_key: '{state_key}'", flush=True)
+    print(f"[GET_MARKOV_RESPONSE]   state_key (raw): '{state_key}'", flush=True)
+    print(f"[GET_MARKOV_RESPONSE]   state_key (normalized): '{state_key}'", flush=True)
+    print(f"[GET_MARKOV_RESPONSE]   state_key length: {len(state_key)}", flush=True)
     print(f"[GET_MARKOV_RESPONSE]   user_id: {user_id}", flush=True)
     print(f"[GET_MARKOV_RESPONSE]   user_id type: {type(user_id)}", flush=True)
+    if user_id:
+        print(f"[GET_MARKOV_RESPONSE]   user_id (normalized): '{user_id.strip() if isinstance(user_id, str) else user_id}'", flush=True)
     
     with conn.cursor() as cur:
         if user_id:
