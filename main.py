@@ -329,6 +329,17 @@ async def log_requests(request: Request, call_next):
     
     # Log request (don't read body here - it can only be read once)
     has_body = request.method in ("POST", "PUT", "PATCH")
+    
+    # CRITICAL: Enhanced logging for POST requests, especially /rep/blast
+    if request.method == "POST" and "/rep/blast" in str(request.url.path):
+        print("=" * 80, flush=True)
+        print(f"[MIDDLEWARE] 🚨 POST /rep/blast REQUEST DETECTED", flush=True)
+        print("=" * 80, flush=True)
+        print(f"[MIDDLEWARE] Path: {request.url.path}", flush=True)
+        print(f"[MIDDLEWARE] Headers: {dict(request.headers)}", flush=True)
+        print(f"[MIDDLEWARE] Client: {request.client}", flush=True)
+        print("=" * 80, flush=True)
+    
     logger.info(
         f"➡️ {request.method} {request.url.path} "
         f"has_body={'<present>' if has_body else None}"
@@ -337,6 +348,16 @@ async def log_requests(request: Request, call_next):
     try:
         response = await call_next(request)
         duration = round((time.time() - start) * 1000, 2)
+        
+        # CRITICAL: Enhanced logging for POST /rep/blast responses
+        if request.method == "POST" and "/rep/blast" in str(request.url.path):
+            print("=" * 80, flush=True)
+            print(f"[MIDDLEWARE] 🚨 POST /rep/blast RESPONSE", flush=True)
+            print("=" * 80, flush=True)
+            print(f"[MIDDLEWARE] Status: {response.status_code}", flush=True)
+            print(f"[MIDDLEWARE] Duration: {duration}ms", flush=True)
+            print("=" * 80, flush=True)
+        
         logger.info(
             f"⬅️ {request.method} {request.url.path} "
             f"status={response.status_code} "
@@ -345,6 +366,19 @@ async def log_requests(request: Request, call_next):
         return response
     except Exception as e:
         duration = round((time.time() - start) * 1000, 2)
+        
+        # CRITICAL: Enhanced logging for POST /rep/blast exceptions
+        if request.method == "POST" and "/rep/blast" in str(request.url.path):
+            print("=" * 80, flush=True)
+            print(f"[MIDDLEWARE] 🚨 POST /rep/blast EXCEPTION", flush=True)
+            print("=" * 80, flush=True)
+            print(f"[MIDDLEWARE] Error: {str(e)}", flush=True)
+            print(f"[MIDDLEWARE] Error type: {type(e).__name__}", flush=True)
+            import traceback
+            print(f"[MIDDLEWARE] Traceback:", flush=True)
+            traceback.print_exc()
+            print("=" * 80, flush=True)
+        
         logger.error(
             f"❌ {request.method} {request.url.path} "
             f"Exception after {duration}ms: {str(e)}"
@@ -2328,7 +2362,16 @@ async def get_current_admin_user(request: Request) -> Dict[str, Any]:
 
 async def get_current_owner_or_rep(request: Request) -> Dict[str, Any]:
     """FastAPI dependency that allows both owner and rep access."""
-    return await get_current_user(request)
+    print(f"[AUTH_DEPENDENCY] get_current_owner_or_rep called", flush=True)
+    try:
+        user = await get_current_user(request)
+        print(f"[AUTH_DEPENDENCY] ✅ User authenticated: {user.get('id')} (role: {user.get('role')})", flush=True)
+        return user
+    except Exception as e:
+        print(f"[AUTH_DEPENDENCY] ❌ Exception in get_current_owner_or_rep: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        raise
 
 
 @app.post("/blast/run")
@@ -2781,17 +2824,31 @@ async def rep_get_conversations(current_user: Dict = Depends(get_current_owner_o
 
 @app.post("/rep/blast")
 async def rep_blast(
+    request: Request,
     payload: Dict[str, Any] = Body(...),
     current_user: Dict = Depends(get_current_owner_or_rep)
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
-    # CRITICAL: Log immediately when endpoint is hit
-    print("=" * 80, flush=True)
-    print(f"[BLAST_ENDPOINT] 🚀 ENDPOINT CALLED", flush=True)
-    print("=" * 80, flush=True)
-    logger.info("=" * 80)
-    logger.info("[BLAST_ENDPOINT] 🚀 ENDPOINT CALLED")
-    logger.info("=" * 80)
+    # CRITICAL: Wrap entire function in try-catch to catch ANY exception
+    try:
+        # CRITICAL: Log immediately when endpoint is hit - BEFORE anything else
+        import sys
+        sys.stdout.flush()
+        sys.stderr.flush()
+        
+        print("=" * 80, flush=True)
+        print(f"[BLAST_ENDPOINT] 🚀 ENDPOINT CALLED", flush=True)
+        print("=" * 80, flush=True)
+        print(f"[BLAST_ENDPOINT] Request method: {request.method}", flush=True)
+        print(f"[BLAST_ENDPOINT] Request path: {request.url.path}", flush=True)
+        print(f"[BLAST_ENDPOINT] Request headers: {dict(request.headers)}", flush=True)
+        print(f"[BLAST_ENDPOINT] Payload type: {type(payload)}", flush=True)
+        print(f"[BLAST_ENDPOINT] Payload keys: {list(payload.keys()) if isinstance(payload, dict) else 'NOT A DICT'}", flush=True)
+        print(f"[BLAST_ENDPOINT] Payload: {payload}", flush=True)
+        print(f"[BLAST_ENDPOINT] Current user: {current_user}", flush=True)
+        logger.info("=" * 80)
+        logger.info("[BLAST_ENDPOINT] 🚀 ENDPOINT CALLED")
+        logger.info("=" * 80)
     
     # #region agent log - Blast endpoint entry
     try:
@@ -3080,6 +3137,7 @@ async def rep_blast(
         print(f"[BLAST_ENDPOINT] Full traceback:\n{error_trace}", flush=True)
         print("=" * 80, flush=True)
         
+        # This should never be reached because we catch exceptions above
         logger.error(f"[BLAST] ❌ EXCEPTION in rep_blast: {e}")
         logger.error(f"[BLAST] Traceback:\n{error_trace}")
         raise HTTPException(status_code=500, detail=f"Blast failed: {str(e)}")
