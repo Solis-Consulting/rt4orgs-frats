@@ -55,7 +55,6 @@ try:
     from config import (
         TWILIO_ACCOUNT_SID,
         TWILIO_AUTH_TOKEN,
-        TWILIO_PHONE_NUMBER,
         TWILIO_MESSAGING_SERVICE_SID,
     )
 except ImportError:
@@ -63,7 +62,6 @@ except ImportError:
     import os
     TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
     TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-    TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
     TWILIO_MESSAGING_SERVICE_SID = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
 
 BASE_DIR = ARCHIVE_DIR
@@ -272,45 +270,78 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, accoun
         
         # Use Messaging Service only - no from_ parameter
         message_params["messaging_service_sid"] = TWILIO_MESSAGING_SERVICE_SID
-        print(f"[SEND_SMS] Using Messaging Service: {TWILIO_MESSAGING_SERVICE_SID}")
-        print(f"[SEND_SMS] Using System Account SID: {sid_to_use[:10]}... (same for all users)")
+        
+        # ENHANCED LOGGING: Log all parameters being sent to Twilio
+        print("=" * 80)
+        print(f"[SEND_SMS] 📤 PREPARING TWILIO API CALL")
+        print("=" * 80)
+        print(f"[SEND_SMS] Account SID: {sid_to_use[:10]}...{sid_to_use[-4:] if len(sid_to_use) > 14 else sid_to_use} (full length: {len(sid_to_use)})")
+        print(f"[SEND_SMS] Auth Token: {token_to_use[:10]}...{token_to_use[-4:] if len(token_to_use) > 14 else token_to_use} (full length: {len(token_to_use)})")
+        print(f"[SEND_SMS] Messaging Service SID: {TWILIO_MESSAGING_SERVICE_SID}")
+        print(f"[SEND_SMS] Messaging Service SID Length: {len(TWILIO_MESSAGING_SERVICE_SID) if TWILIO_MESSAGING_SERVICE_SID else 0}")
         print(f"[SEND_SMS] Using System Phone Number (via Messaging Service)")
         print(f"[SEND_SMS] Rep isolation maintained via card_assignments table")
-        print(f"[SEND_SMS] All messages are traceable through Messaging Service logs")
-        
-        print(f"[SEND_SMS] Calling client.messages.create() with params:")
+        print("=" * 80)
+        print(f"[SEND_SMS] 📋 EXACT PARAMETERS BEING SENT TO TWILIO:")
         print(f"[SEND_SMS]   to: {message_params.get('to')}")
         print(f"[SEND_SMS]   messaging_service_sid: {message_params.get('messaging_service_sid')}")
-        print(f"[SEND_SMS]   body length: {len(message_params.get('body', ''))}")
+        print(f"[SEND_SMS]   body: {message_params.get('body', '')[:100]}{'...' if len(message_params.get('body', '')) > 100 else ''}")
+        print(f"[SEND_SMS]   body length: {len(message_params.get('body', ''))} chars")
+        print(f"[SEND_SMS]   from_ parameter: NOT SET (using Messaging Service only)")
+        print("=" * 80)
         
         # Make the API call
+        print(f"[SEND_SMS] 🚀 Calling client.messages.create() NOW...")
         msg = client.messages.create(**message_params)
+        print(f"[SEND_SMS] ✅ API call completed, processing response...")
         
-        # Log comprehensive response details
+        # ENHANCED LOGGING: Log comprehensive response details
         print("=" * 80)
-        print(f"[SEND_SMS] ✅ TWILIO API CALL SUCCESSFUL")
+        print(f"[SEND_SMS] ✅ TWILIO API RESPONSE RECEIVED")
         print("=" * 80)
         print(f"[SEND_SMS] Message SID: {msg.sid}")
-        print(f"[SEND_SMS] Status: {msg.status}")
+        print(f"[SEND_SMS] Status: {msg.status} {'⚠️' if msg.status in ['failed', 'undelivered'] else '✅' if msg.status in ['sent', 'delivered', 'queued', 'accepted'] else ''}")
         print(f"[SEND_SMS] To: {msg.to}")
-        print(f"[SEND_SMS] From: {msg.from_}")
+        print(f"[SEND_SMS] From (actual sender): {msg.from_}")
+        print(f"[SEND_SMS] Account SID Used: {msg.account_sid}")
+        print(f"[SEND_SMS] Messaging Service SID: {getattr(msg, 'messaging_service_sid', 'N/A')}")
         print(f"[SEND_SMS] Date Created: {msg.date_created}")
-        print(f"[SEND_SMS] Date Sent: {msg.date_sent}")
+        print(f"[SEND_SMS] Date Sent: {msg.date_sent or 'Not sent yet'}")
         print(f"[SEND_SMS] Date Updated: {msg.date_updated}")
-        print(f"[SEND_SMS] Error Code: {msg.error_code or 'None'}")
-        print(f"[SEND_SMS] Error Message: {msg.error_message or 'None'}")
+        print(f"[SEND_SMS] Error Code: {msg.error_code or 'None (no error)'}")
+        print(f"[SEND_SMS] Error Message: {msg.error_message or 'None (no error)'}")
         print(f"[SEND_SMS] Price: {msg.price or 'None'}")
         print(f"[SEND_SMS] Price Unit: {msg.price_unit or 'None'}")
         print(f"[SEND_SMS] URI: {msg.uri or 'None'}")
-        print(f"[SEND_SMS] Account SID Used: {msg.account_sid}")
-        print(f"[SEND_SMS] Messaging Service SID: {getattr(msg, 'messaging_service_sid', 'N/A')}")
+        
+        # Log all available attributes for debugging
+        print(f"[SEND_SMS] All response attributes: {dir(msg)}")
+        try:
+            print(f"[SEND_SMS] Direction: {getattr(msg, 'direction', 'N/A')}")
+            print(f"[SEND_SMS] Num Segments: {getattr(msg, 'num_segments', 'N/A')}")
+            print(f"[SEND_SMS] Num Media: {getattr(msg, 'num_media', 'N/A')}")
+        except:
+            pass
         print("=" * 80)
         
-        # Check for error status
+        # Enhanced status checking with actionable warnings
         if msg.status in ['failed', 'undelivered']:
-            print(f"[SEND_SMS] ⚠️ WARNING: Message status is '{msg.status}'")
+            print("=" * 80)
+            print(f"[SEND_SMS] ⚠️⚠️⚠️ MESSAGE DELIVERY FAILED ⚠️⚠️⚠️")
+            print("=" * 80)
+            print(f"[SEND_SMS] Status: {msg.status}")
             print(f"[SEND_SMS] Error Code: {msg.error_code}")
             print(f"[SEND_SMS] Error Message: {msg.error_message}")
+            print(f"[SEND_SMS] This message was NOT delivered to the recipient.")
+            print(f"[SEND_SMS] Check Twilio Console for more details: https://console.twilio.com/")
+            print("=" * 80)
+        elif msg.status in ['queued', 'accepted']:
+            print(f"[SEND_SMS] ℹ️ Message accepted by Twilio, status: {msg.status}")
+            print(f"[SEND_SMS] Message is queued for delivery. Check status later.")
+        elif msg.status in ['sent', 'delivered']:
+            print(f"[SEND_SMS] ✅ Message successfully {msg.status}")
+        else:
+            print(f"[SEND_SMS] ℹ️ Message status: {msg.status} (unusual status, monitor)")
         
         return {
             "sid": msg.sid,

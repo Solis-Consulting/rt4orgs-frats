@@ -1,5 +1,0 @@
-{"location":"rep.html:blastBtn:CLICK","message":"Blast button clicked","data":{"timestamp":1766028540331},"timestamp":1766028540331,"sessionId":"debug-session"}
-{"location":"rep.html:blastBtn:SELECTED","message":"Cards selected for blast","data":{"selected_count":1,"selected_ids":["person_alan_solis_elrod_sigchi_alpha"]},"timestamp":1766028540332,"sessionId":"debug-session","hypothesisId":"A"}
-{"location":"rep.html:blastBtn:BEFORE_FETCH","message":"About to send blast request","data":{"url":"https://rt4orgs-frats-production.up.railway.app/rep/blast","selected_count":1,"headers":["Authorization","Content-Type"]},"timestamp":1766028544553,"sessionId":"debug-session","hypothesisId":"B"}
-{"location":"rep.html:blastBtn:AFTER_FETCH","message":"Received blast response","data":{"status":200,"ok":true},"timestamp":1766028545083,"sessionId":"debug-session","hypothesisId":"C"}
-{"location":"rep.html:blastBtn:RESPONSE_DATA","message":"Blast response data received","data":{"ok":true,"sent":1,"skipped":0,"results_count":1},"timestamp":1766028545084,"sessionId":"debug-session","hypothesisId":"E"}

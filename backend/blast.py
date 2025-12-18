@@ -461,15 +461,21 @@ def run_blast_for_cards(
             print(f"[BLAST_SEND_ATTEMPT] Using System Phone Number (via Messaging Service)", flush=True)
             
             if auth_token:
-                print(f"[BLAST_SEND_ATTEMPT] Auth token provided: {auth_token[:15]}... (length: {len(auth_token)})", flush=True)
+                print(f"[BLAST_SEND_ATTEMPT] Auth token provided: {auth_token[:10]}...{auth_token[-4:] if len(auth_token) > 14 else auth_token} (length: {len(auth_token)})", flush=True)
             else:
                 print(f"[BLAST_SEND_ATTEMPT] No auth_token provided, send_sms will use environment variable", flush=True)
             
             # Use provided account_sid (system Account SID for all users)
             account_sid_to_use = account_sid  # This is the system Account SID from env vars
             
-            print(f"[BLAST_SEND_ATTEMPT] Calling send_sms() with system Account SID: {account_sid_to_use[:10] if account_sid_to_use else 'ENV_VAR'}...", flush=True)
+            if account_sid_to_use:
+                print(f"[BLAST_SEND_ATTEMPT] Account SID provided: {account_sid_to_use[:10]}...{account_sid_to_use[-4:] if len(account_sid_to_use) > 14 else account_sid_to_use} (length: {len(account_sid_to_use)})", flush=True)
+            else:
+                print(f"[BLAST_SEND_ATTEMPT] No account_sid provided, send_sms will use environment variable", flush=True)
+            
+            print(f"[BLAST_SEND_ATTEMPT] Calling send_sms() NOW...", flush=True)
             sms_result = send_sms(phone, message, auth_token=auth_token, account_sid=account_sid_to_use)
+            print(f"[BLAST_SEND_ATTEMPT] send_sms() returned, processing result...", flush=True)
             
             # #region agent log - After send attempt
             try:
@@ -495,11 +501,22 @@ def run_blast_for_cards(
             print(f"[BLAST_SEND_ATTEMPT] ✅ send_sms() RETURNED", flush=True)
             print("=" * 80, flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Result SID: {sms_result.get('sid')}", flush=True)
-            print(f"[BLAST_SEND_ATTEMPT] Result Status: {sms_result.get('status')}", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Result Status: {sms_result.get('status')} {'⚠️' if sms_result.get('status') in ['failed', 'undelivered'] else '✅' if sms_result.get('status') in ['sent', 'delivered', 'queued', 'accepted'] else ''}", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Result To: {sms_result.get('to')}", flush=True)
-            print(f"[BLAST_SEND_ATTEMPT] Result From: {sms_result.get('from')}", flush=True)
-            print(f"[BLAST_SEND_ATTEMPT] Error Code: {sms_result.get('error_code') or 'None'}", flush=True)
-            print(f"[BLAST_SEND_ATTEMPT] Error Message: {sms_result.get('error_message') or 'None'}", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Result From (actual sender): {sms_result.get('from')}", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Error Code: {sms_result.get('error_code') or 'None (no error)'}", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Error Message: {sms_result.get('error_message') or 'None (no error)'}", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Date Sent: {sms_result.get('date_sent') or 'Not sent yet'}", flush=True)
+            
+            # Enhanced status checking
+            if sms_result.get('status') in ['failed', 'undelivered']:
+                print(f"[BLAST_SEND_ATTEMPT] ⚠️⚠️⚠️ MESSAGE DELIVERY FAILED ⚠️⚠️⚠️", flush=True)
+                print(f"[BLAST_SEND_ATTEMPT] This message was NOT delivered. Check Twilio Console.", flush=True)
+            elif sms_result.get('status') in ['queued', 'accepted']:
+                print(f"[BLAST_SEND_ATTEMPT] ℹ️ Message accepted, status: {sms_result.get('status')}", flush=True)
+            elif sms_result.get('status') in ['sent', 'delivered']:
+                print(f"[BLAST_SEND_ATTEMPT] ✅ Message successfully {sms_result.get('status')}", flush=True)
+            
             print("=" * 80, flush=True)
 
             # Create legacy contact event folder for archive_intelligence compatibility

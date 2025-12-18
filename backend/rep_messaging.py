@@ -81,15 +81,24 @@ def send_rep_message(
             print(f"[REP_MESSAGE] ❌ {error_msg}")
             raise ValueError(error_msg)
         
-        print(f"[REP_MESSAGE] Using Messaging Service: {messaging_service_sid}")
-        print(f"[REP_MESSAGE] Using System Account SID: {account_sid[:10]}... (same for all users)")
+        # ENHANCED LOGGING: Log all parameters being sent to Twilio
+        print("=" * 80)
+        print(f"[REP_MESSAGE] 📤 PREPARING TWILIO API CALL")
+        print("=" * 80)
+        print(f"[REP_MESSAGE] Account SID: {account_sid[:10]}...{account_sid[-4:] if len(account_sid) > 14 else account_sid} (full length: {len(account_sid)})")
+        print(f"[REP_MESSAGE] Auth Token: {auth_token[:10]}...{auth_token[-4:] if len(auth_token) > 14 else auth_token} (full length: {len(auth_token)})")
+        print(f"[REP_MESSAGE] Messaging Service SID: {messaging_service_sid}")
+        print(f"[REP_MESSAGE] Messaging Service SID Length: {len(messaging_service_sid)}")
         print(f"[REP_MESSAGE] Using System Phone Number (via Messaging Service)")
         print(f"[REP_MESSAGE] Rep isolation maintained via card_assignments table")
-        print(f"[REP_MESSAGE] Calling client.messages.create() with:")
+        print("=" * 80)
+        print(f"[REP_MESSAGE] 📋 EXACT PARAMETERS BEING SENT TO TWILIO:")
         print(f"[REP_MESSAGE]   to: {phone}")
         print(f"[REP_MESSAGE]   messaging_service_sid: {messaging_service_sid}")
-        print(f"[REP_MESSAGE]   body length: {len(message)}")
-        print(f"[REP_MESSAGE] All messages are traceable through Messaging Service logs")
+        print(f"[REP_MESSAGE]   body: {message[:100]}{'...' if len(message) > 100 else ''}")
+        print(f"[REP_MESSAGE]   body length: {len(message)} chars")
+        print(f"[REP_MESSAGE]   from_ parameter: NOT SET (using Messaging Service only)")
+        print("=" * 80)
         
         # Use only messaging_service_sid - Messaging Service handles sender selection
         message_params = {
@@ -98,30 +107,47 @@ def send_rep_message(
             "body": message
         }
         
+        print(f"[REP_MESSAGE] 🚀 Calling client.messages.create() NOW...")
         msg = client.messages.create(**message_params)
+        print(f"[REP_MESSAGE] ✅ API call completed, processing response...")
         
-        # Log comprehensive response
+        # ENHANCED LOGGING: Log comprehensive response details
         print("=" * 80)
-        print(f"[REP_MESSAGE] ✅ TWILIO API CALL SUCCESSFUL")
+        print(f"[REP_MESSAGE] ✅ TWILIO API RESPONSE RECEIVED")
         print("=" * 80)
         print(f"[REP_MESSAGE] Message SID: {msg.sid}")
-        print(f"[REP_MESSAGE] Status: {msg.status}")
+        print(f"[REP_MESSAGE] Status: {msg.status} {'⚠️' if msg.status in ['failed', 'undelivered'] else '✅' if msg.status in ['sent', 'delivered', 'queued', 'accepted'] else ''}")
         print(f"[REP_MESSAGE] To: {msg.to}")
-        print(f"[REP_MESSAGE] From: {msg.from_}")
+        print(f"[REP_MESSAGE] From (actual sender): {msg.from_}")
+        print(f"[REP_MESSAGE] Account SID Used: {msg.account_sid}")
+        print(f"[REP_MESSAGE] Messaging Service SID: {getattr(msg, 'messaging_service_sid', 'N/A')}")
         print(f"[REP_MESSAGE] Date Created: {msg.date_created}")
-        print(f"[REP_MESSAGE] Date Sent: {msg.date_sent}")
-        print(f"[REP_MESSAGE] Error Code: {msg.error_code or 'None'}")
-        print(f"[REP_MESSAGE] Error Message: {msg.error_message or 'None'}")
+        print(f"[REP_MESSAGE] Date Sent: {msg.date_sent or 'Not sent yet'}")
+        print(f"[REP_MESSAGE] Error Code: {msg.error_code or 'None (no error)'}")
+        print(f"[REP_MESSAGE] Error Message: {msg.error_message or 'None (no error)'}")
         print(f"[REP_MESSAGE] Price: {msg.price or 'None'}")
         print(f"[REP_MESSAGE] Price Unit: {msg.price_unit or 'None'}")
         print(f"[REP_MESSAGE] URI: {msg.uri or 'None'}")
         print("=" * 80)
         
-        # Check for error status
+        # Enhanced status checking with actionable warnings
         if msg.status in ['failed', 'undelivered']:
-            print(f"[REP_MESSAGE] ⚠️ WARNING: Message status is '{msg.status}'")
+            print("=" * 80)
+            print(f"[REP_MESSAGE] ⚠️⚠️⚠️ MESSAGE DELIVERY FAILED ⚠️⚠️⚠️")
+            print("=" * 80)
+            print(f"[REP_MESSAGE] Status: {msg.status}")
             print(f"[REP_MESSAGE] Error Code: {msg.error_code}")
             print(f"[REP_MESSAGE] Error Message: {msg.error_message}")
+            print(f"[REP_MESSAGE] This message was NOT delivered to the recipient.")
+            print(f"[REP_MESSAGE] Check Twilio Console for more details: https://console.twilio.com/")
+            print("=" * 80)
+        elif msg.status in ['queued', 'accepted']:
+            print(f"[REP_MESSAGE] ℹ️ Message accepted by Twilio, status: {msg.status}")
+            print(f"[REP_MESSAGE] Message is queued for delivery. Check status later.")
+        elif msg.status in ['sent', 'delivered']:
+            print(f"[REP_MESSAGE] ✅ Message successfully {msg.status}")
+        else:
+            print(f"[REP_MESSAGE] ℹ️ Message status: {msg.status} (unusual status, monitor)")
         
         # Update conversation to rep mode (with card_id for proper linking)
         switch_conversation_to_rep(conn, phone, user_id, card_id=card_id)
