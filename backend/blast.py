@@ -431,6 +431,27 @@ def run_blast_for_cards(
                 )
 
         try:
+            # #region agent log - Before send attempt
+            try:
+                import json as _json
+                from datetime import datetime
+                from pathlib import Path
+                debug_log_path = Path(__file__).resolve().parent.parent / ".cursor" / "debug.log"
+                debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(debug_log_path, "a") as f:
+                    f.write(_json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "timestamp": int(datetime.now().timestamp() * 1000),
+                        "location": "backend/blast.py:send_attempt:BEFORE",
+                        "message": "About to attempt SMS send",
+                        "data": {"card_id": card_id, "phone": phone, "message_length": len(message), "rep_user_id": rep_user_id, "rep_phone": rep_phone_number, "has_auth_token": bool(auth_token), "has_account_sid": bool(account_sid)},
+                        "hypothesisId": "F"
+                    }) + "\n")
+            except Exception as e:
+                print(f"[DEBUG_LOG] Failed to write debug log: {e}", flush=True)
+            # #endregion
+            
             print("=" * 80, flush=True)
             print(f"[BLAST_SEND_ATTEMPT] 🚀 ATTEMPTING TO SEND SMS", flush=True)
             print("=" * 80, flush=True)
@@ -450,6 +471,27 @@ def run_blast_for_cards(
             
             print(f"[BLAST_SEND_ATTEMPT] Calling send_sms() with system Account SID: {account_sid_to_use[:10] if account_sid_to_use else 'ENV_VAR'}..., rep phone: {rep_phone_number}", flush=True)
             sms_result = send_sms(phone, message, auth_token=auth_token, account_sid=account_sid_to_use, rep_phone_number=rep_phone_number)
+            
+            # #region agent log - After send attempt
+            try:
+                import json as _json
+                from datetime import datetime
+                from pathlib import Path
+                debug_log_path = Path(__file__).resolve().parent.parent / ".cursor" / "debug.log"
+                debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(debug_log_path, "a") as f:
+                    f.write(_json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "timestamp": int(datetime.now().timestamp() * 1000),
+                        "location": "backend/blast.py:send_attempt:AFTER",
+                        "message": "SMS send attempt completed",
+                        "data": {"twilio_sid": sms_result.get('sid'), "status": sms_result.get('status'), "error_code": sms_result.get('error_code')},
+                        "hypothesisId": "G"
+                    }) + "\n")
+            except Exception as e:
+                print(f"[DEBUG_LOG] Failed to write debug log: {e}", flush=True)
+            # #endregion
             
             print("=" * 80, flush=True)
             print(f"[BLAST_SEND_ATTEMPT] ✅ send_sms() RETURNED", flush=True)

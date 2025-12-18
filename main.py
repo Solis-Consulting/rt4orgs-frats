@@ -2685,7 +2685,10 @@ async def rep_blast(
     try:
         import json as _json
         from datetime import datetime
-        with open("/Users/alanelrod/Desktop/rt4orgs-frats-v5/.cursor/debug.log", "a") as f:
+        from pathlib import Path
+        debug_log_path = Path(__file__).resolve().parent / ".cursor" / "debug.log"
+        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(debug_log_path, "a") as f:
             f.write(_json.dumps({
                 "sessionId": "debug-session",
                 "runId": "run1",
@@ -2695,7 +2698,8 @@ async def rep_blast(
                 "data": {"user_id": current_user.get('id'), "role": current_user.get('role'), "payload_keys": list(payload.keys())},
                 "hypothesisId": "A"
             }) + "\n")
-    except: pass
+    except Exception as e:
+        logger.error(f"[DEBUG_LOG] Failed to write debug log: {e}")
     # #endregion
     
     logger.info(f"[BLAST] rep_blast called by {current_user['id']} (role: {current_user.get('role')})")
@@ -2709,7 +2713,10 @@ async def rep_blast(
     try:
         import json as _json
         from datetime import datetime
-        with open("/Users/alanelrod/Desktop/rt4orgs-frats-v5/.cursor/debug.log", "a") as f:
+        from pathlib import Path
+        debug_log_path = Path(__file__).resolve().parent / ".cursor" / "debug.log"
+        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(debug_log_path, "a") as f:
             f.write(_json.dumps({
                 "sessionId": "debug-session",
                 "runId": "run1",
@@ -2719,7 +2726,8 @@ async def rep_blast(
                 "data": {"limit": limit, "status_filter": status_filter, "card_ids": card_ids, "card_ids_count": len(card_ids) if card_ids else 0},
                 "hypothesisId": "B"
             }) + "\n")
-    except: pass
+    except Exception as e:
+        logger.error(f"[DEBUG_LOG] Failed to write debug log: {e}")
     # #endregion
     
     conn = get_conn()
@@ -2804,7 +2812,10 @@ async def rep_blast(
         try:
             import json as _json
             from datetime import datetime
-            with open("/Users/alanelrod/Desktop/rt4orgs-frats-v5/.cursor/debug.log", "a") as f:
+            from pathlib import Path
+            debug_log_path = Path(__file__).resolve().parent / ".cursor" / "debug.log"
+            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(debug_log_path, "a") as f:
                 f.write(_json.dumps({
                     "sessionId": "debug-session",
                     "runId": "run1",
@@ -2814,7 +2825,8 @@ async def rep_blast(
                     "data": {"card_ids_count": len(card_ids), "rep_user_id": rep_user_id, "rep_phone": rep_phone_number, "has_account_sid": bool(rep_account_sid), "has_auth_token": bool(rep_auth_token)},
                     "hypothesisId": "C"
                 }) + "\n")
-        except: pass
+        except Exception as e:
+            logger.error(f"[DEBUG_LOG] Failed to write debug log: {e}")
         # #endregion
         
         result = run_blast_for_cards(
@@ -2835,7 +2847,10 @@ async def rep_blast(
         try:
             import json as _json
             from datetime import datetime
-            with open("/Users/alanelrod/Desktop/rt4orgs-frats-v5/.cursor/debug.log", "a") as f:
+            from pathlib import Path
+            debug_log_path = Path(__file__).resolve().parent / ".cursor" / "debug.log"
+            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(debug_log_path, "a") as f:
                 f.write(_json.dumps({
                     "sessionId": "debug-session",
                     "runId": "run1",
@@ -2845,7 +2860,8 @@ async def rep_blast(
                     "data": {"ok": result.get('ok'), "sent": result.get('sent', 0), "skipped": result.get('skipped', 0), "results_count": len(result.get('results', []))},
                     "hypothesisId": "D"
                 }) + "\n")
-        except: pass
+        except Exception as e:
+            logger.error(f"[DEBUG_LOG] Failed to write debug log: {e}")
         # #endregion
         
         return result
@@ -2855,7 +2871,10 @@ async def rep_blast(
             import json as _json
             from datetime import datetime
             import traceback
-            with open("/Users/alanelrod/Desktop/rt4orgs-frats-v5/.cursor/debug.log", "a") as f:
+            from pathlib import Path
+            debug_log_path = Path(__file__).resolve().parent / ".cursor" / "debug.log"
+            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(debug_log_path, "a") as f:
                 f.write(_json.dumps({
                     "sessionId": "debug-session",
                     "runId": "run1",
@@ -2865,7 +2884,8 @@ async def rep_blast(
                     "data": {"error": str(e), "error_type": type(e).__name__, "traceback": traceback.format_exc()},
                     "hypothesisId": "E"
                 }) + "\n")
-        except: pass
+        except Exception as log_err:
+            logger.error(f"[DEBUG_LOG] Failed to write debug log: {log_err}")
         # #endregion
         
         logger.error(f"[BLAST] Blast failed: {str(e)}", exc_info=True)
