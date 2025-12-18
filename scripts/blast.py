@@ -275,14 +275,22 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, accoun
         print(f"[SEND_SMS] Using Messaging Service: {TWILIO_MESSAGING_SERVICE_SID}")
         print(f"[SEND_SMS] Using System Account SID: {sid_to_use[:10]}... (same for all reps)")
         if rep_phone_number:
-            print(f"[SEND_SMS] Rep Phone: {rep_phone_number} (should be in Messaging Service sender pool)")
+            # Use both messaging_service_sid AND from for deterministic rep identity
+            # This is the maximum-power configuration Twilio allows
+            message_params["from"] = rep_phone_number
+            print(f"[SEND_SMS] Rep Phone: {rep_phone_number} (must be attached to Messaging Service)")
+            print(f"[SEND_SMS] Using MAXIMUM-POWER config: messaging_service_sid + from=rep_phone")
+            print(f"[SEND_SMS] This ensures deterministic rep identity while maintaining compliance")
+        else:
+            print(f"[SEND_SMS] No rep phone provided - using Messaging Service only")
             print(f"[SEND_SMS] Note: Enable 'Sticky Sender' in Twilio Messaging Service settings")
-            print(f"[SEND_SMS] Note: This ensures messages route through rep's phone when possible")
         print(f"[SEND_SMS] All messages are traceable through Messaging Service logs")
         
         print(f"[SEND_SMS] Calling client.messages.create() with params:")
         print(f"[SEND_SMS]   to: {message_params.get('to')}")
-        print(f"[SEND_SMS]   {'messaging_service_sid' if 'messaging_service_sid' in message_params else 'from_'}: {message_params.get('messaging_service_sid') or message_params.get('from_')}")
+        if 'from' in message_params:
+            print(f"[SEND_SMS]   from: {message_params.get('from')}")
+        print(f"[SEND_SMS]   messaging_service_sid: {message_params.get('messaging_service_sid')}")
         print(f"[SEND_SMS]   body length: {len(message_params.get('body', ''))}")
         
         # Make the API call

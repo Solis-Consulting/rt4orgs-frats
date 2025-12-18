@@ -89,18 +89,28 @@ def send_rep_message(
         print(f"[REP_MESSAGE] Using Messaging Service: {messaging_service_sid}")
         print(f"[REP_MESSAGE] Using System Account SID: {account_sid[:10]}... (same for all reps)")
         if rep_phone:
-            print(f"[REP_MESSAGE] Rep Phone: {rep_phone} (should be in Messaging Service sender pool)")
-            print(f"[REP_MESSAGE] Note: Enable 'Sticky Sender' in Twilio Messaging Service settings")
+            print(f"[REP_MESSAGE] Rep Phone: {rep_phone} (must be attached to Messaging Service)")
+            print(f"[REP_MESSAGE] Using MAXIMUM-POWER config: messaging_service_sid + from=rep_phone")
+            print(f"[REP_MESSAGE] This ensures deterministic rep identity while maintaining compliance")
         print(f"[REP_MESSAGE] Calling client.messages.create() with:")
         print(f"[REP_MESSAGE]   to: {phone}")
         print(f"[REP_MESSAGE]   messaging_service_sid: {messaging_service_sid}")
+        if rep_phone:
+            print(f"[REP_MESSAGE]   from: {rep_phone}")
         print(f"[REP_MESSAGE]   body length: {len(message)}")
         print(f"[REP_MESSAGE] All messages are traceable through Messaging Service logs")
-        msg = client.messages.create(
-            to=phone,
-            messaging_service_sid=messaging_service_sid,
-            body=message
-        )
+        
+        # Use both messaging_service_sid AND from for deterministic rep identity
+        # This is the maximum-power configuration Twilio allows
+        message_params = {
+            "to": phone,
+            "messaging_service_sid": messaging_service_sid,
+            "body": message
+        }
+        if rep_phone:
+            message_params["from"] = rep_phone
+        
+        msg = client.messages.create(**message_params)
         
         # Log comprehensive response
         print("=" * 80)
