@@ -2903,19 +2903,25 @@ async def rep_blast(
             logger.error(f"[BLAST] ❌ {error_msg}")
             return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
         
-        # All users use system Account SID and Auth Token (from env vars)
+        # All users (admin and reps) use system Account SID and Auth Token (from env vars)
         # All messages sent from system phone number (919) 443-6288 via Messaging Service
-        rep_account_sid = None
-        rep_auth_token = None
-        if rep_user_id:
-            # Reps use system Account SID and Auth Token (same for all)
-            rep_account_sid = os.getenv("TWILIO_ACCOUNT_SID")  # Use system Account SID for all users
-            rep_auth_token = os.getenv("TWILIO_AUTH_TOKEN")  # Use system Auth Token for all users
-            
-            logger.info(f"[BLAST] Rep {rep_user_id} using system Account SID: {rep_account_sid[:10] if rep_account_sid else 'NOT SET'}...")
-            logger.info(f"[BLAST] Messaging Service SID: {messaging_service_sid}")
-            logger.info(f"[BLAST] System phone: (919) 443-6288 (configured in Messaging Service)")
+        # Explicitly set for both admin and rep users
+        rep_account_sid = os.getenv("TWILIO_ACCOUNT_SID")  # Use system Account SID for all users
+        rep_auth_token = os.getenv("TWILIO_AUTH_TOKEN")  # Use system Auth Token for all users
         
+        if not rep_account_sid:
+            error_msg = "TWILIO_ACCOUNT_SID is not set in environment variables. Blast cannot proceed."
+            logger.error(f"[BLAST] ❌ {error_msg}")
+            return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
+        
+        if not rep_auth_token:
+            error_msg = "TWILIO_AUTH_TOKEN is not set in environment variables. Blast cannot proceed."
+            logger.error(f"[BLAST] ❌ {error_msg}")
+            return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
+        
+        logger.info(f"[BLAST] User {current_user['id']} (role: {current_user.get('role')}) using system Account SID: {rep_account_sid[:10]}...")
+        logger.info(f"[BLAST] Messaging Service SID: {messaging_service_sid}")
+        logger.info(f"[BLAST] System phone: (919) 443-6288 (configured in Messaging Service)")
         logger.info(f"[BLAST] Running blast for {len(card_ids)} cards, rep_user_id={rep_user_id}, using_system_account_sid={bool(rep_account_sid)}")
         
         # #region agent log - Before run_blast_for_cards
@@ -2951,6 +2957,7 @@ async def rep_blast(
         )
         
         logger.info(f"[BLAST] Blast completed: sent={result.get('sent', 0)}, skipped={result.get('skipped', 0)}")
+        logger.info(f"[BLAST] Result details: {result}")
         
         # #region agent log - Blast result
         try:
