@@ -2747,7 +2747,21 @@ async def rep_blast(
         rep_user_id = None if current_user.get("role") == "admin" else current_user["id"]
         rep_phone_number = None if current_user.get("role") == "admin" else current_user.get("twilio_phone_number")
         
-        logger.info(f"[BLAST] Running blast for {len(card_ids)} cards, rep_user_id={rep_user_id}, rep_phone={rep_phone_number}")
+        # Get rep's Twilio credentials if rep is blasting
+        rep_account_sid = None
+        rep_auth_token = None
+        if rep_user_id:
+            # Fetch full user record to get Twilio credentials
+            from backend.auth import get_user
+            rep_user = get_user(conn, rep_user_id)
+            if rep_user:
+                rep_account_sid = rep_user.get("twilio_account_sid")
+                rep_auth_token = rep_user.get("twilio_auth_token")
+                logger.info(f"[BLAST] Rep {rep_user_id} Twilio credentials: account_sid={'SET' if rep_account_sid else 'NOT SET'}, auth_token={'SET' if rep_auth_token else 'NOT SET'}")
+            else:
+                logger.warning(f"[BLAST] Rep {rep_user_id} not found in database")
+        
+        logger.info(f"[BLAST] Running blast for {len(card_ids)} cards, rep_user_id={rep_user_id}, rep_phone={rep_phone_number}, using_rep_credentials={bool(rep_auth_token)}")
         
         result = run_blast_for_cards(
             conn=conn,
@@ -2755,7 +2769,8 @@ async def rep_blast(
             limit=None,  # Already applied limit above if needed
             owner=current_user["id"],
             source="owner_ui" if current_user.get("role") == "admin" else "rep_ui",
-            auth_token=None,  # Will use system Twilio for now
+            auth_token=rep_auth_token,  # Use rep's auth token if available, otherwise None (will use system)
+            account_sid=rep_account_sid,  # Use rep's account SID if available
             rep_user_id=rep_user_id,
             rep_phone_number=rep_phone_number,
         )

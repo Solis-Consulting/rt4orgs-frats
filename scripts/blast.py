@@ -165,7 +165,7 @@ def find_unblasted_contacts(leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return unblasted
 
 
-def send_sms(to_number: str, body: str, auth_token: Optional[str] = None) -> Dict[str, Any]:
+def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, account_sid: Optional[str] = None) -> Dict[str, Any]:
     """
     Send SMS via Twilio with comprehensive logging.
     
@@ -216,16 +216,30 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None) -> Dic
     if not to_number.startswith('+'):
         print(f"[SEND_SMS] ⚠️ WARNING: Phone number doesn't start with +: {to_number}")
     
+    # Determine which Account SID to use (provided or env var)
+    sid_to_use = account_sid if account_sid else TWILIO_ACCOUNT_SID
+    if account_sid:
+        sid_source = "PROVIDED"
+        print(f"[SEND_SMS] ✅ Using PROVIDED Account SID: {account_sid[:10]}... (length: {len(account_sid)})")
+    else:
+        sid_source = "ENV_VAR"
+        if not TWILIO_ACCOUNT_SID:
+            print(f"[SEND_SMS] ❌ ERROR: No account SID provided and TWILIO_ACCOUNT_SID not set")
+            raise ValueError("Twilio account SID not provided and TWILIO_ACCOUNT_SID not set")
+        else:
+            print(f"[SEND_SMS] ⚠️ Using environment variable TWILIO_ACCOUNT_SID")
+    
     # Log which account and token are being used
-    account_sid_preview = TWILIO_ACCOUNT_SID[:10] + "..." if TWILIO_ACCOUNT_SID and len(TWILIO_ACCOUNT_SID) > 10 else str(TWILIO_ACCOUNT_SID)
+    account_sid_preview = sid_to_use[:10] + "..." if sid_to_use and len(sid_to_use) > 10 else str(sid_to_use)
     print(f"[SEND_SMS] Account SID: {account_sid_preview}")
+    print(f"[SEND_SMS] Account SID Source: {sid_source}")
     print(f"[SEND_SMS] Auth Token Source: {token_source}")
     print(f"[SEND_SMS] Messaging Service SID: {TWILIO_MESSAGING_SERVICE_SID or 'NOT SET'}")
     print(f"[SEND_SMS] From Phone Number: {TWILIO_PHONE_NUMBER or 'NOT SET'}")
     
     try:
-        print(f"[SEND_SMS] Creating Twilio Client...")
-        client = Client(TWILIO_ACCOUNT_SID, token_to_use)
+        print(f"[SEND_SMS] Creating Twilio Client with Account SID: {sid_to_use[:10]}... and Token: {token_to_use[:15]}...")
+        client = Client(sid_to_use, token_to_use)
         print(f"[SEND_SMS] ✅ Twilio Client created")
         
         # Prepare message parameters

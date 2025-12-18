@@ -229,6 +229,7 @@ def run_blast_for_cards(
     owner: str,
     source: str,
     auth_token: Optional[str] = None,
+    account_sid: Optional[str] = None,
     rep_user_id: Optional[str] = None,
     rep_phone_number: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -254,6 +255,9 @@ def run_blast_for_cards(
             "owner": owner,
             "source": source,
             "auth_token_provided": bool(auth_token),
+            "account_sid_provided": bool(account_sid),
+            "rep_user_id": rep_user_id,
+            "rep_phone_number": rep_phone_number,
         },
         flush=True,
     )
@@ -438,8 +442,17 @@ def run_blast_for_cards(
             else:
                 print(f"[BLAST_SEND_ATTEMPT] No auth_token provided, send_sms will use environment variable", flush=True)
             
-            print(f"[BLAST_SEND_ATTEMPT] Calling send_sms()...", flush=True)
-            sms_result = send_sms(phone, message, auth_token=auth_token)
+            # Get rep's account SID if this is a rep blast
+            rep_account_sid = None
+            if rep_user_id:
+                from backend.auth import get_user
+                rep_user = get_user(conn, rep_user_id)
+                if rep_user:
+                    rep_account_sid = rep_user.get("twilio_account_sid")
+                    print(f"[BLAST_SEND_ATTEMPT] Rep Account SID: {rep_account_sid[:10] if rep_account_sid else 'NOT SET'}...", flush=True)
+            
+            print(f"[BLAST_SEND_ATTEMPT] Calling send_sms() with account_sid={'PROVIDED' if rep_account_sid else 'ENV_VAR'}...", flush=True)
+            sms_result = send_sms(phone, message, auth_token=auth_token, account_sid=rep_account_sid)
             
             print("=" * 80, flush=True)
             print(f"[BLAST_SEND_ATTEMPT] ✅ send_sms() RETURNED", flush=True)
