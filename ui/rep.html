@@ -49,13 +49,25 @@
       <div style="display: flex; align-items: center; justify-content: space-between;">
         <div>
           <h1>RT4 Rep Dashboard</h1>
-          <div class="sub" id="userInfo">Loading...</div>
+          <div class="sub" id="userInfo">Enter your API token to continue</div>
         </div>
         <div class="header-actions">
           <a href="index.html" class="link">Admin View</a>
-          <a href="#" class="link" onclick="logout(); return false;">Logout</a>
         </div>
       </div>
+
+      <!-- API Token Prompt (shown on load) -->
+      <div id="tokenPrompt" style="margin-top: 24px; padding: 20px; background: #1e293b; border-radius: 8px; border: 1px solid #374151;">
+        <div style="margin-bottom: 12px; font-weight: 600;">Enter Your Rep API Token</div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <input type="password" id="repApiToken" placeholder="Enter your API token" style="flex: 1; padding: 8px 12px; background: #020617; border: 1px solid #4b5563; border-radius: 8px; color: #e5e7eb; font-size: 14px;" autofocus>
+          <button id="tokenSubmitBtn" style="padding: 8px 16px;">Continue</button>
+        </div>
+        <div id="tokenError" style="margin-top: 8px; color: #fecaca; font-size: 12px; display: none;"></div>
+      </div>
+
+      <!-- Main Content (hidden until token validated) -->
+      <div id="mainContent" style="display: none;">
 
       <div class="tabs">
         <div class="tab active" data-view="cards">My Cards</div>
@@ -99,6 +111,7 @@
       <div id="statsView" style="display: none;">
         <div class="stats" id="statsGrid"></div>
       </div>
+      </div>
     </div>
   </div>
 
@@ -110,16 +123,92 @@
     let allCards = [];
     let allConversations = [];
     let selectedPhone = null;
-    let apiToken = localStorage.getItem('apiToken');
+    let apiToken = null; // No persistent storage - must enter each time
 
-    if (!apiToken) {
-      window.location.href = 'login.html';
+    // Token prompt handling
+    const tokenPrompt = document.getElementById('tokenPrompt');
+    const mainContent = document.getElementById('mainContent');
+    const tokenInput = document.getElementById('repApiToken');
+    const tokenSubmitBtn = document.getElementById('tokenSubmitBtn');
+    const tokenError = document.getElementById('tokenError');
+    const userInfo = document.getElementById('userInfo');
+
+    async function validateAndSetToken(token) {
+      if (!token || !token.trim()) {
+        showTokenError('Please enter an API token');
+        return false;
+      }
+
+      // Test token by trying to fetch rep cards
+      try {
+        const testHeaders = {
+          'Authorization': `Bearer ${token.trim()}`,
+          'Content-Type': 'application/json'
+        };
+
+        const res = await fetch(`${BACKEND}/rep/cards`, { headers: testHeaders });
+        
+        if (res.status === 401 || res.status === 403) {
+          showTokenError('Invalid API token. Please check and try again.');
+          return false;
+        }
+
+        if (!res.ok) {
+          showTokenError(`Error validating token: HTTP ${res.status}`);
+          return false;
+        }
+
+        // Token is valid - hide prompt, show main content
+        apiToken = token.trim();
+        tokenPrompt.style.display = 'none';
+        mainContent.style.display = 'block';
+        userInfo.textContent = 'Rep Dashboard';
+        
+        // Load initial data
+        loadCards();
+        return true;
+      } catch (error) {
+        showTokenError(`Error validating token: ${error.message}`);
+        return false;
+      }
     }
 
-    const headers = {
-      'Authorization': `Bearer ${apiToken}`,
-      'Content-Type': 'application/json'
-    };
+    function showTokenError(message) {
+      tokenError.textContent = message;
+      tokenError.style.display = 'block';
+      tokenInput.focus();
+    }
+
+    function clearTokenError() {
+      tokenError.style.display = 'none';
+    }
+
+    // Submit token on button click
+    tokenSubmitBtn.addEventListener('click', async () => {
+      clearTokenError();
+      const token = tokenInput.value.trim();
+      await validateAndSetToken(token);
+    });
+
+    // Submit token on Enter key
+    tokenInput.addEventListener('keypress', async (e) => {
+      if (e.key === 'Enter') {
+        clearTokenError();
+        const token = tokenInput.value.trim();
+        await validateAndSetToken(token);
+      }
+    });
+
+    // Get headers function (returns headers with current token)
+    function getHeaders() {
+      if (!apiToken) {
+        throw new Error('No API token set');
+      }
+      return {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json'
+      };
+    }
 
     // Tab switching
     document.querySelectorAll('.tab').forEach(tab => {
@@ -146,9 +235,15 @@
         let url = `${BACKEND}/rep/cards`;
         if (status) url += `?status=${encodeURIComponent(status)}`;
         
-        const res = await fetch(url, { headers });
-        if (res.status === 401) {
-          window.location.href = 'login.html';
+        const res = await fetch(url, { headers: getHeaders() });
+        if (res.status === 401 || res.status === 403) {
+          // Token invalid - show prompt again
+          apiToken = null;
+          tokenPrompt.style.display = 'block';
+          mainContent.style.display = 'none';
+          tokenInput.value = '';
+          userInfo.textContent = 'Enter your API token to continue';
+          showTokenError('Session expired. Please enter your API token again.');
           return;
         }
         
@@ -157,6 +252,10 @@
         renderCards();
       } catch (error) {
         console.error('Error loading cards:', error);
+        if (error.message.includes('No API token')) {
+          tokenPrompt.style.display = 'block';
+          mainContent.style.display = 'none';
+        }
       }
     }
 
@@ -235,7 +334,7 @@
         console.log('[REP_BLAST] Blasting selected cards:', selected);
         const res = await fetch(`${BACKEND}/rep/blast`, {
           method: 'POST',
-          headers,
+          headers: getHeaders(),
           body: JSON.stringify({ card_ids: selected })
         });
 
@@ -276,7 +375,7 @@
         console.log('[REP_BLAST] Blasting all assigned leads');
         const res = await fetch(`${BACKEND}/rep/blast`, {
           method: 'POST',
-          headers,
+          headers: getHeaders(),
           body: JSON.stringify({ status: 'assigned' })  // Only blast assigned, uncontacted leads
         });
 
@@ -307,9 +406,14 @@
 
     async function loadConversations() {
       try {
-        const res = await fetch(`${BACKEND}/rep/conversations`, { headers });
-        if (res.status === 401) {
-          window.location.href = 'login.html';
+        const res = await fetch(`${BACKEND}/rep/conversations`, { headers: getHeaders() });
+        if (res.status === 401 || res.status === 403) {
+          apiToken = null;
+          tokenPrompt.style.display = 'block';
+          mainContent.style.display = 'none';
+          tokenInput.value = '';
+          userInfo.textContent = 'Enter your API token to continue';
+          showTokenError('Session expired. Please enter your API token again.');
           return;
         }
         
@@ -318,6 +422,10 @@
         renderConversations();
       } catch (error) {
         console.error('Error loading conversations:', error);
+        if (error.message.includes('No API token')) {
+          tokenPrompt.style.display = 'block';
+          mainContent.style.display = 'none';
+        }
       }
     }
 
@@ -347,7 +455,7 @@
       document.getElementById('messageThread').style.display = 'block';
 
       try {
-        const res = await fetch(`${BACKEND}/rep/messages/${encodeURIComponent(phone)}`, { headers });
+        const res = await fetch(`${BACKEND}/rep/messages/${encodeURIComponent(phone)}`, { headers: getHeaders() });
         const data = await res.json();
         const messages = data.messages || [];
 
@@ -383,7 +491,7 @@
       try {
         const res = await fetch(`${BACKEND}/rep/messages/send`, {
           method: 'POST',
-          headers,
+          headers: getHeaders(),
           body: JSON.stringify({ card_id: card.id, message })
         });
 
@@ -402,27 +510,48 @@
 
     async function loadStats() {
       try {
-        const res = await fetch(`${BACKEND}/rep/stats`, { headers });
-        if (res.status === 401) {
-          window.location.href = 'login.html';
+        const res = await fetch(`${BACKEND}/rep/stats`, { headers: getHeaders() });
+        if (res.status === 401 || res.status === 403) {
+          apiToken = null;
+          tokenPrompt.style.display = 'block';
+          mainContent.style.display = 'none';
+          tokenInput.value = '';
+          userInfo.textContent = 'Enter your API token to continue';
+          showTokenError('Session expired. Please enter your API token again.');
           return;
         }
         
         const data = await res.json();
         const stats = data.stats || {};
-
+        
         let html = '';
         html += `<div class="stat-card"><div class="stat-value">${stats.assigned || 0}</div><div class="stat-label">Assigned</div></div>`;
         html += `<div class="stat-card"><div class="stat-value">${stats.active || 0}</div><div class="stat-label">Active</div></div>`;
         html += `<div class="stat-card"><div class="stat-value">${stats.closed || 0}</div><div class="stat-label">Closed</div></div>`;
         html += `<div class="stat-card"><div class="stat-value">${stats.lost || 0}</div><div class="stat-label">Lost</div></div>`;
         html += `<div class="stat-card"><div class="stat-value">${stats.total_conversations || 0}</div><div class="stat-label">Conversations</div></div>`;
-
+        
         document.getElementById('statsGrid').innerHTML = html;
       } catch (error) {
         console.error('Error loading stats:', error);
+        if (error.message.includes('No API token')) {
+          tokenPrompt.style.display = 'block';
+          mainContent.style.display = 'none';
+        }
       }
     }
+
+    function logout() {
+      apiToken = null;
+      tokenPrompt.style.display = 'block';
+      mainContent.style.display = 'none';
+      tokenInput.value = '';
+      userInfo.textContent = 'Enter your API token to continue';
+      clearTokenError();
+      tokenInput.focus();
+    }
+
+    window.logout = logout;
 
     // Load initial data
     loadCards();
