@@ -2572,10 +2572,13 @@ async def rep_blast(
         else:
             # Get all cards (or filtered by query if needed)
             from backend.query import build_list_query
-            query_result = build_list_query(conn, {}, limit=limit or 10000)
-            card_ids = [c["id"] for c in query_result.get("cards", [])]
-            if limit:
-                card_ids = card_ids[:limit]
+            query, params = build_list_query(where={}, limit=limit or 10000)
+            
+            card_ids = []
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                for row in cur.fetchall():
+                    card_ids.append(row[0])  # row[0] is the id
     else:
         # Rep: can only blast assigned cards
         if card_ids and isinstance(card_ids, list):
