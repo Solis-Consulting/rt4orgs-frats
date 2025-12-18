@@ -33,6 +33,44 @@
     import { BACKEND_URL } from '/config.js';
     const BACKEND = BACKEND_URL;
 
+    // Owner-only authentication check
+    (async function checkOwnerAuth() {
+      const apiToken = localStorage.getItem('apiToken');
+      if (!apiToken) {
+        window.location.href = 'login.html';
+        return;
+      }
+
+      // Verify token is owner/admin by calling admin endpoint
+      try {
+        const res = await fetch(`${BACKEND}/admin/users`, {
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem('apiToken');
+          window.location.href = 'login.html';
+          return;
+        }
+
+        if (!res.ok) {
+          localStorage.removeItem('apiToken');
+          window.location.href = 'login.html';
+          return;
+        }
+
+        // Owner token validated - continue loading page
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        localStorage.removeItem('apiToken');
+        window.location.href = 'login.html';
+        return;
+      }
+    })();
+
     function stateBadgeClass(s) {
       if (!s) return "gray";
       const v = s.toLowerCase();
