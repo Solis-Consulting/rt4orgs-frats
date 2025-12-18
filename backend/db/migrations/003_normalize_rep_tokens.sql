@@ -2,6 +2,9 @@
 -- Updates existing rep users to use their Twilio Account SID as their API token
 -- Owner (admin role) tokens remain unchanged (randomly generated)
 
+-- Enable pgcrypto extension for digest function (required for SHA-256 hashing)
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- This migration updates the api_token for all rep users to use their twilio_account_sid
 -- Only affects users where:
 --   1. role = 'rep' (not admin/owner)
