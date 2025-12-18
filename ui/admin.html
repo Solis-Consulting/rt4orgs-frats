@@ -68,7 +68,7 @@
       </div>
 
       <div class="tabs">
-        <div class="tab active" data-view="users">Users & Phone Pairing</div>
+        <div class="tab active" data-view="users">Users</div>
         <div class="tab" data-view="assignments">Card Assignments</div>
         <div class="tab" data-view="blast">Blast</div>
       </div>
@@ -144,20 +144,10 @@
             <option value="admin">Admin</option>
           </select>
         </div>
-        <div class="form-group">
-          <label>Twilio Phone Number (optional)</label>
-          <input type="text" id="newTwilioPhone" placeholder="+1234567890">
-        </div>
-        <div class="form-group">
-          <label>Twilio Account SID (starts with AC, optional)</label>
-          <input type="text" id="newTwilioSid" placeholder="AC...">
-          <small style="color: #9ca3af; font-size: 11px; display: block; margin-top: 4px;">
-            Account SID starts with "AC" (for authentication). Phone Number SID (PN) is different - use Account SID here.
-          </small>
-        </div>
-        <div class="form-group">
-          <label>Twilio Auth Token (optional)</label>
-          <input type="password" id="newTwilioToken">
+        <div style="padding: 12px; background: #1e293b; border-radius: 8px; margin-bottom: 16px; font-size: 12px; color: #9ca3af;">
+          <strong style="color: #38bdf8;">ℹ️ Messaging Configuration:</strong><br>
+          All messages are sent via the system Messaging Service using phone number (919) 443-6288.<br>
+          No individual Twilio configuration needed - handled automatically behind the scenes.
         </div>
         <div style="display: flex; gap: 12px; margin-top: 20px;">
           <button type="submit">Create User</button>
@@ -272,7 +262,7 @@
 
     function renderUsers() {
       let html = '<table><thead><tr>';
-      html += '<th>Username</th><th>User ID</th><th>Role</th><th>Twilio Phone</th><th>Twilio Account SID</th><th>API Token Preview</th><th>Created</th><th>Actions</th>';
+      html += '<th>Username</th><th>User ID</th><th>Role</th><th>API Token Preview</th><th>Created</th><th>Actions</th>';
       html += '</tr></thead><tbody>';
 
       allUsers.forEach(user => {
@@ -280,12 +270,10 @@
         html += `<td>${user.username}</td>`;
         html += `<td style="font-family: monospace; font-size: 11px; word-break: break-all;">${user.id || '-'}</td>`;
         html += `<td><span class='badge ${user.role === 'admin' ? 'amber' : 'gray'}'>${user.role === 'admin' ? 'Owner' : 'Rep'}</span></td>`;
-        html += `<td style="font-family: monospace; font-size: 11px;">${user.twilio_phone_number || '-'}</td>`;
-        html += `<td style="font-family: monospace; font-size: 11px; word-break: break-all; max-width: 400px;">${user.twilio_account_sid || '-'}</td>`;
         html += `<td style="font-family: monospace; font-size: 10px; color: #9ca3af;">${user.api_token ? (user.api_token.substring(0, 20) + '...') : 'N/A (hashed)'}</td>`;
         html += `<td>${user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}</td>`;
         html += `<td style="display: flex; gap: 8px; align-items: center;">`;
-        html += `<a class='link' href='#' onclick='editUser("${user.id}"); return false;'>Edit Phone Pairing</a>`;
+        html += `<a class='link' href='#' onclick='regenerateUserToken("${user.id}", "${user.username.replace(/'/g, "\\'")}"); return false;'>Regenerate Token</a>`;
         html += `<span style="color: #6b7280;">|</span>`;
         html += `<a class='link' href='#' onclick='deleteUser("${user.id}", "${user.username.replace(/'/g, "\\'")}"); return false;' style="color: #ef4444;">Delete</a>`;
         html += `</td>`;
@@ -337,29 +325,15 @@
       console.log('🔥 FORM SUBMIT: createUserForm');
       
       const role = document.getElementById('newRole').value;
-      const twilioSid = document.getElementById('newTwilioSid').value.trim();
-      // Validate Account SID format
-      if (twilioSid && !twilioSid.startsWith('AC')) {
-        alert('⚠️ Warning: Account SID should start with "AC".\n\nYou entered: ' + twilioSid.substring(0, 20) + '...\n\n' +
-              'If this is a Phone Number SID (starts with PN), please use the Account SID instead.\n\n' +
-              'Account SID: Starts with AC (used for authentication)\n' +
-              'Phone Number SID: Starts with PN (not used for authentication)\n' +
-              'Phone Number: Format like +19843699489 (used as "from" number)');
-        return;
-      }
       
-      // For reps, Twilio Account SID is required (it becomes their API token)
-      if (role === 'rep' && !twilioSid) {
-        alert('Twilio Account SID is required for reps (it will be used as their API token).');
-        return;
-      }
-      
+      // All users get random API tokens - no Twilio SID needed
+      // All messaging goes through system Messaging Service
       const payload = {
         username: document.getElementById('newUsername').value.trim(),
         role: role,
-        twilio_phone_number: document.getElementById('newTwilioPhone').value.trim() || null,
-        twilio_account_sid: twilioSid || null,
-        twilio_auth_token: document.getElementById('newTwilioToken').value.trim() || null,
+        twilio_phone_number: null,  // Not used - system phone via Messaging Service
+        twilio_account_sid: null,   // Not used - system Account SID via env vars
+        twilio_auth_token: null,    // Not used - system Auth Token via env vars
       };
 
       console.log('🔥 ABOUT TO FETCH /admin/users', payload);
@@ -391,7 +365,6 @@
           // Show token prominently
           const tokenValue = data.user.api_token;
           const isRep = data.user.role === 'rep';
-          const twilioSid = payload.twilio_account_sid;
           
           document.getElementById('newUserTokenValue').textContent = tokenValue;
           document.getElementById('newUserToken').style.display = 'block';
@@ -403,19 +376,11 @@
             console.log('[ADMIN] Could not copy to clipboard:', err);
           });
           
-          // Show appropriate message based on token type
-          if (isRep && twilioSid && tokenValue === twilioSid) {
-            // Update token info message
-            document.getElementById('tokenInfo').textContent = 'This is the rep\'s Twilio Account SID (used as their API token for login).';
-            alert(`Rep created! API Token (Twilio Account SID - copied to clipboard):\n\n${tokenValue}\n\nThis is the rep's login key (same as their Twilio Account SID).`);
-          } else if (!isRep) {
-            // Owner token
-            document.getElementById('tokenInfo').textContent = 'This is the owner\'s randomly generated API token (permanent first-time key).';
-            alert(`Owner created! API Token (copied to clipboard):\n\n${tokenValue}\n\nSave this token - it's the owner's login key!`);
+          // Show appropriate message
+          if (isRep) {
+            alert(`Rep created! API Token (copied to clipboard):\n\n${tokenValue}\n\nSave this token - it's the rep's login key!\n\nAll messages will be sent via system Messaging Service.`);
           } else {
-            // Rep without Twilio SID (fallback random token)
-            document.getElementById('tokenInfo').textContent = 'This is a randomly generated API token (Twilio Account SID was not provided).';
-            alert(`Rep created! API Token (copied to clipboard):\n\n${tokenValue}\n\nNote: Twilio Account SID was not provided, so a random token was generated.`);
+            alert(`Owner created! API Token (copied to clipboard):\n\n${tokenValue}\n\nSave this token - it's the owner's login key!`);
           }
           
           // Reload users after a delay
@@ -765,23 +730,10 @@
         return;
       }
 
-      const phone = prompt('Enter Twilio phone number:', user.twilio_phone_number || '');
-      if (phone === null) {
-        console.log('🔥 editUser: cancelled');
-        return; // User cancelled
-      }
-
-      const accountSid = prompt('Enter Twilio Account SID (must start with AC, optional):', user.twilio_account_sid || '');
-      if (accountSid && accountSid.trim() && !accountSid.trim().startsWith('AC')) {
-        alert('⚠️ Warning: Account SID should start with "AC".\n\nYou entered: ' + accountSid.trim().substring(0, 20) + '...\n\nIf this is a Phone Number SID (starts with PN), please use the Account SID instead (starts with AC).');
-      }
-      const authToken = prompt('Enter Twilio Auth Token (optional, leave empty to keep current):', '');
-
-      const updatePayload = {
-        twilio_phone_number: phone || null,
-        twilio_account_sid: accountSid || null,
-        twilio_auth_token: authToken || null,
-      };
+      // Twilio configuration is no longer user-specific
+      // All messaging goes through system Messaging Service
+      alert('ℹ️ Twilio Configuration\n\nAll messages are sent via the system Messaging Service using phone number (919) 443-6288.\n\nNo individual user Twilio configuration is needed - this is handled automatically behind the scenes.\n\nTo regenerate the API token, use the regenerate token endpoint.');
+      return;
       
       console.log('🔥 ABOUT TO FETCH /admin/users/' + userId, updatePayload);
       console.log('🔥 Headers:', headers);
@@ -860,9 +812,57 @@
       }
     }
 
+    async function regenerateUserToken(userId, username) {
+      console.log('🔥 BUTTON CLICKED: regenerateUserToken', userId, username);
+      
+      if (!confirm(`Regenerate API token for "${username}"?\n\nThe old token will no longer work. A new token will be generated and shown once.`)) {
+        console.log('🔥 regenerateUserToken: cancelled');
+        return;
+      }
+
+      try {
+        console.log('[ADMIN] Regenerating token for user:', userId);
+        console.log('🔥 FETCHING POST /admin/users/' + userId + '/regenerate-token');
+        const res = await fetch(`${BACKEND}/admin/users/${encodeURIComponent(userId)}/regenerate-token`, {
+          method: 'POST',
+          headers
+        });
+
+        console.log('[ADMIN] Regenerate token response status:', res.status);
+        
+        if (!res.ok) {
+          const text = await res.text();
+          console.error('[ADMIN] Error response:', text);
+          alert(`Error ${res.status}: ${text}`);
+          return;
+        }
+
+        const data = await res.json();
+        console.log('[ADMIN] Regenerate token response data:', data);
+        
+        if (data.ok && data.api_token) {
+          // Copy to clipboard
+          navigator.clipboard.writeText(data.api_token).then(() => {
+            console.log('[ADMIN] Token copied to clipboard');
+          }).catch(err => {
+            console.log('[ADMIN] Could not copy to clipboard:', err);
+          });
+          
+          alert(`New API Token for "${username}" (copied to clipboard):\n\n${data.api_token}\n\n⚠️ Save this token - it will not be shown again!\n\nThe old token no longer works.`);
+          loadUsers();
+        } else {
+          alert(`Failed to regenerate token: ${data.detail || 'Unknown error'}`);
+        }
+      } catch (error) {
+        console.error('[ADMIN] Regenerate token exception:', error);
+        alert(`Error: ${error.message}`);
+      }
+    }
+
     window.logout = logout;
     window.editUser = editUser;
     window.deleteUser = deleteUser;
+    window.regenerateUserToken = regenerateUserToken;
     window.updateAssignmentStatus = updateAssignmentStatus;
 
     async function unassignCard(cardId, userId, cardName) {

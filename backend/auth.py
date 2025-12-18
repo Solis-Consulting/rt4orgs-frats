@@ -97,18 +97,10 @@ def create_user(
         user_id = username.lower().replace(" ", "_").replace("-", "_")
     
     # API Token Strategy:
-    # - Owner (admin): Always generate random token
-    # - Reps: Use Twilio Account SID if provided, otherwise generate random
-    if role == "admin":
-        # Owner: Always use randomly generated token
-        plaintext_token = generate_api_token()
-    else:
-        # Rep: Use Twilio Account SID as API token if provided
-        if twilio_account_sid:
-            plaintext_token = twilio_account_sid
-        else:
-            # Fallback: Generate random token if no Twilio Account SID provided
-            plaintext_token = generate_api_token()
+    # - All users (admin and reps): Always generate random token
+    # - No longer using Twilio Account SID as API token
+    # - All messaging goes through system Messaging Service
+    plaintext_token = generate_api_token()
     
     hashed_token = hash_token(plaintext_token)
     
