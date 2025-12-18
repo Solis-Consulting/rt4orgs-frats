@@ -937,11 +937,14 @@ async def twilio_inbound(request: Request):
             # - If rep_user_id is set, uses that rep's responses; otherwise uses global responses
             # - If multiple reps messaged, rep_user_id reflects the LAST rep to message (conflict resolution)
             print(f"[TWILIO_INBOUND] 🔍 Looking up Markov response for state='{next_state}', rep_user_id={rep_user_id}")
+            print(f"[TWILIO_INBOUND] 📋 Conversation details: phone={normalized_phone}, routing_mode={routing_mode}")
             configured_response = get_markov_response(conn, next_state, rep_user_id)
             if configured_response:
                 print(f"[TWILIO_INBOUND] ✅ Found response (length: {len(configured_response)} chars, preview: {configured_response[:50]}...)")
+                print(f"[TWILIO_INBOUND] 📝 Full response: {configured_response}")
             else:
                 print(f"[TWILIO_INBOUND] ⚠️ No configured response found for state='{next_state}', rep_user_id={rep_user_id}")
+                print(f"[TWILIO_INBOUND] 💡 Suggestion: Rep should configure a response for this state, or owner should set a global default")
             
             if configured_response:
                 # If we have a card, substitute template placeholders
@@ -961,32 +964,11 @@ async def twilio_inbound(request: Request):
                     reply_text = configured_response
                     print(f"[TWILIO_INBOUND] Using configured response for state '{next_state}' (no substitution)")
             else:
-                # Fallback: provide a helpful default response based on state
-                fallback_responses = {
-                    "interest": "Great! What would you like to know?",
-                    "light_interest": "Awesome! I can help you get a fresh PNM list. What questions do you have?",
-                    "strong_interest": "Excellent! Let's get you set up. What's your timeline?",
-                    "pricing": "I'd be happy to discuss pricing. What's your chapter size?",
-                    "asks_for_price": "Pricing depends on chapter size and delivery timeline. What are you looking for?",
-                    "question": "I'm here to help! What would you like to know?",
-                    "demo": "I can show you examples. What would be most helpful?",
-                    "asks_for_example_list": "I can send you a sample list. What chapter are you interested in?",
-                }
-                
-                # Try to find a fallback based on state or category
-                fallback = fallback_responses.get(next_state)
-                if not fallback:
-                    # Try category-based fallback
-                    intent_category = result.get("intent", {}).get("category")
-                    if intent_category:
-                        fallback = fallback_responses.get(intent_category)
-                
-                if fallback:
-                    reply_text = fallback
-                    print(f"[TWILIO_INBOUND] Using fallback response for state '{next_state}': {fallback}")
-                else:
-                    print(f"[TWILIO_INBOUND] No configured response for state '{next_state}' and no fallback available")
-                    # Don't send a reply if not configured - prevents unwanted messages
+                # No configured response found (neither rep-specific nor global)
+                print(f"[TWILIO_INBOUND] ⚠️ No configured response found for state='{next_state}', rep_user_id={rep_user_id}")
+                print(f"[TWILIO_INBOUND] This means neither the rep nor the owner has configured a response for this state")
+                # Don't send a reply if not configured - prevents unwanted messages
+                reply_text = None
         
         # Send explicit reply via Twilio (webhook return does NOT send SMS)
         # Filter out "OK" messages - don't send standalone "OK" responses
@@ -2543,6 +2525,11 @@ def get_markov_response(conn: Any, state_key: str, user_id: Optional[str] = None
     """
     Get configured response text for a Markov state, or None if not configured.
     
+    CRITICAL: This implements the rep-specific Markov handler system:
+    - If user_id is provided (rep), tries rep-specific response first
+    - Falls back to global (owner's default) if rep hasn't customized
+    - If user_id is None (owner), returns global response only
+    
     Args:
         conn: Database connection
         state_key: The Markov state key
@@ -2552,31 +2539,43 @@ def get_markov_response(conn: Any, state_key: str, user_id: Optional[str] = None
     Returns:
         Response text or None
     """
+    print(f"[GET_MARKOV_RESPONSE] 🔍 Looking up state='{state_key}', user_id={user_id}")
+    
     with conn.cursor() as cur:
         if user_id:
             # Try rep-specific first
             cur.execute("""
-                SELECT response_text FROM markov_responses 
+                SELECT response_text FROM markov_responses
                 WHERE state_key = %s AND user_id = %s
             """, (state_key, user_id))
             row = cur.fetchone()
-            if row:
-                print(f"[GET_MARKOV_RESPONSE] ✅ Found rep-specific response for state='{state_key}', user_id='{user_id}'")
-                return row[0]
+            if row and row[0]:
+                response_text = row[0].strip()
+                if response_text:  # Make sure it's not empty
+                    print(f"[GET_MARKOV_RESPONSE] ✅ Found rep-specific response for state='{state_key}', user_id='{user_id}' (length: {len(response_text)})")
+                    return response_text
+                else:
+                    print(f"[GET_MARKOV_RESPONSE] ⚠️ Rep-specific response exists but is empty for state='{state_key}', user_id='{user_id}', falling back to global")
             else:
                 print(f"[GET_MARKOV_RESPONSE] ⚠️ No rep-specific response found for state='{state_key}', user_id='{user_id}', falling back to global")
         
-        # Fallback to global (user_id IS NULL)
+        # Fallback to global (user_id IS NULL) - owner's defaults
         cur.execute("""
             SELECT response_text FROM markov_responses
             WHERE state_key = %s AND user_id IS NULL
         """, (state_key,))
         row = cur.fetchone()
-        if row:
-            print(f"[GET_MARKOV_RESPONSE] ✅ Found global response for state='{state_key}'")
+        if row and row[0]:
+            response_text = row[0].strip()
+            if response_text:  # Make sure it's not empty
+                print(f"[GET_MARKOV_RESPONSE] ✅ Found global (owner) response for state='{state_key}' (length: {len(response_text)})")
+                return response_text
+            else:
+                print(f"[GET_MARKOV_RESPONSE] ⚠️ Global response exists but is empty for state='{state_key}'")
         else:
             print(f"[GET_MARKOV_RESPONSE] ❌ No response found (neither rep-specific nor global) for state='{state_key}'")
-        return row[0] if row else None
+        
+        return None
 
 
 def get_initial_outreach_message(conn: Any, user_id: Optional[str] = None) -> Optional[str]:
