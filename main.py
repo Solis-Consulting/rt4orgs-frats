@@ -330,14 +330,29 @@ async def log_requests(request: Request, call_next):
     # Log request (don't read body here - it can only be read once)
     has_body = request.method in ("POST", "PUT", "PATCH")
     
-    # CRITICAL: Enhanced logging for POST requests, especially /rep/blast
-    if request.method == "POST" and "/rep/blast" in str(request.url.path):
+    # CRITICAL: Log ALL POST requests to diagnose missing requests
+    if request.method == "POST":
         print("=" * 80, flush=True)
-        print(f"[MIDDLEWARE] 🚨 POST /rep/blast REQUEST DETECTED", flush=True)
+        print(f"[MIDDLEWARE] 🚨 POST REQUEST DETECTED", flush=True)
         print("=" * 80, flush=True)
         print(f"[MIDDLEWARE] Path: {request.url.path}", flush=True)
-        print(f"[MIDDLEWARE] Headers: {dict(request.headers)}", flush=True)
+        print(f"[MIDDLEWARE] Method: {request.method}", flush=True)
+        print(f"[MIDDLEWARE] Headers include Authorization: {'Authorization' in request.headers}", flush=True)
+        print(f"[MIDDLEWARE] Content-Type: {request.headers.get('Content-Type', 'NOT SET')}", flush=True)
+        print(f"[MIDDLEWARE] Content-Length: {request.headers.get('Content-Length', 'NOT SET')}", flush=True)
+        print(f"[MIDDLEWARE] Origin: {request.headers.get('Origin', 'NOT SET')}", flush=True)
         print(f"[MIDDLEWARE] Client: {request.client}", flush=True)
+        print("=" * 80, flush=True)
+    
+    # CRITICAL: Log OPTIONS requests (CORS preflight) to see if they're being blocked
+    if request.method == "OPTIONS":
+        print("=" * 80, flush=True)
+        print(f"[MIDDLEWARE] 🔵 OPTIONS (CORS PREFLIGHT) REQUEST", flush=True)
+        print("=" * 80, flush=True)
+        print(f"[MIDDLEWARE] Path: {request.url.path}", flush=True)
+        print(f"[MIDDLEWARE] Access-Control-Request-Method: {request.headers.get('Access-Control-Request-Method', 'NOT SET')}", flush=True)
+        print(f"[MIDDLEWARE] Access-Control-Request-Headers: {request.headers.get('Access-Control-Request-Headers', 'NOT SET')}", flush=True)
+        print(f"[MIDDLEWARE] Origin: {request.headers.get('Origin', 'NOT SET')}", flush=True)
         print("=" * 80, flush=True)
     
     logger.info(
