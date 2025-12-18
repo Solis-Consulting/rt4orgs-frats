@@ -2496,8 +2496,21 @@ async def rep_get_cards(
     if current_user.get("role") == "admin":
         # Owner: get all cards
         from backend.query import build_list_query
-        query_result = build_list_query(conn, {}, 10000)  # Pass limit as positional arg
-        cards = query_result.get("cards", [])
+        query, params = build_list_query(where={}, limit=10000)
+        
+        cards = []
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            for row in cur.fetchall():
+                cards.append({
+                    "id": row[0],
+                    "type": row[1],
+                    "card_data": row[2],
+                    "sales_state": row[3],
+                    "owner": row[4],
+                    "created_at": row[5].isoformat() if row[5] else None,
+                    "updated_at": row[6].isoformat() if row[6] else None,
+                })
     else:
         # Rep: get only assigned cards
         cards = get_rep_assigned_cards(conn, current_user["id"], status=status)
