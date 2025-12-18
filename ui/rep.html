@@ -76,7 +76,7 @@
       </div>
 
       <!-- Cards View -->
-      <div id="cardsView">
+      <div id="cardsView" style="display: none;">
         <div class="toolbar">
           <input id="cardSearch" placeholder="Search by name or ID">
           <select id="statusFilter">
@@ -218,6 +218,13 @@
         
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
+        
+        // Only switch tabs if token is set
+        if (!apiToken) {
+          tokenPrompt.style.display = 'block';
+          mainContent.style.display = 'none';
+          return;
+        }
         
         document.getElementById('cardsView').style.display = view === 'cards' ? 'block' : 'none';
         document.getElementById('conversationsView').style.display = view === 'conversations' ? 'block' : 'none';
@@ -565,11 +572,6 @@
       }
       else if (currentView === 'stats') loadStats();
     }, 30000);
-
-    function logout() {
-      localStorage.removeItem('apiToken');
-      window.location.href = 'login.html';
-    }
 
     window.viewConversation = viewConversation;
   </script>
