@@ -2642,6 +2642,10 @@ async def rep_get_conversations(current_user: Dict = Depends(get_current_owner_o
             """)
             
             conversations = []
+            # Helper to convert datetime to ISO string
+            def to_iso(dt):
+                return dt.isoformat() if dt else None
+            
             for row in cur.fetchall():
                 history = row[10] or []
                 if isinstance(history, str):
@@ -2658,10 +2662,10 @@ async def rep_get_conversations(current_user: Dict = Depends(get_current_owner_o
                     "routing_mode": row[3],
                     "rep_user_id": row[4],
                     "rep_phone_number": row[5],
-                    "last_outbound_at": row[6],
-                    "last_inbound_at": row[7],
-                    "created_at": row[8],
-                    "updated_at": row[9],
+                    "last_outbound_at": to_iso(row[6]),
+                    "last_inbound_at": to_iso(row[7]),
+                    "created_at": to_iso(row[8]),
+                    "updated_at": to_iso(row[9]),
                     "unread_count": 0,  # Owner sees all, no unread concept
                 })
     else:
