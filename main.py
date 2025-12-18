@@ -2538,6 +2538,10 @@ async def rep_get_cards(
     
     CRITICAL SECURITY: Reps can ONLY see assigned cards, never all cards.
     Owner (admin role) can see all cards for admin dashboard.
+    
+    Database relationship: card_assignments table links cards to reps via:
+    - card_assignments.card_id -> cards.id
+    - card_assignments.user_id -> users.id
     """
     conn = get_conn()
     
@@ -2570,27 +2574,28 @@ async def rep_get_cards(
                 })
         logger.info(f"[REP_CARDS] Owner - returning {len(cards)} total cards")
     else:
-        # Rep: STRICT enforcement - ONLY assigned cards
+        # Rep: STRICT enforcement - ONLY assigned cards via card_assignments table
         # This is the security boundary - reps NEVER see unassigned cards
-        logger.info(f"[REP_CARDS] Rep access (role={user_role}) - STRICT filtering to assigned cards only for user_id={user_id}")
+        logger.info(f"[REP_CARDS] Rep access (role={user_role}) - STRICT filtering via card_assignments table for user_id={user_id}")
         
         # Verify user_id exists
         if not user_id:
             logger.error(f"[REP_CARDS] ERROR: No user_id in current_user dict!")
             raise HTTPException(status_code=500, detail="User ID not found")
         
-        cards = get_rep_assigned_cards(conn, user_id, status=status)
-        logger.info(f"[REP_CARDS] Rep {user_id} ({username}) - found {len(cards)} assigned cards")
-        
-        # Security check: if somehow we got more cards than assignments, something is wrong
-        # Count actual assignments for this user
+        # Check assignment count first
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM card_assignments WHERE user_id = %s", (user_id,))
             assignment_count = cur.fetchone()[0] or 0
+            logger.info(f"[REP_CARDS] Rep {user_id} has {assignment_count} assignments in card_assignments table")
         
-        if len(cards) > assignment_count:
-            logger.error(f"[REP_CARDS] SECURITY WARNING: Rep {user_id} got {len(cards)} cards but only {assignment_count} assignments!")
-            # Still return only assigned cards, but log the anomaly
+        # Get assigned cards via INNER JOIN (only cards in card_assignments)
+        cards = get_rep_assigned_cards(conn, user_id, status=status)
+        logger.info(f"[REP_CARDS] Rep {user_id} ({username}) - found {len(cards)} assigned cards via get_rep_assigned_cards")
+        
+        # Security check: verify count matches
+        if len(cards) != assignment_count:
+            logger.warning(f"[REP_CARDS] Count mismatch: {len(cards)} cards returned but {assignment_count} assignments exist (may be due to deleted cards)")
     
     return {"ok": True, "cards": cards}
 

@@ -259,7 +259,7 @@
 
     function renderUsers() {
       let html = '<table><thead><tr>';
-      html += '<th>Username</th><th>User ID</th><th>Role</th><th>Twilio Phone</th><th>Twilio Account SID</th><th>Created</th><th>Actions</th>';
+      html += '<th>Username</th><th>User ID</th><th>Role</th><th>Twilio Phone</th><th>Twilio Account SID</th><th>API Token Preview</th><th>Created</th><th>Actions</th>';
       html += '</tr></thead><tbody>';
 
       allUsers.forEach(user => {
@@ -269,6 +269,7 @@
         html += `<td><span class='badge ${user.role === 'admin' ? 'amber' : 'gray'}'>${user.role === 'admin' ? 'Owner' : 'Rep'}</span></td>`;
         html += `<td style="font-family: monospace; font-size: 11px;">${user.twilio_phone_number || '-'}</td>`;
         html += `<td style="font-family: monospace; font-size: 11px; word-break: break-all; max-width: 400px;">${user.twilio_account_sid || '-'}</td>`;
+        html += `<td style="font-family: monospace; font-size: 10px; color: #9ca3af;">${user.api_token ? (user.api_token.substring(0, 20) + '...') : 'N/A (hashed)'}</td>`;
         html += `<td>${user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}</td>`;
         html += `<td><a class='link' href='#' onclick='editUser("${user.id}"); return false;'>Edit Phone Pairing</a></td>`;
         html += '</tr>';
@@ -352,9 +353,19 @@
         console.log('[ADMIN] Response data:', data);
         
         if (data.ok && data.user) {
-          // Show token
-          document.getElementById('newUserTokenValue').textContent = data.user.api_token;
+          // Show token prominently
+          const tokenValue = data.user.api_token;
+          document.getElementById('newUserTokenValue').textContent = tokenValue;
           document.getElementById('newUserToken').style.display = 'block';
+          
+          // Copy token to clipboard automatically
+          navigator.clipboard.writeText(tokenValue).then(() => {
+            console.log('[ADMIN] Token copied to clipboard');
+          }).catch(err => {
+            console.log('[ADMIN] Could not copy to clipboard:', err);
+          });
+          
+          alert(`Rep created! API Token (copied to clipboard):\n\n${tokenValue}\n\nSave this token - it's the rep's login key!`);
           
           // Reload users after a delay
           setTimeout(() => {
