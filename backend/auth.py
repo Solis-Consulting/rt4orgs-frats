@@ -204,11 +204,35 @@ def get_user(conn: Any, user_id: str) -> Optional[Dict[str, Any]]:
 
 def list_users(conn: Any, include_inactive: bool = False) -> list[Dict[str, Any]]:
     """List all users. Returns plaintext tokens for reps, but not for owner/admin."""
-    query = """
-        SELECT id, username, role, twilio_phone_number, twilio_account_sid, 
-               created_at, updated_at, is_active, api_token_plaintext
-        FROM users
-    """
+    # Check if api_token_plaintext column exists (for backward compatibility)
+    column_exists = False
+    try:
+        with conn.cursor() as check_cur:
+            check_cur.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_schema = 'public' 
+                AND table_name = 'users' 
+                AND column_name = 'api_token_plaintext'
+            """)
+            column_exists = check_cur.fetchone() is not None
+    except Exception:
+        pass
+    
+    if column_exists:
+        query = """
+            SELECT id, username, role, twilio_phone_number, twilio_account_sid, 
+                   created_at, updated_at, is_active, api_token_plaintext
+            FROM users
+        """
+    else:
+        # Fallback for old schema - return NULL for api_token
+        query = """
+            SELECT id, username, role, twilio_phone_number, twilio_account_sid, 
+                   created_at, updated_at, is_active, NULL as api_token_plaintext
+            FROM users
+        """
+    
     params = []
     
     if not include_inactive:
@@ -230,7 +254,7 @@ def list_users(conn: Any, include_inactive: bool = False) -> list[Dict[str, Any]
                 "created_at": row[5],
                 "updated_at": row[6],
                 "is_active": row[7],
-                "api_token": row[8],  # Plaintext token for reps, NULL for owner
+                "api_token": row[8] if len(row) > 8 else None,  # Plaintext token for reps, NULL for owner
             })
         
         return users

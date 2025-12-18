@@ -271,10 +271,21 @@
         html += `<td style="font-family: monospace; font-size: 11px; word-break: break-all;">${user.id || '-'}</td>`;
         html += `<td><span class='badge ${user.role === 'admin' ? 'amber' : 'gray'}'>${user.role === 'admin' ? 'Owner' : 'Rep'}</span></td>`;
         // Show plaintext token for reps, "N/A (hashed)" for owner/admin
-        const tokenDisplay = user.role === 'admin' 
-          ? 'N/A (hashed)' 
-          : (user.api_token ? user.api_token : 'N/A (hashed)');
-        html += `<td style="font-family: monospace; font-size: 10px; color: ${user.role === 'admin' ? '#9ca3af' : '#38bdf8'}; word-break: break-all;">${tokenDisplay}</td>`;
+        // For reps: show full token if available, otherwise show "N/A (regenerate to show)"
+        const isRep = user.role !== 'admin';
+        let tokenDisplay;
+        let tokenColor;
+        if (user.role === 'admin') {
+          tokenDisplay = 'N/A (hashed)';
+          tokenColor = '#9ca3af';
+        } else if (user.api_token) {
+          tokenDisplay = user.api_token; // Full token for reps
+          tokenColor = '#38bdf8';
+        } else {
+          tokenDisplay = 'N/A (regenerate to show)';
+          tokenColor = '#fbbf24'; // Amber/yellow to indicate action needed
+        }
+        html += `<td style="font-family: monospace; font-size: ${isRep && user.api_token ? '11px' : '10px'}; color: ${tokenColor}; word-break: break-all; ${isRep && user.api_token ? 'font-weight: 500;' : ''}">${tokenDisplay}</td>`;
         html += `<td>${user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}</td>`;
         html += `<td style="display: flex; gap: 8px; align-items: center;">`;
         html += `<a class='link' href='#' onclick='regenerateUserToken("${user.id}", "${user.username.replace(/'/g, "\\'")}"); return false;'>Regenerate Token</a>`;
