@@ -2352,20 +2352,32 @@ async def get_current_user(request: Request) -> Dict[str, Any]:
     auth_header = request.headers.get("Authorization", "")
     
     logger.info(f"[AUTH] Authorization header: {auth_header[:30] + '...' if auth_header and len(auth_header) > 30 else auth_header}")
+    print(f"[AUTH] Authorization header received: {auth_header[:50]}...", flush=True)
     
     if not auth_header or not auth_header.startswith("Bearer "):
         logger.warning("[AUTH] Missing or invalid Authorization header")
+        print("[AUTH] ❌ Missing or invalid Authorization header", flush=True)
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
     
     token = auth_header[7:]
+    print(f"[AUTH] Extracted token: {token[:20]}... (length: {len(token)})", flush=True)
+    
     conn = get_conn()
     user = get_user_by_token(conn, token)
     
     if not user:
-        logger.warning(f"[AUTH] Invalid API token (token preview: {token[:15]}...)")
+        # Enhanced logging for token validation failure
+        import hashlib
+        hashed_token = hashlib.sha256(token.encode()).hexdigest()
+        print(f"[AUTH] ❌ Invalid API token", flush=True)
+        print(f"[AUTH] Token preview: {token[:20]}...", flush=True)
+        print(f"[AUTH] Token length: {len(token)}", flush=True)
+        print(f"[AUTH] Hashed token: {hashed_token[:20]}...", flush=True)
+        logger.warning(f"[AUTH] Invalid API token (token preview: {token[:15]}..., hashed: {hashed_token[:20]}...)")
         raise HTTPException(status_code=401, detail="Invalid API token")
     
     logger.info(f"[AUTH] Authenticated user: {user['id']} role={user['role']} username={user.get('username', 'N/A')}")
+    print(f"[AUTH] ✅ Authenticated user: {user['id']} (role: {user.get('role')}, username: {user.get('username', 'N/A')})", flush=True)
     return user
 
 
