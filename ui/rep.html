@@ -424,14 +424,25 @@
           return;
         }
         
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`HTTP ${res.status}: ${text}`);
+        }
+        
         const data = await res.json();
         allConversations = data.conversations || [];
+        // Also reload cards to get names for conversations
+        if (allCards.length === 0) {
+          await loadCards();
+        }
         renderConversations();
       } catch (error) {
         console.error('Error loading conversations:', error);
         if (error.message.includes('No API token')) {
           tokenPrompt.style.display = 'block';
           mainContent.style.display = 'none';
+        } else {
+          alert(`Error loading conversations: ${error.message}`);
         }
       }
     }
@@ -442,14 +453,28 @@
 
       allConversations.filter(conv => {
         if (!search) return true;
-        return conv.phone?.toLowerCase().includes(search);
+        const phone = conv.phone?.toLowerCase() || '';
+        // Also search by card name if available
+        const card = allCards.find(c => c.id === conv.card_id);
+        const cardName = card?.card_data?.name?.toLowerCase() || '';
+        return phone.includes(search) || cardName.includes(search);
       }).forEach(conv => {
         const unread = conv.unread_count > 0 ? `<span class="badge red">${conv.unread_count}</span>` : '';
+        // Find card name
+        const card = allCards.find(c => c.id === conv.card_id);
+        const cardName = card?.card_data?.name || 'Unknown Contact';
+        const phone = conv.phone || 'No phone';
+        const routingMode = conv.routing_mode || 'ai';
+        const modeBadge = routingMode === 'rep' ? '<span class="badge green">Rep</span>' : '<span class="badge gray">AI</span>';
+        const lastActivity = conv.last_inbound_at || conv.last_outbound_at || 'No messages';
+        const lastActivityDate = lastActivity !== 'No messages' ? new Date(lastActivity).toLocaleString() : lastActivity;
+        
         html += `<div style="padding: 12px; border-bottom: 1px solid #1f2937; cursor: pointer;" onclick='viewConversation("${conv.phone}")'>`;
-        html += `<div style="display: flex; justify-content: space-between;">`;
-        html += `<div><strong>${conv.phone}</strong> ${unread}</div>`;
-        html += `<div style="font-size: 11px; color: #9ca3af;">${conv.last_inbound_at || conv.last_outbound_at || 'No messages'}</div>`;
-        html += `</div><div style="font-size: 12px; color: #9ca3af; margin-top: 4px;">State: ${conv.state || 'unknown'}</div>`;
+        html += `<div style="display: flex; justify-content: space-between; align-items: center;">`;
+        html += `<div><strong>${cardName}</strong> ${unread} ${modeBadge}</div>`;
+        html += `<div style="font-size: 11px; color: #9ca3af;">${lastActivityDate}</div>`;
+        html += `</div>`;
+        html += `<div style="font-size: 11px; color: #6b7280; margin-top: 4px;">${phone} • State: ${conv.state || 'unknown'}</div>`;
         html += `</div>`;
       });
 
@@ -463,16 +488,45 @@
 
       try {
         const res = await fetch(`${BACKEND}/rep/messages/${encodeURIComponent(phone)}`, { headers: getHeaders() });
+        if (res.status === 401 || res.status === 403) {
+          apiToken = null;
+          tokenPrompt.style.display = 'block';
+          mainContent.style.display = 'none';
+          tokenInput.value = '';
+          userInfo.textContent = 'Enter your API token to continue';
+          showTokenError('Session expired. Please enter your API token again.');
+          return;
+        }
+        
         const data = await res.json();
         const messages = data.messages || [];
+
+        // Find card for this conversation
+        const conv = allConversations.find(c => c.phone === phone);
+        const card = conv?.card_id ? allCards.find(c => c.id === conv.card_id) : null;
+        const cardName = card?.card_data?.name || phone;
+
+        // Update message thread header
+        const threadHeader = document.getElementById('messageThread').querySelector('.thread-header');
+        if (!threadHeader) {
+          const header = document.createElement('div');
+          header.className = 'thread-header';
+          header.style.cssText = 'padding: 12px; border-bottom: 1px solid #1f2937; margin-bottom: 8px;';
+          header.innerHTML = `<div style="font-weight: 600;">${cardName}</div><div style="font-size: 11px; color: #9ca3af;">${phone}</div>`;
+          document.getElementById('messageThread').insertBefore(header, document.getElementById('messageThreadContent'));
+        } else {
+          threadHeader.innerHTML = `<div style="font-weight: 600;">${cardName}</div><div style="font-size: 11px; color: #9ca3af;">${phone}</div>`;
+        }
 
         let html = '';
         messages.forEach(msg => {
           const isOutbound = msg.direction === 'outbound';
           const time = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : '';
+          const sender = msg.sender || 'unknown';
+          const senderLabel = sender.startsWith('rep:') ? sender.replace('rep:', '') : (sender === 'owner' ? 'Owner' : sender);
           html += `<div class="message ${msg.direction}">`;
           html += `<div>${msg.text}</div>`;
-          html += `<div class="message-time">${time} - ${msg.sender || 'unknown'}</div>`;
+          html += `<div class="message-time">${time} - ${senderLabel}</div>`;
           html += `</div>`;
         });
 
@@ -480,18 +534,58 @@
         document.getElementById('messageThreadContent').scrollTop = document.getElementById('messageThreadContent').scrollHeight;
       } catch (error) {
         console.error('Error loading messages:', error);
+        alert(`Error loading conversation: ${error.message}`);
       }
     }
 
     document.getElementById('sendMessageBtn').addEventListener('click', async () => {
-      if (!selectedPhone) return;
+      if (!selectedPhone) {
+        alert('Please select a conversation first');
+        return;
+      }
       const message = document.getElementById('messageInput').value.trim();
-      if (!message) return;
+      if (!message) {
+        alert('Please enter a message');
+        return;
+      }
 
-      // Find card_id from phone
-      const card = allCards.find(c => c.card_data?.phone === selectedPhone);
+      // Find card_id from phone - try multiple methods
+      let card = allCards.find(c => c.card_data?.phone === selectedPhone);
+      
+      // If not found, try from conversations
       if (!card) {
-        alert('Card not found for this phone number');
+        const conv = allConversations.find(c => c.phone === selectedPhone);
+        if (conv?.card_id) {
+          card = allCards.find(c => c.id === conv.card_id);
+        }
+      }
+
+      if (!card) {
+        // Try sending with just phone number - backend will find card_id
+        try {
+          const res = await fetch(`${BACKEND}/rep/messages/send`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ phone: selectedPhone, message })
+          });
+
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`HTTP ${res.status}: ${text}`);
+          }
+
+          const data = await res.json();
+          if (data.ok) {
+            document.getElementById('messageInput').value = '';
+            // Reload conversations and messages
+            await loadConversations();
+            await viewConversation(selectedPhone);
+          } else {
+            alert(`Failed to send: ${data.detail || 'Unknown error'}`);
+          }
+        } catch (error) {
+          alert(`Error: ${error.message}`);
+        }
         return;
       }
 
@@ -502,11 +596,17 @@
           body: JSON.stringify({ card_id: card.id, message })
         });
 
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`HTTP ${res.status}: ${text}`);
+        }
+
         const data = await res.json();
         if (data.ok) {
           document.getElementById('messageInput').value = '';
-          viewConversation(selectedPhone);
-          loadConversations();
+          // Reload conversations and messages
+          await loadConversations();
+          await viewConversation(selectedPhone);
         } else {
           alert(`Failed to send: ${data.detail || 'Unknown error'}`);
         }

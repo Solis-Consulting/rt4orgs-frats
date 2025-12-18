@@ -2762,11 +2762,25 @@ async def rep_send_message(
     
     # If phone provided but not card_id, try to find card_id
     if phone and not card_id:
+        # First try from conversations table
         with conn.cursor() as cur:
             cur.execute("SELECT card_id FROM conversations WHERE phone = %s LIMIT 1", (phone,))
             row = cur.fetchone()
             if row and row[0]:
                 card_id = row[0]
+        
+        # If still not found, try to find card by phone number
+        if not card_id:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id FROM cards
+                    WHERE type = 'person'
+                    AND card_data->>'phone' = %s
+                    LIMIT 1
+                """, (phone,))
+                row = cur.fetchone()
+                if row and row[0]:
+                    card_id = row[0]
     
     if not card_id:
         raise HTTPException(status_code=404, detail="Card not found for phone number")
@@ -2868,13 +2882,15 @@ async def rep_get_stats(current_user: Dict = Depends(get_current_owner_or_rep)):
                     stats[status] = count
     else:
         # Rep: get only their stats
+        user_id = current_user["id"]
         with conn.cursor() as cur:
+            # Get assignment status counts
             cur.execute("""
                 SELECT status, COUNT(*) as count
                 FROM card_assignments
                 WHERE user_id = %s
                 GROUP BY status
-            """, (current_user["id"],))
+            """, (user_id,))
             
             stats = {
                 "assigned": 0,
@@ -2889,13 +2905,38 @@ async def rep_get_stats(current_user: Dict = Depends(get_current_owner_or_rep)):
                 if status in stats:
                     stats[status] = count
             
-            # Get total conversations
+            # Get total conversations (rep mode + assigned cards in AI mode)
             cur.execute("""
-                SELECT COUNT(*) FROM conversations
-                WHERE rep_user_id = %s AND routing_mode = 'rep'
-            """, (current_user["id"],))
+                SELECT COUNT(DISTINCT c.phone)
+                FROM conversations c
+                LEFT JOIN card_assignments ca ON c.card_id = ca.card_id
+                WHERE (
+                    c.rep_user_id = %s
+                    OR (c.card_id IS NOT NULL AND ca.user_id = %s)
+                )
+            """, (user_id, user_id))
             row = cur.fetchone()
             stats["total_conversations"] = row[0] if row else 0
+            
+            # Get messages sent count (outbound messages from rep)
+            cur.execute("""
+                SELECT COUNT(*)
+                FROM conversations c
+                WHERE c.rep_user_id = %s
+                AND c.history::text LIKE '%"direction":"outbound"%'
+            """, (user_id,))
+            row = cur.fetchone()
+            stats["messages_sent"] = row[0] if row else 0
+            
+            # Get messages received count (inbound messages to rep)
+            cur.execute("""
+                SELECT COUNT(*)
+                FROM conversations c
+                WHERE c.rep_user_id = %s
+                AND c.history::text LIKE '%"direction":"inbound"%'
+            """, (user_id,))
+            row = cur.fetchone()
+            stats["messages_received"] = row[0] if row else 0
     
     return {"ok": True, "stats": stats}
 

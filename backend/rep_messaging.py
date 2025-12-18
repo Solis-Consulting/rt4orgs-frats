@@ -75,8 +75,8 @@ def send_rep_message(
                 body=message
             )
         
-        # Update conversation to rep mode
-        switch_conversation_to_rep(conn, phone, user_id, user["twilio_phone_number"])
+        # Update conversation to rep mode (with card_id for proper linking)
+        switch_conversation_to_rep(conn, phone, user_id, user["twilio_phone_number"], card_id=card_id)
         
         # Store message in conversation history
         add_message_to_history(
@@ -104,39 +104,46 @@ def switch_conversation_to_rep(
     phone: str,
     user_id: str,
     rep_phone_number: str,
+    card_id: Optional[str] = None,
 ) -> bool:
-    """Switch a conversation from AI mode to rep mode."""
+    """
+    Switch a conversation from AI mode to rep mode.
+    If card_id is provided, ensures conversation is linked to that card.
+    """
     with conn.cursor() as cur:
-        cur.execute("""
-            UPDATE conversations
-            SET routing_mode = 'rep',
-                rep_user_id = %s,
-                rep_phone_number = %s,
-                updated_at = NOW()
-            WHERE phone = %s
-        """, (user_id, rep_phone_number, phone))
-        
-        # If conversation doesn't exist, create it
-        if cur.rowcount == 0:
-            # Get card_id from phone if possible
-            card_id = None
+        # Try to get card_id from existing conversation if not provided
+        if not card_id:
             cur.execute("""
                 SELECT card_id FROM conversations WHERE phone = %s LIMIT 1
             """, (phone,))
             row = cur.fetchone()
             if row and row[0]:
                 card_id = row[0]
-            
+        
+        # Update existing conversation
+        cur.execute("""
+            UPDATE conversations
+            SET routing_mode = 'rep',
+                rep_user_id = %s,
+                rep_phone_number = %s,
+                card_id = COALESCE(%s, card_id),
+                updated_at = NOW()
+            WHERE phone = %s
+        """, (user_id, rep_phone_number, card_id, phone))
+        
+        # If conversation doesn't exist, create it
+        if cur.rowcount == 0:
             cur.execute("""
                 INSERT INTO conversations (
                     phone, card_id, routing_mode, rep_user_id, rep_phone_number,
-                    state, owner, created_at, updated_at
+                    state, owner, created_at, updated_at, history
                 )
-                VALUES (%s, %s, 'rep', %s, %s, 'awaiting_response', %s, NOW(), NOW())
+                VALUES (%s, %s, 'rep', %s, %s, 'awaiting_response', %s, NOW(), NOW(), '[]'::jsonb)
                 ON CONFLICT (phone) DO UPDATE SET
                     routing_mode = 'rep',
                     rep_user_id = EXCLUDED.rep_user_id,
                     rep_phone_number = EXCLUDED.rep_phone_number,
+                    card_id = COALESCE(EXCLUDED.card_id, conversations.card_id),
                     updated_at = NOW()
             """, (phone, card_id, user_id, rep_phone_number, user_id))
         
@@ -144,18 +151,30 @@ def switch_conversation_to_rep(
 
 
 def get_rep_conversations(conn: Any, user_id: str) -> List[Dict[str, Any]]:
-    """Get all conversations for a rep."""
+    """
+    Get all conversations for a rep.
+    Includes:
+    - Conversations where rep_user_id = user_id (rep mode)
+    - Conversations for assigned cards (even if still in AI mode)
+    """
     with conn.cursor() as cur:
+        # Get conversations where:
+        # 1. rep_user_id = user_id (rep mode conversations)
+        # 2. OR card_id is in rep's assigned cards (assigned cards, even if AI mode)
         cur.execute("""
-            SELECT 
-                phone, card_id, state, routing_mode, rep_phone_number,
-                last_outbound_at, last_inbound_at, created_at, updated_at,
-                history
-            FROM conversations
-            WHERE rep_user_id = %s AND routing_mode = 'rep'
+            SELECT DISTINCT
+                c.phone, c.card_id, c.state, c.routing_mode, c.rep_phone_number,
+                c.last_outbound_at, c.last_inbound_at, c.created_at, c.updated_at,
+                c.history
+            FROM conversations c
+            LEFT JOIN card_assignments ca ON c.card_id = ca.card_id
+            WHERE (
+                c.rep_user_id = %s
+                OR (c.card_id IS NOT NULL AND ca.user_id = %s)
+            )
             ORDER BY 
-                COALESCE(last_inbound_at, last_outbound_at, updated_at) DESC NULLS LAST
-        """, (user_id,))
+                COALESCE(c.last_inbound_at, c.last_outbound_at, c.updated_at) DESC NULLS LAST
+        """, (user_id, user_id))
         
         conversations = []
         for row in cur.fetchall():
@@ -174,7 +193,7 @@ def get_rep_conversations(conn: Any, user_id: str) -> List[Dict[str, Any]]:
                     if msg.get("direction") == "outbound":
                         last_outbound_idx = len(history) - 1 - i
                         break
-                
+                    
                 if last_outbound_idx >= 0:
                     unread_count = len([m for m in history[last_outbound_idx+1:] if m.get("direction") == "inbound"])
                 else:
