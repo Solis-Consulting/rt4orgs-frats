@@ -2341,6 +2341,26 @@ async def update_single_markov_response(
                     """, (state_key, response_text, description, datetime.utcnow()))
         
         logger.info(f"✅ Saved state: {state_key}")
+        
+        # Verify the save worked by querying it back
+        with conn.cursor() as verify_cur:
+            if user_id:
+                verify_cur.execute("""
+                    SELECT response_text FROM markov_responses
+                    WHERE state_key = %s AND user_id = %s
+                """, (state_key, user_id))
+            else:
+                verify_cur.execute("""
+                    SELECT response_text FROM markov_responses
+                    WHERE state_key = %s AND user_id IS NULL
+                """, (state_key,))
+            verify_row = verify_cur.fetchone()
+            if verify_row:
+                logger.info(f"✅ Verified: Response saved successfully (length: {len(verify_row[0])} chars)")
+                logger.info(f"✅ Verified: Preview: {verify_row[0][:50]}...")
+            else:
+                logger.warning(f"⚠️ WARNING: Could not verify saved response for state_key={state_key}, user_id={user_id}")
+        
         logger.info("✅ SAVE COMPLETE")
         return {"ok": True, "state_key": state_key, "message": "Response saved successfully"}
     except Exception as e:
