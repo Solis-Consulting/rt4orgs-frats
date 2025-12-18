@@ -2825,9 +2825,21 @@ async def rep_get_conversations(current_user: Dict = Depends(get_current_owner_o
 @app.post("/rep/blast")
 async def rep_blast(
     request: Request,
-    payload: Dict[str, Any] = Body(...),
     current_user: Dict = Depends(get_current_owner_or_rep)
 ):
+    """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
+    # CRITICAL: Parse body manually to avoid FastAPI Body() validation errors that might fail silently
+    try:
+        body_bytes = await request.body()
+        body_str = body_bytes.decode('utf-8') if body_bytes else '{}'
+        payload = json.loads(body_str) if body_str else {}
+        print(f"[BLAST_ENDPOINT] Body parsed successfully: {payload}", flush=True)
+    except Exception as parse_err:
+        print(f"[BLAST_ENDPOINT] ❌ Error parsing body: {parse_err}", flush=True)
+        import traceback
+        traceback.print_exc()
+        payload = {}
+    
     # CRITICAL: Write to file immediately to ensure we see it even if stdout is buffered
     try:
         import json as _json
@@ -2838,10 +2850,10 @@ async def rep_blast(
             f.write(f"[{datetime.now().isoformat()}] ENDPOINT CALLED\n")
             f.write(f"  Path: {request.url.path}\n")
             f.write(f"  Payload: {_json.dumps(payload)}\n")
+            f.write(f"  User: {current_user.get('id')} (role: {current_user.get('role')})\n")
             f.flush()
     except Exception as log_err:
         pass  # Don't fail if logging fails
-    """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
     # CRITICAL: Wrap entire function in try-catch to catch ANY exception
     try:
         # CRITICAL: Log immediately when endpoint is hit - BEFORE anything else
