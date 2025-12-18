@@ -560,10 +560,7 @@
 
     window.logout = logout;
 
-    // Load initial data
-    loadCards();
-
-    // Auto-refresh
+    // Auto-refresh (only if token is set)
     setInterval(() => {
       if (currentView === 'cards') loadCards();
       else if (currentView === 'conversations') {
