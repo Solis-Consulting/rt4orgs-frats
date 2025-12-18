@@ -167,18 +167,29 @@ def find_unblasted_contacts(leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]
 
 def send_sms(to_number: str, body: str, auth_token: Optional[str] = None) -> Dict[str, Any]:
     """
-    Send SMS via Twilio.
+    Send SMS via Twilio with comprehensive logging.
     
     Args:
         to_number: Recipient phone number
         body: Message body
         auth_token: Optional Twilio auth token (overrides TWILIO_AUTH_TOKEN env var)
+    
+    Returns:
+        Dict with sid, status, and detailed response info
     """
+    import traceback
+    
+    print("=" * 80)
+    print(f"[SEND_SMS] 🚀 STARTING SMS SEND")
+    print("=" * 80)
+    print(f"[SEND_SMS] To: {to_number}")
+    print(f"[SEND_SMS] Body length: {len(body)} chars")
+    print(f"[SEND_SMS] Body preview: {body[:100]}...")
+    
     # Use provided auth_token or fall back to environment variable
-    # Only use auth_token if it's a non-empty string
     if auth_token and auth_token.strip():
         token_to_use = auth_token.strip()
-        # Compare with env var to show if they're different
+        token_source = "PROVIDED"
         if TWILIO_AUTH_TOKEN and token_to_use != TWILIO_AUTH_TOKEN:
             print(f"[SEND_SMS] ✅ Using PROVIDED auth token (DIFFERENT from env var)")
             print(f"[SEND_SMS]   Provided: {token_to_use[:15]}... (length: {len(token_to_use)})")
@@ -188,47 +199,111 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None) -> Dic
             print(f"[SEND_SMS]   Token: {token_to_use[:15]}... (length: {len(token_to_use)})")
     else:
         token_to_use = TWILIO_AUTH_TOKEN
+        token_source = "ENV_VAR"
         if not token_to_use:
             print(f"[SEND_SMS] ❌ ERROR: No auth token provided and TWILIO_AUTH_TOKEN not set")
+            raise ValueError("Twilio auth token not provided and TWILIO_AUTH_TOKEN not set")
         else:
-            print(f"[SEND_SMS] ⚠️ Using environment variable TWILIO_AUTH_TOKEN (no token provided)")
+            print(f"[SEND_SMS] ⚠️ Using environment variable TWILIO_AUTH_TOKEN")
             print(f"[SEND_SMS]   Token: {token_to_use[:15]}... (length: {len(token_to_use)})")
     
     if not token_to_use:
         raise ValueError("Twilio auth token not provided and TWILIO_AUTH_TOKEN not set")
     
+    # Validate phone number format
+    if not to_number:
+        raise ValueError("Phone number is empty")
+    if not to_number.startswith('+'):
+        print(f"[SEND_SMS] ⚠️ WARNING: Phone number doesn't start with +: {to_number}")
+    
     # Log which account and token are being used
     account_sid_preview = TWILIO_ACCOUNT_SID[:10] + "..." if TWILIO_ACCOUNT_SID and len(TWILIO_ACCOUNT_SID) > 10 else str(TWILIO_ACCOUNT_SID)
-    print(f"[SEND_SMS] Creating Twilio Client with Account SID: {account_sid_preview}")
-    print(f"[SEND_SMS] Using Auth Token: {token_to_use[:15]}... (length: {len(token_to_use)})")
+    print(f"[SEND_SMS] Account SID: {account_sid_preview}")
+    print(f"[SEND_SMS] Auth Token Source: {token_source}")
+    print(f"[SEND_SMS] Messaging Service SID: {TWILIO_MESSAGING_SERVICE_SID or 'NOT SET'}")
+    print(f"[SEND_SMS] From Phone Number: {TWILIO_PHONE_NUMBER or 'NOT SET'}")
     
-    client = Client(TWILIO_ACCOUNT_SID, token_to_use)
-    if TWILIO_MESSAGING_SERVICE_SID:
-        # Preferred: send via Messaging Service for A2P / compliance
-        msg = client.messages.create(
-            to=to_number,
-            messaging_service_sid=TWILIO_MESSAGING_SERVICE_SID,
-            body=body,
-        )
-    elif TWILIO_PHONE_NUMBER:
-        # Fallback: direct From number if configured
-        msg = client.messages.create(
-            to=to_number,
-            from_=TWILIO_PHONE_NUMBER,
-            body=body,
-        )
-    else:
-        raise ValueError(
-            "Twilio configuration error: set TWILIO_MESSAGING_SERVICE_SID or TWILIO_PHONE_NUMBER"
-        )
-    
-    # Log successful send with token confirmation
-    print(f"[SEND_SMS] ✅ Message sent successfully!")
-    print(f"[SEND_SMS]   Twilio SID: {msg.sid}")
-    print(f"[SEND_SMS]   Status: {msg.status}")
-    print(f"[SEND_SMS]   Token used: {token_to_use[:15]}... (length: {len(token_to_use)})")
-    
-    return {"sid": msg.sid, "status": msg.status}
+    try:
+        print(f"[SEND_SMS] Creating Twilio Client...")
+        client = Client(TWILIO_ACCOUNT_SID, token_to_use)
+        print(f"[SEND_SMS] ✅ Twilio Client created")
+        
+        # Prepare message parameters
+        message_params = {
+            "to": to_number,
+            "body": body
+        }
+        
+        if TWILIO_MESSAGING_SERVICE_SID:
+            # Preferred: send via Messaging Service for A2P / compliance
+            message_params["messaging_service_sid"] = TWILIO_MESSAGING_SERVICE_SID
+            print(f"[SEND_SMS] Using Messaging Service: {TWILIO_MESSAGING_SERVICE_SID}")
+        elif TWILIO_PHONE_NUMBER:
+            # Fallback: direct From number if configured
+            message_params["from_"] = TWILIO_PHONE_NUMBER
+            print(f"[SEND_SMS] Using From Number: {TWILIO_PHONE_NUMBER}")
+        else:
+            error_msg = "Twilio configuration error: set TWILIO_MESSAGING_SERVICE_SID or TWILIO_PHONE_NUMBER"
+            print(f"[SEND_SMS] ❌ {error_msg}")
+            raise ValueError(error_msg)
+        
+        print(f"[SEND_SMS] Calling client.messages.create() with params:")
+        print(f"[SEND_SMS]   to: {message_params.get('to')}")
+        print(f"[SEND_SMS]   {'messaging_service_sid' if 'messaging_service_sid' in message_params else 'from_'}: {message_params.get('messaging_service_sid') or message_params.get('from_')}")
+        print(f"[SEND_SMS]   body length: {len(message_params.get('body', ''))}")
+        
+        # Make the API call
+        msg = client.messages.create(**message_params)
+        
+        # Log comprehensive response details
+        print("=" * 80)
+        print(f"[SEND_SMS] ✅ TWILIO API CALL SUCCESSFUL")
+        print("=" * 80)
+        print(f"[SEND_SMS] Message SID: {msg.sid}")
+        print(f"[SEND_SMS] Status: {msg.status}")
+        print(f"[SEND_SMS] To: {msg.to}")
+        print(f"[SEND_SMS] From: {msg.from_}")
+        print(f"[SEND_SMS] Date Created: {msg.date_created}")
+        print(f"[SEND_SMS] Date Sent: {msg.date_sent}")
+        print(f"[SEND_SMS] Date Updated: {msg.date_updated}")
+        print(f"[SEND_SMS] Error Code: {msg.error_code or 'None'}")
+        print(f"[SEND_SMS] Error Message: {msg.error_message or 'None'}")
+        print(f"[SEND_SMS] Price: {msg.price or 'None'}")
+        print(f"[SEND_SMS] Price Unit: {msg.price_unit or 'None'}")
+        print(f"[SEND_SMS] URI: {msg.uri or 'None'}")
+        print(f"[SEND_SMS] Account SID Used: {msg.account_sid}")
+        print(f"[SEND_SMS] Messaging Service SID: {getattr(msg, 'messaging_service_sid', 'N/A')}")
+        print("=" * 80)
+        
+        # Check for error status
+        if msg.status in ['failed', 'undelivered']:
+            print(f"[SEND_SMS] ⚠️ WARNING: Message status is '{msg.status}'")
+            print(f"[SEND_SMS] Error Code: {msg.error_code}")
+            print(f"[SEND_SMS] Error Message: {msg.error_message}")
+        
+        return {
+            "sid": msg.sid,
+            "status": msg.status,
+            "to": msg.to,
+            "from": msg.from_,
+            "date_created": str(msg.date_created) if msg.date_created else None,
+            "date_sent": str(msg.date_sent) if msg.date_sent else None,
+            "error_code": msg.error_code,
+            "error_message": msg.error_message,
+            "price": str(msg.price) if msg.price else None,
+            "price_unit": msg.price_unit,
+        }
+        
+    except Exception as e:
+        print("=" * 80)
+        print(f"[SEND_SMS] ❌ TWILIO API CALL FAILED")
+        print("=" * 80)
+        print(f"[SEND_SMS] Error Type: {type(e).__name__}")
+        print(f"[SEND_SMS] Error Message: {str(e)}")
+        print(f"[SEND_SMS] Traceback:")
+        traceback.print_exc()
+        print("=" * 80)
+        raise
 
 
 def write_initial_state(folder: Path, contact: Dict[str, Any], purchased_example: Dict[str, Any]):

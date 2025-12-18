@@ -424,15 +424,33 @@ def run_blast_for_cards(
                 )
 
         try:
-            print(
-                f"[BLAST_SEND_ATTEMPT] card_id={card_id} phone={phone}",
-                flush=True,
-            )
+            print("=" * 80, flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] 🚀 ATTEMPTING TO SEND SMS", flush=True)
+            print("=" * 80, flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Card ID: {card_id}", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Phone: {phone}", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Message length: {len(message)} chars", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Rep User ID: {rep_user_id}", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Rep Phone: {rep_phone_number}", flush=True)
+            
             if auth_token:
-                print(f"[BLAST_SEND_ATTEMPT] Passing auth_token to send_sms: {auth_token[:15]}... (length: {len(auth_token)})", flush=True)
+                print(f"[BLAST_SEND_ATTEMPT] Auth token provided: {auth_token[:15]}... (length: {len(auth_token)})", flush=True)
             else:
                 print(f"[BLAST_SEND_ATTEMPT] No auth_token provided, send_sms will use environment variable", flush=True)
+            
+            print(f"[BLAST_SEND_ATTEMPT] Calling send_sms()...", flush=True)
             sms_result = send_sms(phone, message, auth_token=auth_token)
+            
+            print("=" * 80, flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] ✅ send_sms() RETURNED", flush=True)
+            print("=" * 80, flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Result SID: {sms_result.get('sid')}", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Result Status: {sms_result.get('status')}", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Result To: {sms_result.get('to')}", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Result From: {sms_result.get('from')}", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Error Code: {sms_result.get('error_code') or 'None'}", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Error Message: {sms_result.get('error_message') or 'None'}", flush=True)
+            print("=" * 80, flush=True)
 
             # Create legacy contact event folder for archive_intelligence compatibility
             folder = make_contact_event_folder(data.get("name") or card_id)

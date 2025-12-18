@@ -87,7 +87,6 @@
             <option value="lost">Lost</option>
           </select>
           <button id="blastBtn" disabled>Blast Selected Assigned Leads</button>
-          <button id="blastAllBtn" style="background: #10b981; margin-left: 8px;">Blast All My Assigned Leads</button>
         </div>
         <div id="cardsTableWrap"></div>
       </div>
@@ -370,46 +369,7 @@
       }
     });
 
-    // Blast all assigned leads (no selection needed)
-    document.getElementById('blastAllBtn').addEventListener('click', async () => {
-      if (!confirm('Blast all your assigned leads? This will send messages to all uncontacted assigned cards.')) return;
-
-      const btn = document.getElementById('blastAllBtn');
-      btn.disabled = true;
-      btn.textContent = 'Blasting All...';
-
-      try {
-        console.log('[REP_BLAST] Blasting all assigned leads');
-        const res = await fetch(`${BACKEND}/rep/blast`, {
-          method: 'POST',
-          headers: getHeaders(),
-          body: JSON.stringify({ status: 'assigned' })  // Only blast assigned, uncontacted leads
-        });
-
-        if (!res.ok) {
-          const text = await res.text();
-          console.error('[REP_BLAST] Error:', text);
-          alert(`Error ${res.status}: ${text}`);
-          return;
-        }
-
-        const data = await res.json();
-        console.log('[REP_BLAST] Response:', data);
-        
-        if (data.ok) {
-          alert(`Blast complete. Sent: ${data.sent}, Skipped: ${data.skipped}`);
-          loadCards();
-        } else {
-          alert(`Blast failed: ${data.error || 'Unknown error'}`);
-        }
-      } catch (error) {
-        console.error('[REP_BLAST] Exception:', error);
-        alert(`Error: ${error.message}`);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Blast All My Assigned Leads';
-      }
-    });
+    // Blast all functionality removed - reps should select specific leads to blast
 
     async function loadConversations() {
       try {
