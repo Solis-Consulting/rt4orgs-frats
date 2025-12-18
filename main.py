@@ -869,10 +869,19 @@ async def twilio_inbound(request: Request):
                 rep_user_id = row[1]
         
         print(f"[TWILIO_INBOUND] Routing mode: {routing_mode}, Rep user ID: {rep_user_id}")
+        print(f"[TWILIO_INBOUND] Phone: {normalized_phone} (original: {From})")
         if rep_user_id:
-            print(f"[TWILIO_INBOUND] Using rep-specific Markov responses for user_id: {rep_user_id}")
+            print(f"[TWILIO_INBOUND] ✅ Using rep-specific Markov responses for user_id: {rep_user_id}")
         else:
-            print(f"[TWILIO_INBOUND] Using global Markov responses (no rep assigned)")
+            print(f"[TWILIO_INBOUND] ⚠️ Using global Markov responses (no rep assigned)")
+            # Debug: Check if conversation exists but rep_user_id is NULL
+            with conn.cursor() as debug_cur:
+                debug_cur.execute("""
+                    SELECT rep_user_id, last_outbound_at, owner FROM conversations WHERE phone = %s
+                """, (normalized_phone,))
+                debug_row = debug_cur.fetchone()
+                if debug_row:
+                    print(f"[TWILIO_INBOUND] DEBUG: Conversation exists - rep_user_id={debug_row[0]}, last_outbound_at={debug_row[1]}, owner={debug_row[2]}")
         
         # Store inbound message in history regardless of routing mode
         from backend.rep_messaging import add_message_to_history
@@ -927,7 +936,12 @@ async def twilio_inbound(request: Request):
             # - Response TEXT is REP-SPECIFIC (each rep can customize their pitch/responses)
             # - If rep_user_id is set, uses that rep's responses; otherwise uses global responses
             # - If multiple reps messaged, rep_user_id reflects the LAST rep to message (conflict resolution)
+            print(f"[TWILIO_INBOUND] 🔍 Looking up Markov response for state='{next_state}', rep_user_id={rep_user_id}")
             configured_response = get_markov_response(conn, next_state, rep_user_id)
+            if configured_response:
+                print(f"[TWILIO_INBOUND] ✅ Found response (length: {len(configured_response)} chars, preview: {configured_response[:50]}...)")
+            else:
+                print(f"[TWILIO_INBOUND] ⚠️ No configured response found for state='{next_state}', rep_user_id={rep_user_id}")
             
             if configured_response:
                 # If we have a card, substitute template placeholders
@@ -2483,14 +2497,21 @@ def get_markov_response(conn: Any, state_key: str, user_id: Optional[str] = None
             """, (state_key, user_id))
             row = cur.fetchone()
             if row:
+                print(f"[GET_MARKOV_RESPONSE] ✅ Found rep-specific response for state='{state_key}', user_id='{user_id}'")
                 return row[0]
+            else:
+                print(f"[GET_MARKOV_RESPONSE] ⚠️ No rep-specific response found for state='{state_key}', user_id='{user_id}', falling back to global")
         
         # Fallback to global (user_id IS NULL)
         cur.execute("""
-            SELECT response_text FROM markov_responses 
+            SELECT response_text FROM markov_responses
             WHERE state_key = %s AND user_id IS NULL
         """, (state_key,))
         row = cur.fetchone()
+        if row:
+            print(f"[GET_MARKOV_RESPONSE] ✅ Found global response for state='{state_key}'")
+        else:
+            print(f"[GET_MARKOV_RESPONSE] ❌ No response found (neither rep-specific nor global) for state='{state_key}'")
         return row[0] if row else None
 
 

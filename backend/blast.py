@@ -591,6 +591,8 @@ def run_blast_for_cards(
                 # Determine routing mode
                 routing_mode = 'rep' if rep_user_id else 'ai'
                 
+                print(f"[BLAST] 📝 Recording conversation: phone={phone}, rep_user_id={rep_user_id}, routing_mode={routing_mode}", flush=True)
+                
                 # Insert or update conversation with history
                 # CRITICAL: Conflict resolution - if multiple reps message the same contact,
                 # we use the LAST rep to message (most recent last_outbound_at).
@@ -626,6 +628,17 @@ def run_blast_for_cards(
                             rep_user_id,
                         ),
                     )
+                    print(f"[BLAST] ✅ Conversation recorded/updated: phone={phone}, rep_user_id={rep_user_id}", flush=True)
+                    
+                    # Verify the rep_user_id was actually saved
+                    cur.execute("""
+                        SELECT rep_user_id FROM conversations WHERE phone = %s
+                    """, (phone,))
+                    verify_row = cur.fetchone()
+                    if verify_row:
+                        print(f"[BLAST] ✅ Verified rep_user_id in DB: {verify_row[0]} (expected: {rep_user_id})", flush=True)
+                    else:
+                        print(f"[BLAST] ⚠️ WARNING: Could not verify rep_user_id was saved!", flush=True)
                 except psycopg2.ProgrammingError as e:
                     # Handle case where new columns don't exist yet (backward compatibility)
                     if 'routing_mode' in str(e):
