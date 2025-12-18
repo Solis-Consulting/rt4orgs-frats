@@ -2992,18 +2992,38 @@ async def rep_blast(
             logger.error(f"[DEBUG_LOG] Failed to write debug log: {e}")
         # #endregion
         
-        # run_blast_for_cards() now always uses environment variables - no auth params needed
-        result = run_blast_for_cards(
-            conn=conn,
-            card_ids=card_ids,
-            limit=None,  # Already applied limit above if needed
-            owner=current_user["id"],
-            source="owner_ui" if current_user.get("role") == "admin" else "rep_ui",
-            rep_user_id=rep_user_id,
-        )
+        print(f"[BLAST_ENDPOINT] About to call run_blast_for_cards() with:", flush=True)
+        print(f"[BLAST_ENDPOINT]   card_ids: {card_ids}", flush=True)
+        print(f"[BLAST_ENDPOINT]   owner: {current_user['id']}", flush=True)
+        print(f"[BLAST_ENDPOINT]   source: {'owner_ui' if current_user.get('role') == 'admin' else 'rep_ui'}", flush=True)
+        print(f"[BLAST_ENDPOINT]   rep_user_id: {rep_user_id}", flush=True)
+        print(f"[BLAST_ENDPOINT] Calling run_blast_for_cards() NOW...", flush=True)
+        
+        try:
+            result = run_blast_for_cards(
+                conn=conn,
+                card_ids=card_ids,
+                limit=None,  # Already applied limit above if needed
+                owner=current_user["id"],
+                source="owner_ui" if current_user.get("role") == "admin" else "rep_ui",
+                rep_user_id=rep_user_id,
+            )
+            print(f"[BLAST_ENDPOINT] ✅ run_blast_for_cards() returned successfully", flush=True)
+        except Exception as run_error:
+            print("=" * 80, flush=True)
+            print(f"[BLAST_ENDPOINT] ❌ EXCEPTION in run_blast_for_cards()", flush=True)
+            print("=" * 80, flush=True)
+            print(f"[BLAST_ENDPOINT] Error type: {type(run_error).__name__}", flush=True)
+            print(f"[BLAST_ENDPOINT] Error message: {str(run_error)}", flush=True)
+            import traceback
+            print(f"[BLAST_ENDPOINT] Full traceback:", flush=True)
+            traceback.print_exc()
+            print("=" * 80, flush=True)
+            raise
         
         logger.info(f"[BLAST] Blast completed: sent={result.get('sent', 0)}, skipped={result.get('skipped', 0)}")
         logger.info(f"[BLAST] Result details: {result}")
+        print(f"[BLAST_ENDPOINT] Blast result: ok={result.get('ok')}, sent={result.get('sent', 0)}, skipped={result.get('skipped', 0)}", flush=True)
         
         # #region agent log - Blast result
         try:
