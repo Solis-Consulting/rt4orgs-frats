@@ -2828,6 +2828,19 @@ async def rep_blast(
     payload: Dict[str, Any] = Body(...),
     current_user: Dict = Depends(get_current_owner_or_rep)
 ):
+    # CRITICAL: Write to file immediately to ensure we see it even if stdout is buffered
+    try:
+        import json as _json
+        from datetime import datetime
+        from pathlib import Path
+        log_file = Path("/tmp/blast_endpoint.log")
+        with open(log_file, "a") as f:
+            f.write(f"[{datetime.now().isoformat()}] ENDPOINT CALLED\n")
+            f.write(f"  Path: {request.url.path}\n")
+            f.write(f"  Payload: {_json.dumps(payload)}\n")
+            f.flush()
+    except Exception as log_err:
+        pass  # Don't fail if logging fails
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
     # CRITICAL: Wrap entire function in try-catch to catch ANY exception
     try:
