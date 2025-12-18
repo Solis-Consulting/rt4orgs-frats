@@ -46,13 +46,24 @@ def get_rep_assigned_cards(
     user_id: str,
     status: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Get all cards assigned to a rep, optionally filtered by status."""
+    """
+    Get all cards assigned to a rep, optionally filtered by status.
+    
+    SECURITY: This function ONLY returns cards that exist in card_assignments table.
+    It uses an INNER JOIN, so unassigned cards are NEVER returned.
+    """
+    if not user_id:
+        print(f"[ASSIGNMENTS] ERROR: get_rep_assigned_cards called with empty user_id!")
+        return []
+    
+    print(f"[ASSIGNMENTS] get_rep_assigned_cards called for user_id={user_id}, status={status}")
+    
     query = """
         SELECT 
             c.id, c.type, c.card_data, c.sales_state, c.owner, c.created_at, c.updated_at,
             ca.assigned_at, ca.status as assignment_status, ca.notes, ca.assigned_by
         FROM card_assignments ca
-        JOIN cards c ON ca.card_id = c.id
+        INNER JOIN cards c ON ca.card_id = c.id
         WHERE ca.user_id = %s
     """
     params = [user_id]
@@ -63,11 +74,16 @@ def get_rep_assigned_cards(
     
     query += " ORDER BY ca.assigned_at DESC"
     
+    print(f"[ASSIGNMENTS] Executing query: {query[:100]}... with params: {params}")
+    
     with conn.cursor() as cur:
         cur.execute(query, params)
+        rows = cur.fetchall()
+        
+        print(f"[ASSIGNMENTS] Query returned {len(rows)} rows for user_id={user_id}")
         
         cards = []
-        for row in cur.fetchall():
+        for row in rows:
             card_data = row[2]
             if isinstance(card_data, str):
                 import json
@@ -92,6 +108,7 @@ def get_rep_assigned_cards(
                 }
             })
         
+        print(f"[ASSIGNMENTS] Returning {len(cards)} cards for user_id={user_id}")
         return cards
 
 

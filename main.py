@@ -2530,15 +2530,22 @@ async def rep_get_cards(
     status: Optional[str] = None,
     current_user: Dict = Depends(get_current_owner_or_rep)
 ):
-    """Get rep's assigned cards. Owner sees all cards, reps see ONLY their assignments."""
+    """
+    Get rep's assigned cards. 
+    
+    CRITICAL SECURITY: Reps can ONLY see assigned cards, never all cards.
+    Owner (admin role) can see all cards for admin dashboard.
+    """
     conn = get_conn()
     
     user_role = current_user.get("role")
     user_id = current_user.get("id")
+    username = current_user.get("username", "N/A")
     
-    logger.info(f"[REP_CARDS] Request from user_id={user_id}, role={user_role}")
+    logger.info(f"[REP_CARDS] Request from user_id={user_id}, username={username}, role={user_role}")
     
     # CRITICAL: Reps can ONLY see assigned cards, never all cards
+    # Double-check: if role is not explicitly "admin", treat as rep
     if user_role == "admin":
         # Owner: get all cards (for admin dashboard)
         logger.info(f"[REP_CARDS] Owner access - returning all cards")
@@ -2558,11 +2565,29 @@ async def rep_get_cards(
                     "created_at": row[5].isoformat() if row[5] else None,
                     "updated_at": row[6].isoformat() if row[6] else None,
                 })
+        logger.info(f"[REP_CARDS] Owner - returning {len(cards)} total cards")
     else:
         # Rep: STRICT enforcement - ONLY assigned cards
-        logger.info(f"[REP_CARDS] Rep access - filtering to assigned cards only for user_id={user_id}")
+        # This is the security boundary - reps NEVER see unassigned cards
+        logger.info(f"[REP_CARDS] Rep access (role={user_role}) - STRICT filtering to assigned cards only for user_id={user_id}")
+        
+        # Verify user_id exists
+        if not user_id:
+            logger.error(f"[REP_CARDS] ERROR: No user_id in current_user dict!")
+            raise HTTPException(status_code=500, detail="User ID not found")
+        
         cards = get_rep_assigned_cards(conn, user_id, status=status)
-        logger.info(f"[REP_CARDS] Rep {user_id} - found {len(cards)} assigned cards")
+        logger.info(f"[REP_CARDS] Rep {user_id} ({username}) - found {len(cards)} assigned cards")
+        
+        # Security check: if somehow we got more cards than assignments, something is wrong
+        # Count actual assignments for this user
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM card_assignments WHERE user_id = %s", (user_id,))
+            assignment_count = cur.fetchone()[0] or 0
+        
+        if len(cards) > assignment_count:
+            logger.error(f"[REP_CARDS] SECURITY WARNING: Rep {user_id} got {len(cards)} cards but only {assignment_count} assignments!")
+            # Still return only assigned cards, but log the anomaly
     
     return {"ok": True, "cards": cards}
 
