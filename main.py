@@ -2272,10 +2272,11 @@ async def update_single_markov_response(
         with conn.cursor() as cur:
             if user_id:
                 # Rep: save with user_id (use partial unique index)
+                # First try to update existing, then insert if not exists
                 cur.execute("""
                     INSERT INTO markov_responses (state_key, response_text, description, updated_at, user_id)
                     VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (state_key, user_id) WHERE user_id IS NOT NULL
+                    ON CONFLICT (state_key, user_id)
                     DO UPDATE SET
                         response_text = EXCLUDED.response_text,
                         description = EXCLUDED.description,
@@ -2283,14 +2284,16 @@ async def update_single_markov_response(
                 """, (state_key, response_text, description, datetime.utcnow(), user_id))
             else:
                 # Owner: save global (user_id IS NULL)
+                # Use the unique index on state_key where user_id IS NULL
                 cur.execute("""
                     INSERT INTO markov_responses (state_key, response_text, description, updated_at, user_id)
                     VALUES (%s, %s, %s, %s, NULL)
-                    ON CONFLICT (state_key) WHERE user_id IS NULL
+                    ON CONFLICT (state_key)
                     DO UPDATE SET
                         response_text = EXCLUDED.response_text,
                         description = EXCLUDED.description,
-                        updated_at = EXCLUDED.updated_at;
+                        updated_at = EXCLUDED.updated_at
+                    WHERE markov_responses.user_id IS NULL;
                 """, (state_key, response_text, description, datetime.utcnow()))
         
         logger.info(f"✅ Saved state: {state_key}")
@@ -2348,7 +2351,7 @@ async def update_markov_responses(
                         cur.execute("""
                             INSERT INTO markov_responses (state_key, response_text, description, updated_at, user_id)
                             VALUES (%s, %s, %s, %s, %s)
-                            ON CONFLICT (state_key, user_id) WHERE user_id IS NOT NULL
+                            ON CONFLICT (state_key, user_id)
                             DO UPDATE SET
                                 response_text = EXCLUDED.response_text,
                                 description = EXCLUDED.description,
@@ -2359,11 +2362,12 @@ async def update_markov_responses(
                         cur.execute("""
                             INSERT INTO markov_responses (state_key, response_text, description, updated_at, user_id)
                             VALUES (%s, %s, %s, %s, NULL)
-                            ON CONFLICT (state_key) WHERE user_id IS NULL
+                            ON CONFLICT (state_key)
                             DO UPDATE SET
                                 response_text = EXCLUDED.response_text,
                                 description = EXCLUDED.description,
-                                updated_at = EXCLUDED.updated_at;
+                                updated_at = EXCLUDED.updated_at
+                            WHERE markov_responses.user_id IS NULL;
                         """, (state_key, response_text, description, datetime.utcnow()))
                     logger.info(f"✅ Saved state: {state_key}")
                     saved_count += 1
@@ -2381,7 +2385,7 @@ async def update_markov_responses(
                         cur.execute("""
                             INSERT INTO markov_responses (state_key, response_text, updated_at, user_id)
                             VALUES ('__initial_outreach__', %s, %s, %s)
-                            ON CONFLICT (state_key, user_id) WHERE user_id IS NOT NULL
+                            ON CONFLICT (state_key, user_id)
                             DO UPDATE SET
                                 response_text = EXCLUDED.response_text,
                                 updated_at = EXCLUDED.updated_at;
@@ -2391,10 +2395,11 @@ async def update_markov_responses(
                         cur.execute("""
                             INSERT INTO markov_responses (state_key, response_text, updated_at, user_id)
                             VALUES ('__initial_outreach__', %s, %s, NULL)
-                            ON CONFLICT (state_key) WHERE user_id IS NULL
+                            ON CONFLICT (state_key)
                             DO UPDATE SET
                                 response_text = EXCLUDED.response_text,
-                                updated_at = EXCLUDED.updated_at;
+                                updated_at = EXCLUDED.updated_at
+                            WHERE markov_responses.user_id IS NULL;
                         """, (initial_outreach, datetime.utcnow()))
                     logger.info("✅ Saved initial_outreach")
                     saved_count += 1
