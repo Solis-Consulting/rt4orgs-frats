@@ -942,7 +942,7 @@ async def twilio_inbound(request: Request):
                 cur.execute("""
                     SELECT user_id FROM card_assignments
                     WHERE card_id = %s
-                    ORDER BY created_at DESC
+                    ORDER BY assigned_at DESC
                     LIMIT 1
                 """, (card_id,))
                 assignment_row = cur.fetchone()
