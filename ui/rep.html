@@ -355,7 +355,47 @@
         console.log('[REP_BLAST] Response:', data);
         
         if (data.ok) {
-          alert(`Blast complete. Sent: ${data.sent}, Skipped: ${data.skipped}`);
+          // Build detailed status message
+          let statusMsg = `Blast complete.\n\n`;
+          statusMsg += `Accepted by Twilio: ${data.sent}\n`;
+          statusMsg += `Skipped: ${data.skipped}\n\n`;
+          
+          // Check for messages that are accepted but not yet delivered
+          if (data.results && data.results.length > 0) {
+            const accepted = data.results.filter(r => r.twilio_status === 'accepted' || r.twilio_status === 'queued');
+            const sent = data.results.filter(r => r.twilio_status === 'sent');
+            const delivered = data.results.filter(r => r.twilio_status === 'delivered');
+            const failed = data.results.filter(r => r.twilio_status === 'failed' || r.twilio_status === 'undelivered');
+            
+            if (accepted.length > 0) {
+              statusMsg += `⚠️ ${accepted.length} message(s) accepted but not yet sent (status: accepted/queued)\n`;
+              statusMsg += `This may indicate A2P 10DLC registration issues.\n\n`;
+            }
+            if (sent.length > 0) {
+              statusMsg += `✅ ${sent.length} message(s) sent\n`;
+            }
+            if (delivered.length > 0) {
+              statusMsg += `✅ ${delivered.length} message(s) delivered\n`;
+            }
+            if (failed.length > 0) {
+              statusMsg += `❌ ${failed.length} message(s) failed\n`;
+              failed.forEach(f => {
+                if (f.error_code) statusMsg += `   Error ${f.error_code}: ${f.error_message || 'Unknown error'}\n`;
+              });
+            }
+            
+            // Show Twilio SIDs for debugging
+            if (data.results.length <= 3) {
+              statusMsg += `\nTwilio SIDs:\n`;
+              data.results.forEach((r, i) => {
+                if (r.twilio_sid) {
+                  statusMsg += `${i + 1}. ${r.twilio_sid} (${r.twilio_status || 'unknown'})\n`;
+                }
+              });
+            }
+          }
+          
+          alert(statusMsg);
           loadCards();
         } else {
           alert(`Blast failed: ${data.error || 'Unknown error'}`);
