@@ -263,9 +263,7 @@
         
         const response = await fetch(`${BACKEND}/cards/upload`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: headers,
           body: JSON.stringify(cardsToUpload),
         });
 

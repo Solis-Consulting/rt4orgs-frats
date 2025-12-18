@@ -82,6 +82,12 @@
     }
 
     async function load() {
+      const apiToken = localStorage.getItem('apiToken');
+      if (!apiToken) {
+        window.location.href = 'login.html';
+        return;
+      }
+
       const params = new URLSearchParams(window.location.search);
       const name = params.get("name");
       
@@ -91,7 +97,17 @@
       }
 
       try {
-        const res = await fetch(BACKEND + "/lead/" + encodeURIComponent(name));
+        const res = await fetch(BACKEND + "/lead/" + encodeURIComponent(name), {
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem('apiToken');
+          window.location.href = 'login.html';
+          return;
+        }
         const data = await res.json();
         
         if (data.error) {
