@@ -231,7 +231,6 @@ def run_blast_for_cards(
     auth_token: Optional[str] = None,
     account_sid: Optional[str] = None,
     rep_user_id: Optional[str] = None,
-    rep_phone_number: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Run outbound blast for a specific set of card IDs.
@@ -240,11 +239,12 @@ def run_blast_for_cards(
     - Generates messages using archive_intelligence templates
     - Sends via Twilio (using scripts.blast.send_sms)
     - Records conversations and blast_run summary
+    - All messages sent from system phone number via Messaging Service
     
     Args:
         auth_token: Optional authorization token to use for Twilio (overrides env var)
+        account_sid: Optional account SID to use for Twilio (overrides env var)
         rep_user_id: Optional rep user ID (if blasting from rep account)
-        rep_phone_number: Optional rep phone number (if blasting from rep account)
     """
     # High-level run visibility with detailed logging
     print("=" * 80, flush=True)
@@ -259,7 +259,7 @@ def run_blast_for_cards(
     if account_sid:
         print(f"[BLAST_RUN] Account SID: {account_sid[:10]}... (length: {len(account_sid)})", flush=True)
     print(f"[BLAST_RUN] Rep User ID: {rep_user_id}", flush=True)
-    print(f"[BLAST_RUN] Rep Phone Number: {rep_phone_number}", flush=True)
+    print(f"[BLAST_RUN] Using System Phone Number (via Messaging Service)", flush=True)
     print("=" * 80, flush=True)
 
     if not card_ids:
@@ -444,7 +444,7 @@ def run_blast_for_cards(
                         "timestamp": int(datetime.utcnow().timestamp() * 1000),
                         "location": "backend/blast.py:send_attempt:BEFORE",
                         "message": "About to attempt SMS send",
-                        "data": {"card_id": card_id, "phone": phone, "message_length": len(message), "rep_user_id": rep_user_id, "rep_phone": rep_phone_number, "has_auth_token": bool(auth_token), "has_account_sid": bool(account_sid)},
+                        "data": {"card_id": card_id, "phone": phone, "message_length": len(message), "rep_user_id": rep_user_id, "has_auth_token": bool(auth_token), "has_account_sid": bool(account_sid)},
                         "hypothesisId": "F"
                     }) + "\n")
             except Exception as e:
@@ -458,18 +458,18 @@ def run_blast_for_cards(
             print(f"[BLAST_SEND_ATTEMPT] Phone: {phone}", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Message length: {len(message)} chars", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Rep User ID: {rep_user_id}", flush=True)
-            print(f"[BLAST_SEND_ATTEMPT] Rep Phone: {rep_phone_number}", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] Using System Phone Number (via Messaging Service)", flush=True)
             
             if auth_token:
                 print(f"[BLAST_SEND_ATTEMPT] Auth token provided: {auth_token[:15]}... (length: {len(auth_token)})", flush=True)
             else:
                 print(f"[BLAST_SEND_ATTEMPT] No auth_token provided, send_sms will use environment variable", flush=True)
             
-            # Use provided account_sid (system Account SID for all reps)
+            # Use provided account_sid (system Account SID for all users)
             account_sid_to_use = account_sid  # This is the system Account SID from env vars
             
-            print(f"[BLAST_SEND_ATTEMPT] Calling send_sms() with system Account SID: {account_sid_to_use[:10] if account_sid_to_use else 'ENV_VAR'}..., rep phone: {rep_phone_number}", flush=True)
-            sms_result = send_sms(phone, message, auth_token=auth_token, account_sid=account_sid_to_use, rep_phone_number=rep_phone_number)
+            print(f"[BLAST_SEND_ATTEMPT] Calling send_sms() with system Account SID: {account_sid_to_use[:10] if account_sid_to_use else 'ENV_VAR'}...", flush=True)
+            sms_result = send_sms(phone, message, auth_token=auth_token, account_sid=account_sid_to_use)
             
             # #region agent log - After send attempt
             try:
@@ -534,17 +534,17 @@ def run_blast_for_cards(
                 }
                 updated_history = existing_history + [outbound_msg]
                 
-                # Determine routing mode and rep info
+                # Determine routing mode
                 routing_mode = 'rep' if rep_user_id else 'ai'
-                rep_phone = rep_phone_number if rep_user_id else None
                 
                 # Insert or update conversation with history
+                # Note: rep_phone_number column kept for backward compatibility but not used
                 try:
                     cur.execute(
                         """
                         INSERT INTO conversations
-                        (phone, contact_id, card_id, owner, state, source_batch_id, last_outbound_at, history, routing_mode, rep_user_id, rep_phone_number)
-                        VALUES (%s, %s, %s, %s, 'awaiting_response', %s, %s, %s::jsonb, %s, %s, %s)
+                        (phone, contact_id, card_id, owner, state, source_batch_id, last_outbound_at, history, routing_mode, rep_user_id)
+                        VALUES (%s, %s, %s, %s, 'awaiting_response', %s, %s, %s::jsonb, %s, %s)
                         ON CONFLICT (phone)
                         DO UPDATE SET
                           last_outbound_at = EXCLUDED.last_outbound_at,
@@ -554,8 +554,7 @@ def run_blast_for_cards(
                           card_id = COALESCE(EXCLUDED.card_id, conversations.card_id),
                           history = EXCLUDED.history,
                           routing_mode = EXCLUDED.routing_mode,
-                          rep_user_id = EXCLUDED.rep_user_id,
-                          rep_phone_number = EXCLUDED.rep_phone_number;
+                          rep_user_id = EXCLUDED.rep_user_id;
                         """,
                         (
                             phone,
@@ -567,7 +566,6 @@ def run_blast_for_cards(
                             json.dumps(updated_history),
                             routing_mode,
                             rep_user_id,
-                            rep_phone,
                         ),
                     )
                 except psycopg2.ProgrammingError as e:

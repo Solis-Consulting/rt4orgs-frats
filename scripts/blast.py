@@ -165,14 +165,16 @@ def find_unblasted_contacts(leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return unblasted
 
 
-def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, account_sid: Optional[str] = None, rep_phone_number: Optional[str] = None) -> Dict[str, Any]:
+def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, account_sid: Optional[str] = None) -> Dict[str, Any]:
     """
     Send SMS via Twilio with comprehensive logging.
+    All messages sent from system phone number via Messaging Service.
     
     Args:
         to_number: Recipient phone number
         body: Message body
         auth_token: Optional Twilio auth token (overrides TWILIO_AUTH_TOKEN env var)
+        account_sid: Optional Twilio account SID (overrides TWILIO_ACCOUNT_SID env var)
     
     Returns:
         Dict with sid, status, and detailed response info
@@ -247,8 +249,7 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, accoun
     print(f"[SEND_SMS] Account SID Source: {sid_source}")
     print(f"[SEND_SMS] Auth Token Source: {token_source}")
     print(f"[SEND_SMS] Messaging Service SID: {TWILIO_MESSAGING_SERVICE_SID or 'NOT SET'} (REQUIRED - from env var)")
-    if rep_phone_number:
-        print(f"[SEND_SMS] Rep Phone Number: {rep_phone_number} (should be added to Messaging Service in Twilio)")
+    print(f"[SEND_SMS] Using System Phone Number (via Messaging Service)")
     print(f"[SEND_SMS] Note: All messages use Messaging Service for traceability and A2P compliance")
     
     try:
@@ -263,34 +264,22 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, accoun
         }
         
         # Always use Messaging Service for traceability and A2P compliance
-        # The rep's phone number should be in the Messaging Service sender pool
-        # Enable "Sticky Sender" in Twilio console to ensure same sender for each recipient
+        # All messages sent from single system phone number via Messaging Service
         if not TWILIO_MESSAGING_SERVICE_SID:
             error_msg = "TWILIO_MESSAGING_SERVICE_SID must be set in environment variables"
             print(f"[SEND_SMS] ❌ {error_msg}")
             raise ValueError(error_msg)
         
-        # Use Messaging Service (rep's phone should be in sender pool, Sticky Sender enabled)
+        # Use Messaging Service only - no from_ parameter
         message_params["messaging_service_sid"] = TWILIO_MESSAGING_SERVICE_SID
         print(f"[SEND_SMS] Using Messaging Service: {TWILIO_MESSAGING_SERVICE_SID}")
-        print(f"[SEND_SMS] Using System Account SID: {sid_to_use[:10]}... (same for all reps)")
-        if rep_phone_number:
-            # Use both messaging_service_sid AND from_ for deterministic rep identity
-            # This is the maximum-power configuration Twilio allows
-            # Note: Twilio uses 'from_' (not 'from') because 'from' is a Python keyword
-            message_params["from_"] = rep_phone_number
-            print(f"[SEND_SMS] Rep Phone: {rep_phone_number} (must be attached to Messaging Service)")
-            print(f"[SEND_SMS] Using MAXIMUM-POWER config: messaging_service_sid + from_=rep_phone")
-            print(f"[SEND_SMS] This ensures deterministic rep identity while maintaining compliance")
-        else:
-            print(f"[SEND_SMS] No rep phone provided - using Messaging Service only")
-            print(f"[SEND_SMS] Note: Enable 'Sticky Sender' in Twilio Messaging Service settings")
+        print(f"[SEND_SMS] Using System Account SID: {sid_to_use[:10]}... (same for all users)")
+        print(f"[SEND_SMS] Using System Phone Number (via Messaging Service)")
+        print(f"[SEND_SMS] Rep isolation maintained via card_assignments table")
         print(f"[SEND_SMS] All messages are traceable through Messaging Service logs")
         
         print(f"[SEND_SMS] Calling client.messages.create() with params:")
         print(f"[SEND_SMS]   to: {message_params.get('to')}")
-        if 'from_' in message_params:
-            print(f"[SEND_SMS]   from_: {message_params.get('from_')}")
         print(f"[SEND_SMS]   messaging_service_sid: {message_params.get('messaging_service_sid')}")
         print(f"[SEND_SMS]   body length: {len(message_params.get('body', ''))}")
         

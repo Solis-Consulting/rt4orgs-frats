@@ -23,16 +23,13 @@ def send_rep_message(
     message: str,
 ) -> Dict[str, Any]:
     """
-    Send SMS from rep's phone number to the card's phone number.
+    Send SMS from system phone number to the card's phone number.
     Returns dict with result including twilio_sid.
     """
     # Get rep user info
     user = get_user(conn, user_id)
     if not user:
         raise ValueError(f"User {user_id} not found")
-    
-    if not user.get("twilio_phone_number"):
-        raise ValueError(f"User {user_id} does not have a Twilio phone number configured")
     
     # Get card to find phone number
     card = get_card(conn, card_id)
@@ -67,7 +64,7 @@ def send_rep_message(
     print(f"[REP_MESSAGE] Card ID: {card_id}")
     print(f"[REP_MESSAGE] To Phone: {phone}")
     print(f"[REP_MESSAGE] Message length: {len(message)} chars")
-    print(f"[REP_MESSAGE] Rep Twilio Phone: {user['twilio_phone_number']}")
+    print(f"[REP_MESSAGE] Using System Phone Number (via Messaging Service)")
     print(f"[REP_MESSAGE] Account SID: {account_sid[:10]}... (length: {len(account_sid)})" if account_sid else "[REP_MESSAGE] Account SID: None")
     print(f"[REP_MESSAGE] Auth Token: {auth_token[:15]}... (length: {len(auth_token)})" if auth_token else "[REP_MESSAGE] Auth Token: None")
     
@@ -77,39 +74,29 @@ def send_rep_message(
         print(f"[REP_MESSAGE] ✅ Twilio Client created")
         
         # Always use Messaging Service for traceability and A2P compliance
-        # The rep's phone number should be in the Messaging Service sender pool
-        # Enable "Sticky Sender" in Twilio console to ensure same sender for each recipient
+        # All messages sent from single system phone number via Messaging Service
         messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
         if not messaging_service_sid:
             error_msg = "TWILIO_MESSAGING_SERVICE_SID must be set in environment variables"
             print(f"[REP_MESSAGE] ❌ {error_msg}")
             raise ValueError(error_msg)
         
-        rep_phone = user["twilio_phone_number"]
         print(f"[REP_MESSAGE] Using Messaging Service: {messaging_service_sid}")
-        print(f"[REP_MESSAGE] Using System Account SID: {account_sid[:10]}... (same for all reps)")
-        if rep_phone:
-            print(f"[REP_MESSAGE] Rep Phone: {rep_phone} (must be attached to Messaging Service)")
-            print(f"[REP_MESSAGE] Using MAXIMUM-POWER config: messaging_service_sid + from=rep_phone")
-            print(f"[REP_MESSAGE] This ensures deterministic rep identity while maintaining compliance")
+        print(f"[REP_MESSAGE] Using System Account SID: {account_sid[:10]}... (same for all users)")
+        print(f"[REP_MESSAGE] Using System Phone Number (via Messaging Service)")
+        print(f"[REP_MESSAGE] Rep isolation maintained via card_assignments table")
         print(f"[REP_MESSAGE] Calling client.messages.create() with:")
         print(f"[REP_MESSAGE]   to: {phone}")
         print(f"[REP_MESSAGE]   messaging_service_sid: {messaging_service_sid}")
-        if rep_phone:
-            print(f"[REP_MESSAGE]   from_: {rep_phone}")
         print(f"[REP_MESSAGE]   body length: {len(message)}")
         print(f"[REP_MESSAGE] All messages are traceable through Messaging Service logs")
         
-        # Use both messaging_service_sid AND from_ for deterministic rep identity
-        # This is the maximum-power configuration Twilio allows
-        # Note: Twilio uses 'from_' (not 'from') because 'from' is a Python keyword
+        # Use only messaging_service_sid - Messaging Service handles sender selection
         message_params = {
             "to": phone,
             "messaging_service_sid": messaging_service_sid,
             "body": message
         }
-        if rep_phone:
-            message_params["from_"] = rep_phone
         
         msg = client.messages.create(**message_params)
         
@@ -137,7 +124,7 @@ def send_rep_message(
             print(f"[REP_MESSAGE] Error Message: {msg.error_message}")
         
         # Update conversation to rep mode (with card_id for proper linking)
-        switch_conversation_to_rep(conn, phone, user_id, user["twilio_phone_number"], card_id=card_id)
+        switch_conversation_to_rep(conn, phone, user_id, card_id=card_id)
         
         # Store message in conversation history
         add_message_to_history(
@@ -173,12 +160,12 @@ def switch_conversation_to_rep(
     conn: Any,
     phone: str,
     user_id: str,
-    rep_phone_number: str,
     card_id: Optional[str] = None,
 ) -> bool:
     """
     Switch a conversation from AI mode to rep mode.
     If card_id is provided, ensures conversation is linked to that card.
+    Rep isolation is maintained via card_assignments table, not phone numbers.
     """
     with conn.cursor() as cur:
         # Try to get card_id from existing conversation if not provided
@@ -191,31 +178,30 @@ def switch_conversation_to_rep(
                 card_id = row[0]
         
         # Update existing conversation
+        # Note: rep_phone_number column kept for backward compatibility but not used
         cur.execute("""
             UPDATE conversations
             SET routing_mode = 'rep',
                 rep_user_id = %s,
-                rep_phone_number = %s,
                 card_id = COALESCE(%s, card_id),
                 updated_at = NOW()
             WHERE phone = %s
-        """, (user_id, rep_phone_number, card_id, phone))
+        """, (user_id, card_id, phone))
         
         # If conversation doesn't exist, create it
         if cur.rowcount == 0:
             cur.execute("""
                 INSERT INTO conversations (
-                    phone, card_id, routing_mode, rep_user_id, rep_phone_number,
+                    phone, card_id, routing_mode, rep_user_id,
                     state, owner, created_at, updated_at, history
                 )
-                VALUES (%s, %s, 'rep', %s, %s, 'awaiting_response', %s, NOW(), NOW(), '[]'::jsonb)
+                VALUES (%s, %s, 'rep', %s, 'awaiting_response', %s, NOW(), NOW(), '[]'::jsonb)
                 ON CONFLICT (phone) DO UPDATE SET
                     routing_mode = 'rep',
                     rep_user_id = EXCLUDED.rep_user_id,
-                    rep_phone_number = EXCLUDED.rep_phone_number,
                     card_id = COALESCE(EXCLUDED.card_id, conversations.card_id),
                     updated_at = NOW()
-            """, (phone, card_id, user_id, rep_phone_number, user_id))
+            """, (phone, card_id, user_id, user_id))
         
         return True
 

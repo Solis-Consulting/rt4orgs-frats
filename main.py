@@ -2789,24 +2789,22 @@ async def rep_blast(
     
     # Run blast
     try:
-        # Owner uses system phone, reps use their phone if configured
+        # All users (admin and reps) use system phone number via Messaging Service
         rep_user_id = None if current_user.get("role") == "admin" else current_user["id"]
-        rep_phone_number = None if current_user.get("role") == "admin" else current_user.get("twilio_phone_number")
         
-        # For reps: Use system Account SID and Auth Token (from env vars), but rep's phone number
-        # All reps use the same Account SID and Messaging Service, but different phone numbers
+        # All users use system Account SID and Auth Token (from env vars)
+        # All messages sent from system phone number via Messaging Service
         rep_account_sid = None
         rep_auth_token = None
         if rep_user_id:
             # Reps use system Account SID and Auth Token (same for all)
-            # Only their phone number is different
             import os
-            rep_account_sid = os.getenv("TWILIO_ACCOUNT_SID")  # Use system Account SID for all reps
-            rep_auth_token = os.getenv("TWILIO_AUTH_TOKEN")  # Use system Auth Token for all reps
+            rep_account_sid = os.getenv("TWILIO_ACCOUNT_SID")  # Use system Account SID for all users
+            rep_auth_token = os.getenv("TWILIO_AUTH_TOKEN")  # Use system Auth Token for all users
             
-            logger.info(f"[BLAST] Rep {rep_user_id} using system Account SID: {rep_account_sid[:10] if rep_account_sid else 'NOT SET'}..., rep phone: {rep_phone_number}")
+            logger.info(f"[BLAST] Rep {rep_user_id} using system Account SID: {rep_account_sid[:10] if rep_account_sid else 'NOT SET'}...")
         
-        logger.info(f"[BLAST] Running blast for {len(card_ids)} cards, rep_user_id={rep_user_id}, rep_phone={rep_phone_number}, using_system_account_sid={bool(rep_account_sid)}")
+        logger.info(f"[BLAST] Running blast for {len(card_ids)} cards, rep_user_id={rep_user_id}, using_system_account_sid={bool(rep_account_sid)}")
         
         # #region agent log - Before run_blast_for_cards
         try:
@@ -2822,7 +2820,7 @@ async def rep_blast(
                     "timestamp": int(datetime.now().timestamp() * 1000),
                     "location": "main.py:rep_blast:BEFORE_RUN",
                     "message": "About to call run_blast_for_cards",
-                    "data": {"card_ids_count": len(card_ids), "rep_user_id": rep_user_id, "rep_phone": rep_phone_number, "has_account_sid": bool(rep_account_sid), "has_auth_token": bool(rep_auth_token)},
+                    "data": {"card_ids_count": len(card_ids), "rep_user_id": rep_user_id, "has_account_sid": bool(rep_account_sid), "has_auth_token": bool(rep_auth_token)},
                     "hypothesisId": "C"
                 }) + "\n")
         except Exception as e:
@@ -2835,10 +2833,9 @@ async def rep_blast(
             limit=None,  # Already applied limit above if needed
             owner=current_user["id"],
             source="owner_ui" if current_user.get("role") == "admin" else "rep_ui",
-            auth_token=rep_auth_token,  # System auth token for all reps
-            account_sid=rep_account_sid,  # System account SID for all reps
+            auth_token=rep_auth_token,  # System auth token for all users
+            account_sid=rep_account_sid,  # System account SID for all users
             rep_user_id=rep_user_id,
-            rep_phone_number=rep_phone_number,  # Rep's specific phone number
         )
         
         logger.info(f"[BLAST] Blast completed: sent={result.get('sent', 0)}, skipped={result.get('skipped', 0)}")
@@ -2943,9 +2940,9 @@ async def rep_send_message(
             raise HTTPException(status_code=403, detail="Card is not assigned to you")
     
     try:
-        # Owner sends from system phone, reps from their phone
+        # All users (admin and reps) send from system phone via Messaging Service
         if current_user.get("role") == "admin":
-            # Owner: use system Twilio
+            # Admin: use system Twilio
             from scripts.blast import send_sms
             from backend.cards import get_card
             card = get_card(conn, card_id)
@@ -2960,7 +2957,7 @@ async def rep_send_message(
             
             return {"ok": True, "result": result}
         else:
-            # Rep: use rep messaging system
+            # Rep: use rep messaging system (also uses system phone via Messaging Service)
             result = send_rep_message(conn, current_user["id"], card_id, message)
             return {"ok": True, "result": result}
     except Exception as e:
