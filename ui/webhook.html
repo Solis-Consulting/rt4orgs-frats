@@ -107,10 +107,63 @@
 
   <script type="module">
     import { BACKEND_URL } from '/config.js';
+    const BACKEND = BACKEND_URL;
+
+    // Owner-only authentication check
+    (async function checkOwnerAuth() {
+      const apiToken = localStorage.getItem('apiToken');
+      if (!apiToken) {
+        window.location.href = 'login.html';
+        return;
+      }
+
+      // Verify token is owner/admin by calling admin endpoint
+      try {
+        const res = await fetch(`${BACKEND}/admin/users`, {
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem('apiToken');
+          window.location.href = 'login.html';
+          return;
+        }
+
+        if (!res.ok) {
+          localStorage.removeItem('apiToken');
+          window.location.href = 'login.html';
+          return;
+        }
+
+        // Owner token validated - continue loading page
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        localStorage.removeItem('apiToken');
+        window.location.href = 'login.html';
+        return;
+      }
+    })();
+
     const enabled = document.getElementById('enabled');
     const mode = document.getElementById('mode');
     const log_payloads = document.getElementById('log_payloads');
     const status = document.getElementById('status');
+
+    // Get headers function
+    function getHeaders() {
+      const apiToken = localStorage.getItem('apiToken');
+      if (!apiToken) {
+        window.location.href = 'login.html';
+        return {};
+      }
+      return {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json'
+      };
+    }
 
     function showStatus(message, isError = false) {
       status.textContent = message;
@@ -122,8 +175,18 @@
     }
 
     async function load() {
+      const headers = getHeaders();
+      if (!headers.Authorization) {
+        return; // Already redirected
+      }
+
       try {
-        const res = await fetch(`${BACKEND_URL}/admin/webhook/config`);
+        const res = await fetch(`${BACKEND_URL}/admin/webhook/config`, { headers });
+        if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem('apiToken');
+          window.location.href = 'login.html';
+          return;
+        }
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }

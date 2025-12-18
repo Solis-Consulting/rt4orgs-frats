@@ -74,6 +74,44 @@
   <script type="module">
     import { BACKEND_URL } from '/config.js';
     const BACKEND = BACKEND_URL;
+
+    // Owner-only authentication check
+    (async function checkOwnerAuth() {
+      const apiToken = localStorage.getItem('apiToken');
+      if (!apiToken) {
+        window.location.href = 'login.html';
+        return;
+      }
+
+      // Verify token is owner/admin by calling admin endpoint
+      try {
+        const res = await fetch(`${BACKEND}/admin/users`, {
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem('apiToken');
+          window.location.href = 'login.html';
+          return;
+        }
+
+        if (!res.ok) {
+          localStorage.removeItem('apiToken');
+          window.location.href = 'login.html';
+          return;
+        }
+
+        // Owner token validated - continue loading page
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        localStorage.removeItem('apiToken');
+        window.location.href = 'login.html';
+        return;
+      }
+    })();
     let validatedCards = [];
     let previewData = null;
 
@@ -172,7 +210,25 @@
       }
     }
 
+    // Get headers function
+    function getHeaders() {
+      const apiToken = localStorage.getItem('apiToken');
+      if (!apiToken) {
+        window.location.href = 'login.html';
+        return {};
+      }
+      return {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json'
+      };
+    }
+
     async function uploadCards() {
+      const headers = getHeaders();
+      if (!headers.Authorization) {
+        showStatus('Please login as owner/admin', 'error');
+        return;
+      }
       console.log('UPLOAD CLICKED – preparing cards');
 
       // Always parse current textarea content so we don't depend on prior state
