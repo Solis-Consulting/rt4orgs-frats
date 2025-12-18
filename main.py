@@ -2346,11 +2346,58 @@ async def get_current_user(request: Request) -> Dict[str, Any]:
 
 
 async def get_current_admin_user(request: Request) -> Dict[str, Any]:
-    """FastAPI dependency to get current admin user."""
+    """FastAPI dependency to get current admin/owner user."""
     user = await get_current_user(request)
+    # Owner (admin role) has full access
     if user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
+        raise HTTPException(status_code=403, detail="Owner/Admin access required")
     return user
+
+
+async def get_current_owner_or_rep(request: Request) -> Dict[str, Any]:
+    """FastAPI dependency that allows both owner and rep access."""
+    return await get_current_user(request)
+
+
+# ============================================================================
+# Owner Key Setup (one-time initialization)
+# ============================================================================
+
+@app.post("/admin/setup/owner-key")
+async def setup_owner_key():
+    """
+    One-time endpoint to create the owner API key.
+    Only works if no owner exists yet.
+    """
+    conn = get_conn()
+    
+    # Check if owner already exists
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
+        if cur.fetchone():
+            raise HTTPException(status_code=400, detail="Owner key already exists. Use existing owner key to create more users.")
+    
+    # Create owner user
+    try:
+        user = create_user(
+            conn=conn,
+            username="Owner",
+            role="admin",
+            twilio_phone=None,
+            user_id="owner"
+        )
+        return {
+            "ok": True,
+            "message": "Owner API key created successfully",
+            "user": {
+                "id": user["id"],
+                "username": user["username"],
+                "role": user["role"],
+                "api_token": user["api_token"]  # Only shown on creation
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create owner key: {str(e)}")
 
 
 # ============================================================================
@@ -2390,6 +2437,27 @@ async def admin_list_users(current_user: Dict = Depends(get_current_admin_user))
     conn = get_conn()
     users = list_users(conn, include_inactive=True)
     return {"ok": True, "users": users}
+
+
+@app.put("/admin/users/{user_id}")
+async def admin_update_user(
+    user_id: str,
+    payload: Dict[str, Any] = Body(...),
+    current_user: Dict = Depends(get_current_admin_user)
+):
+    """Update a user's Twilio configuration (phone pairing)."""
+    conn = get_conn()
+    
+    phone = payload.get("twilio_phone_number")
+    account_sid = payload.get("twilio_account_sid")
+    auth_token = payload.get("twilio_auth_token")
+    
+    success = update_user_twilio_config(conn, user_id, phone, account_sid, auth_token)
+    
+    if success:
+        return {"ok": True, "message": "User updated successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to update user")
 
 
 @app.post("/admin/assignments")
@@ -2460,66 +2528,135 @@ async def admin_update_assignment(
 @app.get("/rep/cards")
 async def rep_get_cards(
     status: Optional[str] = None,
-    current_user: Dict = Depends(get_current_user)
+    current_user: Dict = Depends(get_current_owner_or_rep)
 ):
-    """Get rep's assigned cards."""
+    """Get rep's assigned cards. Owner sees all cards, reps see only their assignments."""
     conn = get_conn()
-    cards = get_rep_assigned_cards(conn, current_user["id"], status=status)
+    
+    # Owner can see all cards, reps see only their assignments
+    if current_user.get("role") == "admin":
+        # Owner: get all cards
+        from backend.query import build_list_query
+        query_result = build_list_query(conn, {}, limit=10000)
+        cards = query_result.get("cards", [])
+    else:
+        # Rep: get only assigned cards
+        cards = get_rep_assigned_cards(conn, current_user["id"], status=status)
+    
     return {"ok": True, "cards": cards}
 
 
 @app.get("/rep/conversations")
-async def rep_get_conversations(current_user: Dict = Depends(get_current_user)):
-    """Get rep's active conversations."""
+async def rep_get_conversations(current_user: Dict = Depends(get_current_owner_or_rep)):
+    """Get rep's active conversations. Owner sees all, reps see only their own."""
     conn = get_conn()
-    conversations = get_rep_conversations(conn, current_user["id"])
+    
+    # Owner can see all conversations, reps see only their own
+    if current_user.get("role") == "admin":
+        # Owner: get all conversations
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT phone, card_id, state, routing_mode, rep_user_id, rep_phone_number,
+                       last_outbound_at, last_inbound_at, created_at, updated_at, history
+                FROM conversations
+                ORDER BY COALESCE(last_inbound_at, last_outbound_at, updated_at) DESC NULLS LAST
+            """)
+            
+            conversations = []
+            for row in cur.fetchall():
+                history = row[10] or []
+                if isinstance(history, str):
+                    try:
+                        import json
+                        history = json.loads(history)
+                    except:
+                        history = []
+                
+                conversations.append({
+                    "phone": row[0],
+                    "card_id": row[1],
+                    "state": row[2],
+                    "routing_mode": row[3],
+                    "rep_user_id": row[4],
+                    "rep_phone_number": row[5],
+                    "last_outbound_at": row[6],
+                    "last_inbound_at": row[7],
+                    "created_at": row[8],
+                    "updated_at": row[9],
+                    "unread_count": 0,  # Owner sees all, no unread concept
+                })
+    else:
+        # Rep: get only their conversations
+        conversations = get_rep_conversations(conn, current_user["id"])
+    
     return {"ok": True, "conversations": conversations}
 
 
 @app.post("/rep/blast")
 async def rep_blast(
     payload: Dict[str, Any] = Body(...),
-    current_user: Dict = Depends(get_current_user)
+    current_user: Dict = Depends(get_current_owner_or_rep)
 ):
-    """Blast rep's assigned cards using rep's phone number."""
+    """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
     limit = payload.get("limit")
-    status_filter = payload.get("status", "assigned")  # Only blast assigned/active cards
+    status_filter = payload.get("status", "assigned")
     card_ids = payload.get("card_ids")  # Optional: specific card IDs to blast
     
     conn = get_conn()
     
-    # If specific card_ids provided, use those; otherwise get all assigned cards
-    if card_ids and isinstance(card_ids, list):
-        # Verify these cards are assigned to the rep
-        all_assigned = get_rep_assigned_cards(conn, current_user["id"])
-        assigned_ids = {c["id"] for c in all_assigned}
-        card_ids = [cid for cid in card_ids if cid in assigned_ids]
-        
-        if not card_ids:
-            return {"ok": False, "error": "None of the specified cards are assigned to you", "sent": 0, "skipped": 0}
+    # Owner can blast any cards, reps can only blast their assignments
+    if current_user.get("role") == "admin":
+        # Owner: can blast any cards
+        if card_ids and isinstance(card_ids, list):
+            # Use provided card IDs
+            pass
+        else:
+            # Get all cards (or filtered by query if needed)
+            from backend.query import build_list_query
+            query_result = build_list_query(conn, {}, limit=limit or 10000)
+            card_ids = [c["id"] for c in query_result.get("cards", [])]
+            if limit:
+                card_ids = card_ids[:limit]
     else:
-        # Get rep's assigned cards
-        cards = get_rep_assigned_cards(conn, current_user["id"], status=status_filter)
-        if not cards:
-            return {"ok": False, "error": "No assigned cards found", "sent": 0, "skipped": 0}
-        
-        card_ids = [c["id"] for c in cards]
-        
-        # Apply limit if provided
-        if limit:
-            card_ids = card_ids[:limit]
+        # Rep: can only blast assigned cards
+        if card_ids and isinstance(card_ids, list):
+            # Verify these cards are assigned to the rep
+            all_assigned = get_rep_assigned_cards(conn, current_user["id"])
+            assigned_ids = {c["id"] for c in all_assigned}
+            card_ids = [cid for cid in card_ids if cid in assigned_ids]
+            
+            if not card_ids:
+                return {"ok": False, "error": "None of the specified cards are assigned to you", "sent": 0, "skipped": 0}
+        else:
+            # Get rep's assigned cards
+            cards = get_rep_assigned_cards(conn, current_user["id"], status=status_filter)
+            if not cards:
+                return {"ok": False, "error": "No assigned cards found", "sent": 0, "skipped": 0}
+            
+            card_ids = [c["id"] for c in cards]
+            
+            # Apply limit if provided
+            if limit:
+                card_ids = card_ids[:limit]
     
-    # Run blast with rep's user_id as owner
+    if not card_ids:
+        return {"ok": False, "error": "No cards to blast", "sent": 0, "skipped": 0}
+    
+    # Run blast
     try:
+        # Owner uses system phone, reps use their phone if configured
+        rep_user_id = None if current_user.get("role") == "admin" else current_user["id"]
+        rep_phone_number = None if current_user.get("role") == "admin" else current_user.get("twilio_phone_number")
+        
         result = run_blast_for_cards(
             conn=conn,
             card_ids=card_ids,
             limit=None,  # Already applied limit above if needed
             owner=current_user["id"],
-            source="rep_ui",
+            source="owner_ui" if current_user.get("role") == "admin" else "rep_ui",
             auth_token=None,  # Will use system Twilio for now
-            rep_user_id=current_user["id"],
-            rep_phone_number=current_user.get("twilio_phone_number"),
+            rep_user_id=rep_user_id,
+            rep_phone_number=rep_phone_number,
         )
         return result
     except Exception as e:
@@ -2529,9 +2666,9 @@ async def rep_blast(
 @app.post("/rep/messages/send")
 async def rep_send_message(
     payload: Dict[str, Any] = Body(...),
-    current_user: Dict = Depends(get_current_user)
+    current_user: Dict = Depends(get_current_owner_or_rep)
 ):
-    """Send a message to a specific card/phone."""
+    """Send a message to a specific card/phone. Owner can send to any, reps to their assigned cards."""
     card_id = payload.get("card_id")
     phone = payload.get("phone")
     message = payload.get("message")
@@ -2555,9 +2692,34 @@ async def rep_send_message(
     if not card_id:
         raise HTTPException(status_code=404, detail="Card not found for phone number")
     
+    # Reps can only send to their assigned cards
+    if current_user.get("role") != "admin":
+        assigned = get_rep_assigned_cards(conn, current_user["id"])
+        assigned_ids = {c["id"] for c in assigned}
+        if card_id not in assigned_ids:
+            raise HTTPException(status_code=403, detail="Card is not assigned to you")
+    
     try:
-        result = send_rep_message(conn, current_user["id"], card_id, message)
-        return {"ok": True, "result": result}
+        # Owner sends from system phone, reps from their phone
+        if current_user.get("role") == "admin":
+            # Owner: use system Twilio
+            from scripts.blast import send_sms
+            from backend.cards import get_card
+            card = get_card(conn, card_id)
+            phone_num = card.get("card_data", {}).get("phone") if card else phone
+            if not phone_num:
+                raise HTTPException(status_code=400, detail="Phone number not found")
+            
+            result = send_sms(phone_num, message)
+            # Store in conversation history
+            from backend.rep_messaging import add_message_to_history
+            add_message_to_history(conn, phone_num, "outbound", message, "owner", result.get("sid"))
+            
+            return {"ok": True, "result": result}
+        else:
+            # Rep: use rep messaging system
+            result = send_rep_message(conn, current_user["id"], card_id, message)
+            return {"ok": True, "result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send message: {str(e)}")
 
@@ -2565,58 +2727,96 @@ async def rep_send_message(
 @app.get("/rep/messages/{phone}")
 async def rep_get_messages(
     phone: str,
-    current_user: Dict = Depends(get_current_user)
+    current_user: Dict = Depends(get_current_owner_or_rep)
 ):
-    """Get conversation history for a phone number."""
+    """Get conversation history for a phone number. Owner can see all, reps only their own."""
     conn = get_conn()
     
-    # Verify this conversation belongs to the rep
-    with conn.cursor() as cur:
-        cur.execute("""
-            SELECT rep_user_id FROM conversations WHERE phone = %s
-        """, (phone,))
-        row = cur.fetchone()
-        if row and row[0] != current_user["id"]:
-            raise HTTPException(status_code=403, detail="Not authorized to view this conversation")
+    # Reps can only see their assigned conversations
+    if current_user.get("role") != "admin":
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT rep_user_id, card_id FROM conversations WHERE phone = %s
+            """, (phone,))
+            row = cur.fetchone()
+            if row and row[0] and row[0] != current_user["id"]:
+                # Check if card is assigned to rep
+                if row[1]:
+                    assigned = get_card_assignment(conn, row[1])
+                    if not assigned or assigned["user_id"] != current_user["id"]:
+                        raise HTTPException(status_code=403, detail="Not authorized to view this conversation")
     
     messages = get_conversation_messages(conn, phone)
     return {"ok": True, "messages": messages}
 
 
 @app.get("/rep/stats")
-async def rep_get_stats(current_user: Dict = Depends(get_current_user)):
-    """Get rep's conversion metrics."""
+async def rep_get_stats(current_user: Dict = Depends(get_current_owner_or_rep)):
+    """Get conversion metrics. Owner sees all stats, reps see only their own."""
     conn = get_conn()
     
-    # Get assignment counts by status
-    with conn.cursor() as cur:
-        cur.execute("""
-            SELECT status, COUNT(*) as count
-            FROM card_assignments
-            WHERE user_id = %s
-            GROUP BY status
-        """, (current_user["id"],))
-        
-        stats = {
-            "assigned": 0,
-            "active": 0,
-            "closed": 0,
-            "lost": 0,
-        }
-        
-        for row in cur.fetchall():
-            status = row[0]
-            count = row[1]
-            if status in stats:
-                stats[status] = count
-        
-        # Get total conversations
-        cur.execute("""
-            SELECT COUNT(*) FROM conversations
-            WHERE rep_user_id = %s AND routing_mode = 'rep'
-        """, (current_user["id"],))
-        row = cur.fetchone()
-        stats["total_conversations"] = row[0] if row else 0
-        
-        return {"ok": True, "stats": stats}
+    if current_user.get("role") == "admin":
+        # Owner: get all stats
+        with conn.cursor() as cur:
+            # Total cards
+            cur.execute("SELECT COUNT(*) FROM cards")
+            total_cards = cur.fetchone()[0] or 0
+            
+            # Total conversations
+            cur.execute("SELECT COUNT(*) FROM conversations")
+            total_conversations = cur.fetchone()[0] or 0
+            
+            # Assignment stats
+            cur.execute("""
+                SELECT status, COUNT(*) as count
+                FROM card_assignments
+                GROUP BY status
+            """)
+            
+            stats = {
+                "assigned": 0,
+                "active": 0,
+                "closed": 0,
+                "lost": 0,
+                "total_cards": total_cards,
+                "total_conversations": total_conversations,
+            }
+            
+            for row in cur.fetchall():
+                status = row[0]
+                count = row[1]
+                if status in stats:
+                    stats[status] = count
+    else:
+        # Rep: get only their stats
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT status, COUNT(*) as count
+                FROM card_assignments
+                WHERE user_id = %s
+                GROUP BY status
+            """, (current_user["id"],))
+            
+            stats = {
+                "assigned": 0,
+                "active": 0,
+                "closed": 0,
+                "lost": 0,
+            }
+            
+            for row in cur.fetchall():
+                status = row[0]
+                count = row[1]
+                if status in stats:
+                    stats[status] = count
+            
+            # Get total conversations
+            cur.execute("""
+                SELECT COUNT(*) FROM conversations
+                WHERE rep_user_id = %s AND routing_mode = 'rep'
+            """, (current_user["id"],))
+            row = cur.fetchone()
+            stats["total_conversations"] = row[0] if row else 0
+    
+    return {"ok": True, "stats": stats}
 

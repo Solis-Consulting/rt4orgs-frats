@@ -72,9 +72,9 @@
   </style>
 </head>
 <body>
-  <div class="login-card">
-    <h1>RT4 Lead Console</h1>
-    <div class="sub">Enter your API token to continue</div>
+    <div class="login-card">
+      <h1>RT4 Lead Console</h1>
+      <div class="sub">Enter your API token to continue</div>
     
     <form id="loginForm">
       <label for="token">API Token</label>
@@ -82,6 +82,12 @@
       <div class="error" id="error"></div>
       <button type="submit" id="loginBtn">Login</button>
     </form>
+    
+    <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #1f2937;">
+      <div style="font-size: 12px; color: #9ca3af; margin-bottom: 12px;">First time setup?</div>
+      <button type="button" onclick="createOwnerKey()" style="width: 100%; background: #10b981; margin-top: 0;">Create Owner Key</button>
+      <div id="ownerKeyResult" style="margin-top: 12px; display: none; padding: 12px; background: #1e293b; border-radius: 8px; font-size: 11px; font-family: monospace; word-break: break-all;"></div>
+    </div>
   </div>
 
   <script type="module">
@@ -167,7 +173,7 @@
     }
 
     async function redirectToDashboard(token) {
-      // Try to determine if user is admin by calling admin endpoint
+      // Try to determine if user is owner/admin by calling admin endpoint
       try {
         const res = await fetch(`${BACKEND}/admin/users`, {
           headers: {
@@ -176,8 +182,10 @@
         });
         
         if (res.ok) {
+          // Owner/admin - go to admin dashboard
           window.location.href = 'admin.html';
         } else {
+          // Rep - go to rep dashboard
           window.location.href = 'rep.html';
         }
       } catch {
@@ -185,6 +193,53 @@
         window.location.href = 'rep.html';
       }
     }
+
+    async function createOwnerKey() {
+      const btn = document.getElementById('loginBtn');
+      const resultDiv = document.getElementById('ownerKeyResult');
+      
+      btn.disabled = true;
+      btn.textContent = 'Creating...';
+      resultDiv.style.display = 'none';
+
+      try {
+        const res = await fetch(`${BACKEND}/admin/setup/owner-key`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const data = await res.json();
+        if (data.ok && data.user) {
+          resultDiv.style.display = 'block';
+          resultDiv.style.color = '#bbf7d0';
+          resultDiv.innerHTML = `<strong>Owner key created!</strong><br><br>Your API Token:<br>${data.user.api_token}<br><br><strong>Save this token - it won't be shown again!</strong>`;
+          
+          // Auto-fill the token input
+          document.getElementById('token').value = data.user.api_token;
+          
+          // Auto-login after 2 seconds
+          setTimeout(() => {
+            localStorage.setItem('apiToken', data.user.api_token);
+            redirectToDashboard(data.user.api_token);
+          }, 2000);
+        } else {
+          resultDiv.style.display = 'block';
+          resultDiv.style.color = '#fecaca';
+          resultDiv.textContent = `Failed: ${data.detail || 'Unknown error'}`;
+        }
+      } catch (error) {
+        resultDiv.style.display = 'block';
+        resultDiv.style.color = '#fecaca';
+        resultDiv.textContent = `Error: ${error.message}`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Login';
+      }
+    }
+
+    window.createOwnerKey = createOwnerKey;
   </script>
 </body>
 </html>

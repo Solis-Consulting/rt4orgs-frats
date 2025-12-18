@@ -57,14 +57,16 @@
       </div>
 
       <div class="tabs">
-        <div class="tab active" data-view="users">Users</div>
-        <div class="tab" data-view="assignments">Assignments</div>
+        <div class="tab active" data-view="users">Users & Phone Pairing</div>
+        <div class="tab" data-view="assignments">Card Assignments</div>
+        <div class="tab" data-view="blast">Blast</div>
       </div>
 
       <!-- Users View -->
       <div id="usersView">
         <div class="toolbar">
-          <button onclick="showCreateUserModal()">Create New User</button>
+          <button onclick="showCreateUserModal()">Create New Rep</button>
+          <button onclick="setupOwnerKey()" style="background: #10b981;">Create Owner Key (if none exists)</button>
         </div>
         <div id="usersTableWrap"></div>
       </div>
@@ -86,6 +88,31 @@
           <button onclick="showAssignCardModal()">Assign Card</button>
         </div>
         <div id="assignmentsTableWrap"></div>
+      </div>
+
+      <!-- Blast View -->
+      <div id="blastView" style="display: none;">
+        <div class="toolbar">
+          <input id="blastCardSearch" placeholder="Search cards...">
+          <select id="blastTypeFilter">
+            <option value="">All types</option>
+            <option value="person">Person</option>
+            <option value="fraternity">Fraternity</option>
+            <option value="team">Team</option>
+            <option value="business">Business</option>
+          </select>
+          <select id="blastStateFilter">
+            <option value="">All sales states</option>
+            <option value="cold">Cold</option>
+            <option value="qualified">Qualified</option>
+            <option value="negotiating">Negotiating</option>
+            <option value="won">Won</option>
+            <option value="lost">Lost</option>
+          </select>
+          <button id="ownerBlastBtn" disabled>Blast Selected Cards</button>
+          <input id="ownerAuthToken" type="password" placeholder="Auth Token (optional)" style="width: 180px; margin-left: 8px;">
+        </div>
+        <div id="blastCardsTableWrap"></div>
       </div>
     </div>
   </div>
@@ -190,9 +217,15 @@
         
         document.getElementById('usersView').style.display = view === 'users' ? 'block' : 'none';
         document.getElementById('assignmentsView').style.display = view === 'assignments' ? 'block' : 'none';
+        document.getElementById('blastView').style.display = view === 'blast' ? 'block' : 'none';
         
-        if (view === 'users') loadUsers();
-        else if (view === 'assignments') loadAssignments();
+        if (view === 'users') {
+          loadUsers();
+        } else if (view === 'assignments') {
+          loadAssignments();
+        } else if (view === 'blast') {
+          loadBlastCards();
+        }
       });
     });
 
@@ -215,16 +248,17 @@
 
     function renderUsers() {
       let html = '<table><thead><tr>';
-      html += '<th>Username</th><th>Role</th><th>Twilio Phone</th><th>Created</th><th>Actions</th>';
+      html += '<th>Username</th><th>Role</th><th>Twilio Phone</th><th>Twilio Account SID</th><th>Created</th><th>Actions</th>';
       html += '</tr></thead><tbody>';
 
       allUsers.forEach(user => {
         html += '<tr>';
         html += `<td>${user.username}</td>`;
-        html += `<td><span class='badge ${user.role === 'admin' ? 'amber' : 'gray'}'>${user.role}</span></td>`;
+        html += `<td><span class='badge ${user.role === 'admin' ? 'amber' : 'gray'}'>${user.role === 'admin' ? 'Owner' : 'Rep'}</span></td>`;
         html += `<td>${user.twilio_phone_number || '-'}</td>`;
+        html += `<td>${user.twilio_account_sid ? (user.twilio_account_sid.substring(0, 10) + '...') : '-'}</td>`;
         html += `<td>${user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}</td>`;
-        html += `<td><a class='link' href='#' onclick='editUser("${user.id}"); return false;'>Edit</a></td>`;
+        html += `<td><a class='link' href='#' onclick='editUser("${user.id}"); return false;'>Edit Phone Pairing</a></td>`;
         html += '</tr>';
       });
 
@@ -420,18 +454,193 @@
     document.getElementById('assignUserFilter')?.addEventListener('change', loadAssignments);
     document.getElementById('assignStatusFilter')?.addEventListener('change', loadAssignments);
 
+    // Blast functionality for owner
+    let allBlastCards = [];
+
+    async function loadBlastCards() {
+      try {
+        const res = await fetch(`${BACKEND}/rep/cards`, { headers });
+        if (res.status === 401 || res.status === 403) {
+          window.location.href = 'login.html';
+          return;
+        }
+        
+        const data = await res.json();
+        allBlastCards = data.cards || [];
+        renderBlastCards();
+      } catch (error) {
+        console.error('Error loading cards:', error);
+      }
+    }
+
+    function renderBlastCards() {
+      const search = document.getElementById('blastCardSearch')?.value.toLowerCase() || '';
+      const typeFilter = document.getElementById('blastTypeFilter')?.value || '';
+      const stateFilter = document.getElementById('blastStateFilter')?.value || '';
+      
+      let rows = allBlastCards.filter(card => {
+        if (search) {
+          const name = card.card_data?.name || '';
+          const id = card.id || '';
+          if (!name.toLowerCase().includes(search) && !id.toLowerCase().includes(search)) {
+            return false;
+          }
+        }
+        if (typeFilter && card.type !== typeFilter) return false;
+        if (stateFilter && card.sales_state !== stateFilter) return false;
+        return true;
+      });
+
+      let html = '<table><thead><tr>';
+      html += '<th><input type="checkbox" id="blastSelectAll"></th><th>Name</th><th>Type</th><th>Sales State</th><th>Updated</th>';
+      html += '</tr></thead><tbody>';
+
+      rows.forEach(card => {
+        const name = card.card_data?.name || card.id;
+        html += '<tr>';
+        html += `<td><input type="checkbox" class="blast-card-checkbox" data-id="${card.id}"></td>`;
+        html += `<td>${name}</td>`;
+        html += `<td><span class='badge ${card.type || 'person'}'>${card.type || 'person'}</span></td>`;
+        html += `<td><span class='badge gray'>${card.sales_state || 'cold'}</span></td>`;
+        html += `<td>${card.updated_at ? new Date(card.updated_at).toLocaleDateString() : '-'}</td>`;
+        html += '</tr>';
+      });
+
+      html += '</tbody></table>';
+      document.getElementById('blastCardsTableWrap').innerHTML = html;
+
+      // Select all checkbox
+      document.getElementById('blastSelectAll')?.addEventListener('change', (e) => {
+        document.querySelectorAll('.blast-card-checkbox').forEach(cb => {
+          cb.checked = e.target.checked;
+        });
+        updateOwnerBlastButton();
+      });
+
+      document.querySelectorAll('.blast-card-checkbox').forEach(cb => {
+        cb.addEventListener('change', updateOwnerBlastButton);
+      });
+      updateOwnerBlastButton();
+    }
+
+    function updateOwnerBlastButton() {
+      const selected = document.querySelectorAll('.blast-card-checkbox:checked').length;
+      document.getElementById('ownerBlastBtn').disabled = selected === 0;
+    }
+
+    document.getElementById('blastCardSearch')?.addEventListener('input', renderBlastCards);
+    document.getElementById('blastTypeFilter')?.addEventListener('change', renderBlastCards);
+    document.getElementById('blastStateFilter')?.addEventListener('change', renderBlastCards);
+
+    document.getElementById('ownerBlastBtn')?.addEventListener('click', async () => {
+      const selected = Array.from(document.querySelectorAll('.blast-card-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
+      if (selected.length === 0) {
+        alert('No cards selected');
+        return;
+      }
+
+      if (!confirm(`Blast ${selected.length} card(s)?`)) return;
+
+      const btn = document.getElementById('ownerBlastBtn');
+      btn.disabled = true;
+      btn.textContent = 'Blasting...';
+
+      // Get auth token from input
+      const authTokenInput = document.getElementById('ownerAuthToken');
+      const authToken = authTokenInput?.value.trim() || null;
+      if (authToken) {
+        localStorage.setItem('blastAuthToken', authToken);
+      }
+
+      try {
+        const res = await fetch(`${BACKEND}/rep/blast`, {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({ card_ids: selected })
+        });
+
+        const data = await res.json();
+        if (data.ok) {
+          alert(`Blast complete. Sent: ${data.sent}, Skipped: ${data.skipped}`);
+          loadBlastCards();
+        } else {
+          alert(`Blast failed: ${data.error || 'Unknown error'}`);
+        }
+      } catch (error) {
+        alert(`Error: ${error.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Blast Selected Cards';
+      }
+    });
+
     // Load initial data
     loadUsers();
+
+    async function setupOwnerKey() {
+      if (!confirm('Create owner API key? This will generate your master key with full access. Only do this if you don\'t have an owner key yet.')) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`${BACKEND}/admin/setup/owner-key`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const data = await res.json();
+        if (data.ok && data.user) {
+          alert(`Owner key created!\n\nAPI Token: ${data.user.api_token}\n\nSave this token - it won't be shown again!`);
+          loadUsers();
+        } else {
+          alert(`Failed: ${data.detail || 'Unknown error'}`);
+        }
+      } catch (error) {
+        alert(`Error: ${error.message}`);
+      }
+    }
 
     function logout() {
       localStorage.removeItem('apiToken');
       window.location.href = 'login.html';
     }
 
-    window.editUser = (userId) => {
-      alert('Edit user functionality - to be implemented');
-    };
+    async function editUser(userId) {
+      const user = allUsers.find(u => u.id === userId);
+      if (!user) return;
+
+      const phone = prompt('Enter Twilio phone number:', user.twilio_phone_number || '');
+      if (phone === null) return; // User cancelled
+
+      const accountSid = prompt('Enter Twilio Account SID (optional):', user.twilio_account_sid || '');
+      const authToken = prompt('Enter Twilio Auth Token (optional, leave empty to keep current):', '');
+
+      try {
+        const res = await fetch(`${BACKEND}/admin/users/${encodeURIComponent(userId)}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({
+            twilio_phone_number: phone || null,
+            twilio_account_sid: accountSid || null,
+            twilio_auth_token: authToken || null,
+          })
+        });
+
+        const data = await res.json();
+        if (data.ok) {
+          alert('User updated successfully');
+          loadUsers();
+        } else {
+          alert(`Failed: ${data.detail || 'Unknown error'}`);
+        }
+      } catch (error) {
+        alert(`Error: ${error.message}`);
+      }
+    }
     window.updateAssignmentStatus = updateAssignmentStatus;
+    window.setupOwnerKey = setupOwnerKey;
   </script>
 </body>
 </html>

@@ -58,6 +58,23 @@ def get_user_by_token(conn: Any, token: str) -> Optional[Dict[str, Any]]:
         }
 
 
+def is_owner(conn: Any, token: str) -> bool:
+    """Check if token belongs to owner user."""
+    if not token:
+        return False
+    
+    hashed_token = hash_token(token)
+    
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT role FROM users
+            WHERE api_token = %s AND is_active = TRUE AND role = 'admin'
+        """, (hashed_token,))
+        
+        row = cur.fetchone()
+        return row is not None
+
+
 def create_user(
     conn: Any,
     username: str,
@@ -177,7 +194,7 @@ def get_user(conn: Any, user_id: str) -> Optional[Dict[str, Any]]:
 def list_users(conn: Any, include_inactive: bool = False) -> list[Dict[str, Any]]:
     """List all users."""
     query = """
-        SELECT id, username, role, twilio_phone_number, created_at, updated_at, is_active
+        SELECT id, username, role, twilio_phone_number, twilio_account_sid, created_at, updated_at, is_active
         FROM users
     """
     params = []
@@ -197,9 +214,10 @@ def list_users(conn: Any, include_inactive: bool = False) -> list[Dict[str, Any]
                 "username": row[1],
                 "role": row[2],
                 "twilio_phone_number": row[3],
-                "created_at": row[4],
-                "updated_at": row[5],
-                "is_active": row[6],
+                "twilio_account_sid": row[4],
+                "created_at": row[5],
+                "updated_at": row[6],
+                "is_active": row[7],
             })
         
         return users
