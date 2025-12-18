@@ -994,6 +994,15 @@ async def twilio_inbound(request: Request):
                     )
                     
                     print(f"[TWILIO_INBOUND] ✅ Reply sent successfully (SID: {msg.sid})", flush=True)
+                    
+                    # Store outbound reply in conversation history
+                    try:
+                        from backend.rep_messaging import add_message_to_history
+                        add_message_to_history(conn, normalized_phone, "outbound", reply_text, "ai", msg.sid)
+                    except Exception as history_error:
+                        print(f"[TWILIO_INBOUND] WARNING: Could not store outbound message in history: {history_error}", flush=True)
+                    
+                    print(f"[TWILIO_INBOUND] Reply sent: {reply_text[:50]}... (SID: {msg.sid})", flush=True)
                 else:
                     missing = []
                     if not twilio_sid:
@@ -1003,18 +1012,6 @@ async def twilio_inbound(request: Request):
                     if not twilio_phone:
                         missing.append("TWILIO_PHONE_NUMBER")
                     print(f"[TWILIO_INBOUND] ❌ WARNING: Missing Twilio config: {', '.join(missing)}", flush=True)
-                    
-                    # Store outbound reply in conversation history
-                    try:
-                        from backend.rep_messaging import add_message_to_history
-                        twilio_sid_value = msg.sid if 'msg' in locals() else None
-                        add_message_to_history(conn, normalized_phone, "outbound", reply_text, "ai", twilio_sid_value)
-                    except Exception as history_error:
-                        print(f"[TWILIO_INBOUND] WARNING: Could not store outbound message in history: {history_error}")
-                    
-                    print(f"[TWILIO_INBOUND] Reply sent: {reply_text[:50]}... (SID: {msg.sid if 'msg' in locals() else 'N/A'})")
-                else:
-                    print("[TWILIO_INBOUND] WARNING: Twilio credentials not configured")
             except Exception as send_error:
                 print(f"[TWILIO_INBOUND] ERROR sending reply: {send_error}")
                 import traceback
