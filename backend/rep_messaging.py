@@ -259,16 +259,20 @@ def get_rep_conversations(conn: Any, user_id: str) -> List[Dict[str, Any]]:
                 else:
                     unread_count = len([m for m in history if m.get("direction") == "inbound"])
             
+            # Convert datetime objects to ISO format strings for JSON serialization
+            def to_iso(dt):
+                return dt.isoformat() if dt else None
+            
             conversations.append({
                 "phone": row[0],
                 "card_id": row[1],
                 "state": row[2],
                 "routing_mode": row[3],
                 "rep_phone_number": row[4],
-                "last_outbound_at": row[5],
-                "last_inbound_at": row[6],
-                "created_at": row[7],
-                "updated_at": row[8],
+                "last_outbound_at": to_iso(row[5]),
+                "last_inbound_at": to_iso(row[6]),
+                "created_at": to_iso(row[7]),
+                "updated_at": to_iso(row[8]),
                 "unread_count": unread_count,
             })
         
