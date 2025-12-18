@@ -39,6 +39,7 @@ from intelligence.utils import (
     _get_deal_institution,
     _get_deal_field,
     _normalize_fraternity_key,
+    normalize_phone,
 )
 
 
@@ -83,14 +84,19 @@ def _fetch_cards_by_ids(conn: Any, card_ids: List[str]) -> List[Dict[str, Any]]:
         )
 
     # Only keep person cards with phone numbers
-    person_cards: List[Dict[str, Any]] = []
-    for card in cards:
-        if card["type"] != "person":
-            continue
-        phone = (card["card_data"] or {}).get("phone")
-        if not phone:
-            continue
-        person_cards.append(card)
+        person_cards: List[Dict[str, Any]] = []
+        for card in cards:
+            if card["type"] != "person":
+                continue
+            phone = (card["card_data"] or {}).get("phone")
+            if not phone:
+                continue
+            # Normalize phone to E.164 format for consistency
+            phone = normalize_phone(phone)
+            # Update card_data with normalized phone
+            if isinstance(card["card_data"], dict):
+                card["card_data"]["phone"] = phone
+            person_cards.append(card)
 
     return person_cards
 
@@ -260,6 +266,20 @@ def run_blast_for_cards(
     print(f"[BLAST_RUN] Using System Phone Number (919) 443-6288 via Messaging Service", flush=True)
     print(f"[BLAST_RUN] Using System Twilio Credentials (from environment variables)", flush=True)
     print("=" * 80, flush=True)
+    
+    # 🔧 Blast-claim logic: If rep_user_id is set, ensure card is assigned to that rep
+    # This implements "blast claims ownership" - when someone blasts, they own the card
+    if rep_user_id:
+        from backend.handoffs import resolve_current_rep
+        from backend.assignments import assign_card_to_rep
+        
+        for card_id in card_ids:
+            current_rep = resolve_current_rep(conn, card_id)
+            if current_rep != rep_user_id:
+                # Rep changed - claim ownership via blast
+                print(f"[BLAST_RUN] 🔄 Blast claim: card {card_id} currently assigned to {current_rep}, claiming for {rep_user_id}", flush=True)
+                assign_card_to_rep(conn, card_id, rep_user_id, rep_user_id, notes="Blast claim - ownership transferred via blast")
+                print(f"[BLAST_RUN] ✅ Card {card_id} reassigned to {rep_user_id} via blast claim", flush=True)
 
     if not card_ids:
         return {
@@ -647,9 +667,11 @@ def run_blast_for_cards(
                     print(f"[BLAST] ✅ Conversation recorded/updated: phone={phone}, rep_user_id={rep_user_id}", flush=True)
                     
                     # If rep changed via blast, claim ownership and log handoff
+                    # Note: This is a secondary check - the main blast-claim happens at the start of run_blast_for_cards
+                    # This handles the case where conversation exists but assignment hasn't been updated yet
                     if existing_rep and existing_rep != rep_user_id:
                         from backend.handoffs import reset_markov_for_card, log_handoff
-                        print(f"[BLAST] 🔄 Rep changed via blast: {existing_rep} → {rep_user_id}", flush=True)
+                        print(f"[BLAST] 🔄 Rep changed via blast (conversation level): {existing_rep} → {rep_user_id}", flush=True)
                         reset_markov_for_card(conn, card_id, rep_user_id, 'blast_claim', rep_user_id)
                         log_handoff(
                             conn=conn,

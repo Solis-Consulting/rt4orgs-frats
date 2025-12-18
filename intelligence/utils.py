@@ -6,12 +6,44 @@ from typing import Any, Dict, List, Optional
 
 def normalize_phone(phone: str) -> str:
     """
-    Normalize phone number to last 10 digits.
+    Normalize phone number to E.164 format (preserves + and country code).
+    
+    CRITICAL: This function preserves E.164 format (+1234567890) for consistency.
+    All phone numbers should be stored and queried in E.164 format.
     """
+    if not phone:
+        return ""
+    
+    # Strip whitespace
+    phone = phone.strip()
+    
+    # If already in E.164 format (starts with +), return as-is
+    if phone.startswith("+"):
+        # Ensure it's valid E.164 (digits after +)
+        digits = "".join(ch for ch in phone[1:] if ch.isdigit())
+        if digits:
+            return "+" + digits
+        return phone
+    
+    # If no +, extract digits and add +1 for US numbers
     digits = "".join(ch for ch in phone if ch.isdigit())
-    if len(digits) > 10:
-        return digits[-10:]
-    return digits
+    if not digits:
+        return phone
+    
+    # If 10 digits, assume US and add +1
+    if len(digits) == 10:
+        return "+1" + digits
+    
+    # If 11 digits starting with 1, add +
+    if len(digits) == 11 and digits[0] == "1":
+        return "+" + digits
+    
+    # If already has country code (11+ digits), add +
+    if len(digits) >= 11:
+        return "+" + digits
+    
+    # Fallback: return with +1 prefix for US
+    return "+1" + digits
 
 
 def normalize_text(text: Optional[str]) -> str:

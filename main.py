@@ -866,18 +866,21 @@ async def twilio_inbound(request: Request):
         
         # 🔧 FIX C: Resolve card_id EARLY by looking up card by phone number
         # This ensures we have card_id available for rep hydration, even if conversation doesn't have it
+        # CRITICAL: Use E.164 format for phone lookup (preserve + and country code)
         print(f"[TWILIO_INBOUND] 🔍 Step 1: Resolving card by phone number...", flush=True)
+        print(f"[TWILIO_INBOUND]   Looking up card with phone (E.164): {From}", flush=True)
         card_id = None
         card = None
         with conn.cursor() as cur:
             # Try to find card by phone number in card_data JSONB
+            # Try both E.164 format and normalized format for backward compatibility
             cur.execute("""
                 SELECT id, type, card_data, sales_state, owner
                 FROM cards
                 WHERE type = 'person'
-                AND card_data->>'phone' = %s
+                AND (card_data->>'phone' = %s OR card_data->>'phone' = %s)
                 LIMIT 1
-            """, (normalized_phone,))
+            """, (From, normalized_phone))
             card_row = cur.fetchone()
             if card_row:
                 card_id = card_row[0]
@@ -901,12 +904,14 @@ async def twilio_inbound(request: Request):
         rep_user_id = None
         conversation_state = None
         conversation_card_id = None
+        conversation_row = None
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT routing_mode, rep_user_id, state, card_id FROM conversations WHERE phone = %s LIMIT 1
             """, (normalized_phone,))
             row = cur.fetchone()
             if row:
+                conversation_row = row
                 routing_mode = row[0] or 'ai'
                 rep_user_id = row[1]
                 conversation_state = row[2]
@@ -918,6 +923,9 @@ async def twilio_inbound(request: Request):
                 print(f"[TWILIO_INBOUND]   card_id (from conversations): {conversation_card_id}", flush=True)
             else:
                 print(f"[TWILIO_INBOUND] ⚠️ No conversation found in DB for phone: {normalized_phone}", flush=True)
+        
+        # Define conversation_exists based on whether we found a row
+        conversation_exists = conversation_row is not None
         
         # Use card_id from conversation if available, otherwise use the one we just resolved
         if conversation_card_id and not card_id:
