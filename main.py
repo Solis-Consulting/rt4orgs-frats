@@ -2825,40 +2825,30 @@ async def rep_get_conversations(current_user: Dict = Depends(get_current_owner_o
 @app.post("/rep/blast")
 async def rep_blast(
     request: Request,
-    current_user: Dict = Depends(get_current_owner_or_rep)
+    user = Depends(get_current_owner_or_rep)
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
     # 🔥 CRITICAL: Log IMMEDIATELY - this proves the handler was entered
-    print("🔥🔥🔥 BLAST HANDLER HIT 🔥🔥🔥", flush=True)
-    logger.warning("🔥 BLAST HANDLER HIT")
+    # This MUST be the first line - if this doesn't log, FastAPI is rejecting before handler
+    logger.error("🔥🔥🔥 ENTERED /rep/blast HANDLER 🔥🔥🔥")
+    print("🔥🔥🔥 ENTERED /rep/blast HANDLER 🔥🔥🔥", flush=True)
     
-    # CRITICAL: Parse body manually to avoid FastAPI Body() validation errors that might fail silently
+    # Parse JSON directly - bypasses all FastAPI validation
     try:
-        body_bytes = await request.body()
-        body_str = body_bytes.decode('utf-8') if body_bytes else '{}'
-        payload = json.loads(body_str) if body_str else {}
-        print(f"[BLAST_ENDPOINT] Body parsed successfully: {payload}", flush=True)
-    except Exception as parse_err:
-        print(f"[BLAST_ENDPOINT] ❌ Error parsing body: {parse_err}", flush=True)
+        payload = await request.json()
+        logger.error(f"🔥 BLAST PAYLOAD: {payload}")
+        print(f"🔥 BLAST PAYLOAD: {payload}", flush=True)
+    except Exception as json_err:
+        logger.error(f"🔥 BLAST PAYLOAD PARSE ERROR: {json_err}")
+        print(f"🔥 BLAST PAYLOAD PARSE ERROR: {json_err}", flush=True)
         import traceback
         traceback.print_exc()
         payload = {}
     
-    # CRITICAL: Write to file immediately to ensure we see it even if stdout is buffered
-    try:
-        import json as _json
-        from datetime import datetime
-        from pathlib import Path
-        log_file = Path("/tmp/blast_endpoint.log")
-        with open(log_file, "a") as f:
-            f.write(f"[{datetime.now().isoformat()}] ENDPOINT CALLED\n")
-            f.write(f"  Path: {request.url.path}\n")
-            f.write(f"  Payload: {_json.dumps(payload)}\n")
-            f.write(f"  User: {current_user.get('id')} (role: {current_user.get('role')})\n")
-            f.flush()
-    except Exception as log_err:
-        pass  # Don't fail if logging fails
-    # CRITICAL: Wrap entire function in try-catch to catch ANY exception
+    # Use 'user' instead of 'current_user' to match dependency name
+    current_user = user
+    
+    # Now continue with the rest of the handler logic
     try:
         # CRITICAL: Log immediately when endpoint is hit - BEFORE anything else
         import sys
