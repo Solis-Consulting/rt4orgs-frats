@@ -2851,31 +2851,46 @@ async def rep_blast(
         logger.error(f"[DEBUG_LOG] Failed to write debug log: {e}")
     # #endregion
     
+    print(f"[BLAST_ENDPOINT] Getting database connection...", flush=True)
     conn = get_conn()
+    print(f"[BLAST_ENDPOINT] Database connection obtained", flush=True)
     
     # CRITICAL: Enforce assignment boundaries
+    print(f"[BLAST_ENDPOINT] Checking user role: {current_user.get('role')}", flush=True)
     if current_user.get("role") == "admin":
+        print(f"[BLAST_ENDPOINT] User is admin - can blast any cards", flush=True)
         # Owner: can blast any cards
         if card_ids and isinstance(card_ids, list):
             # Use provided card IDs (owner has full access)
+            print(f"[BLAST_ENDPOINT] Admin using provided card_ids: {card_ids}", flush=True)
             pass
         else:
+            print(f"[BLAST_ENDPOINT] Admin - no card_ids provided, fetching all cards...", flush=True)
             # Get all cards (or filtered by query if needed)
+            print(f"[BLAST_ENDPOINT] Building query for all cards...", flush=True)
             from backend.query import build_list_query
             query, params = build_list_query(where={}, limit=limit or 10000)
+            print(f"[BLAST_ENDPOINT] Query built, executing...", flush=True)
             
             card_ids = []
             with conn.cursor() as cur:
                 cur.execute(query, params)
-                for row in cur.fetchall():
+                rows = cur.fetchall()
+                print(f"[BLAST_ENDPOINT] Fetched {len(rows)} cards from database", flush=True)
+                for row in rows:
                     card_ids.append(row[0])  # row[0] is the id
+            print(f"[BLAST_ENDPOINT] Admin - final card_ids count: {len(card_ids)}", flush=True)
     else:
         # Rep: STRICT enforcement - can ONLY blast assigned cards
+        print(f"[BLAST_ENDPOINT] User is rep - enforcing assignment boundaries", flush=True)
         logger.info(f"[BLAST] Rep {current_user['id']} attempting blast - enforcing assignment boundaries")
         
         # Get all cards assigned to this rep
+        print(f"[BLAST_ENDPOINT] Fetching assigned cards for rep {current_user['id']}...", flush=True)
         all_assigned = get_rep_assigned_cards(conn, current_user["id"])
+        print(f"[BLAST_ENDPOINT] Found {len(all_assigned)} assigned cards", flush=True)
         assigned_ids = {c["id"] for c in all_assigned}
+        print(f"[BLAST_ENDPOINT] Assigned card IDs: {list(assigned_ids)[:5]}..." if len(assigned_ids) > 5 else f"[BLAST_ENDPOINT] Assigned card IDs: {list(assigned_ids)}", flush=True)
         
         if card_ids and isinstance(card_ids, list):
             # Verify ALL specified cards are assigned to this rep
@@ -2905,21 +2920,30 @@ async def rep_blast(
         
         logger.info(f"[BLAST] Rep {current_user['id']} - authorized to blast {len(card_ids)} assigned cards")
     
+    print(f"[BLAST_ENDPOINT] Final card_ids count: {len(card_ids) if card_ids else 0}", flush=True)
     if not card_ids:
+        print(f"[BLAST_ENDPOINT] ❌ No cards to blast - returning error", flush=True)
         return {"ok": False, "error": "No cards to blast", "sent": 0, "skipped": 0}
     
+    print(f"[BLAST_ENDPOINT] ✅ Card validation passed - {len(card_ids)} cards to blast", flush=True)
+    
     # Run blast
+    print(f"[BLAST_ENDPOINT] Starting blast execution...", flush=True)
     try:
         # All users (admin and reps) use system phone number via Messaging Service
         rep_user_id = None if current_user.get("role") == "admin" else current_user["id"]
+        print(f"[BLAST_ENDPOINT] rep_user_id: {rep_user_id}", flush=True)
         
         # Validate Messaging Service SID is configured
         import os
+        print(f"[BLAST_ENDPOINT] Validating Twilio environment variables...", flush=True)
         messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
         if not messaging_service_sid:
             error_msg = "TWILIO_MESSAGING_SERVICE_SID is not set in environment variables. Blast cannot proceed."
+            print(f"[BLAST_ENDPOINT] ❌ {error_msg}", flush=True)
             logger.error(f"[BLAST] ❌ {error_msg}")
             return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
+        print(f"[BLAST_ENDPOINT] ✅ TWILIO_MESSAGING_SERVICE_SID: {messaging_service_sid}", flush=True)
         
         # All users (admin and reps) use system Account SID and Auth Token (from env vars)
         # All messages sent from system phone number (919) 443-6288 via Messaging Service
@@ -2929,18 +2953,23 @@ async def rep_blast(
         
         if not rep_account_sid:
             error_msg = "TWILIO_ACCOUNT_SID is not set in environment variables. Blast cannot proceed."
+            print(f"[BLAST_ENDPOINT] ❌ {error_msg}", flush=True)
             logger.error(f"[BLAST] ❌ {error_msg}")
             return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
+        print(f"[BLAST_ENDPOINT] ✅ TWILIO_ACCOUNT_SID: {rep_account_sid[:10]}...", flush=True)
         
         if not rep_auth_token:
             error_msg = "TWILIO_AUTH_TOKEN is not set in environment variables. Blast cannot proceed."
+            print(f"[BLAST_ENDPOINT] ❌ {error_msg}", flush=True)
             logger.error(f"[BLAST] ❌ {error_msg}")
             return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
+        print(f"[BLAST_ENDPOINT] ✅ TWILIO_AUTH_TOKEN: {rep_auth_token[:10]}...", flush=True)
         
         logger.info(f"[BLAST] User {current_user['id']} (role: {current_user.get('role')}) using system Account SID: {rep_account_sid[:10]}...")
         logger.info(f"[BLAST] Messaging Service SID: {messaging_service_sid}")
         logger.info(f"[BLAST] System phone: (919) 443-6288 (configured in Messaging Service)")
         logger.info(f"[BLAST] Running blast for {len(card_ids)} cards, rep_user_id={rep_user_id}, using_system_account_sid={bool(rep_account_sid)}")
+        print(f"[BLAST_ENDPOINT] ✅ All validations passed - calling run_blast_for_cards()", flush=True)
         
         # #region agent log - Before run_blast_for_cards
         try:
