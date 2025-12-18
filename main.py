@@ -1023,16 +1023,11 @@ async def twilio_inbound(request: Request):
         print(f"[TWILIO_INBOUND] ✅ Intelligence result received:", flush=True)
         print(f"[TWILIO_INBOUND]   {json.dumps(result, indent=2, default=str)}", flush=True)
         
-        # Get card by phone to generate contextual reply
-        card = None
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT card_id FROM conversations WHERE phone = %s LIMIT 1
-            """, (normalized_phone,))
-            row = cur.fetchone()
-            if row and row[0]:
-                card_id = row[0]
-                card = get_card(conn, card_id)
+        # Get card by phone to generate contextual reply (use card we already resolved earlier)
+        # Card should already be loaded from Step 1, but double-check if needed
+        if not card and card_id:
+            print(f"[TWILIO_INBOUND] 🔍 Card not loaded yet, fetching by card_id: {card_id}", flush=True)
+            card = get_card(conn, card_id)
         
         # Generate reply message using configured Markov responses
         reply_text = None
