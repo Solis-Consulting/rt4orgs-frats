@@ -791,16 +791,20 @@ async def twilio_inbound(request: Request):
     Receives form-encoded data from Twilio and processes through intelligence layer.
     Gated by webhook configuration (enabled, mode, logging).
     """
+    # 🔥 CRITICAL: Log IMMEDIATELY - this proves the webhook was called
+    print("🔥🔥🔥 TWILIO INBOUND WEBHOOK HIT 🔥🔥🔥", flush=True)
+    logger.error("🔥 TWILIO INBOUND WEBHOOK HIT")
+    
     # CRITICAL: Log raw body FIRST to catch requests even if form parsing fails
     try:
         raw_body = await request.body()
-        print("=" * 60)
-        print("[TWILIO_INBOUND] RAW INBOUND BODY:", raw_body.decode('utf-8', errors='replace'))
-        print("=" * 60)
+        print("=" * 60, flush=True)
+        print("[TWILIO_INBOUND] RAW INBOUND BODY:", raw_body.decode('utf-8', errors='replace'), flush=True)
+        print("=" * 60, flush=True)
     except Exception as e:
-        print(f"[TWILIO_INBOUND] ERROR reading raw body: {e}")
+        print(f"[TWILIO_INBOUND] ERROR reading raw body: {e}", flush=True)
     
-    print("[TWILIO_INBOUND] Webhook hit")
+    print("[TWILIO_INBOUND] Webhook hit", flush=True)
     
     # Check if webhook is enabled
     if not WEBHOOK_CONFIG.enabled:
@@ -973,27 +977,32 @@ async def twilio_inbound(request: Request):
                 twilio_sid = os.getenv("TWILIO_ACCOUNT_SID")
                 twilio_token = os.getenv("TWILIO_AUTH_TOKEN")
                 twilio_phone = os.getenv("TWILIO_PHONE_NUMBER")
-                twilio_messaging_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
                 
-                if twilio_sid and twilio_token:
+                if twilio_sid and twilio_token and twilio_phone:
+                    print(f"[TWILIO_INBOUND] Sending reply via Twilio...", flush=True)
+                    print(f"[TWILIO_INBOUND] From: {twilio_phone}", flush=True)
+                    print(f"[TWILIO_INBOUND] To: {From}", flush=True)
+                    print(f"[TWILIO_INBOUND] Reply text: {reply_text[:100]}...", flush=True)
+                    
                     client = Client(twilio_sid, twilio_token)
                     
-                    if twilio_messaging_sid:
-                        # Use Messaging Service (preferred for A2P)
-                        msg = client.messages.create(
-                            to=From,  # Use original From, not normalized
-                            messaging_service_sid=twilio_messaging_sid,
-                            body=reply_text
-                        )
-                    elif twilio_phone:
-                        # Fallback to direct From number
-                        msg = client.messages.create(
-                            to=From,
-                            from_=twilio_phone,
-                            body=reply_text
-                        )
-                    else:
-                        print("[TWILIO_INBOUND] WARNING: No Twilio Messaging Service SID or Phone Number configured")
+                    # Send directly from phone number (not Messaging Service) to avoid filtering
+                    msg = client.messages.create(
+                        to=From,  # Use original From, not normalized
+                        from_=twilio_phone,
+                        body=reply_text
+                    )
+                    
+                    print(f"[TWILIO_INBOUND] ✅ Reply sent successfully (SID: {msg.sid})", flush=True)
+                else:
+                    missing = []
+                    if not twilio_sid:
+                        missing.append("TWILIO_ACCOUNT_SID")
+                    if not twilio_token:
+                        missing.append("TWILIO_AUTH_TOKEN")
+                    if not twilio_phone:
+                        missing.append("TWILIO_PHONE_NUMBER")
+                    print(f"[TWILIO_INBOUND] ❌ WARNING: Missing Twilio config: {', '.join(missing)}", flush=True)
                     
                     # Store outbound reply in conversation history
                     try:
