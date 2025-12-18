@@ -319,11 +319,20 @@
       e.preventDefault();
       console.log('🔥 FORM SUBMIT: createUserForm');
       
+      const role = document.getElementById('newRole').value;
+      const twilioSid = document.getElementById('newTwilioSid').value.trim();
+      
+      // For reps, Twilio Account SID is required (it becomes their API token)
+      if (role === 'rep' && !twilioSid) {
+        alert('Twilio Account SID is required for reps (it will be used as their API token).');
+        return;
+      }
+      
       const payload = {
         username: document.getElementById('newUsername').value.trim(),
-        role: document.getElementById('newRole').value,
+        role: role,
         twilio_phone_number: document.getElementById('newTwilioPhone').value.trim() || null,
-        twilio_account_sid: document.getElementById('newTwilioSid').value.trim() || null,
+        twilio_account_sid: twilioSid || null,
         twilio_auth_token: document.getElementById('newTwilioToken').value.trim() || null,
       };
 
@@ -355,6 +364,9 @@
         if (data.ok && data.user) {
           // Show token prominently
           const tokenValue = data.user.api_token;
+          const isRep = data.user.role === 'rep';
+          const twilioSid = payload.twilio_account_sid;
+          
           document.getElementById('newUserTokenValue').textContent = tokenValue;
           document.getElementById('newUserToken').style.display = 'block';
           
@@ -365,7 +377,20 @@
             console.log('[ADMIN] Could not copy to clipboard:', err);
           });
           
-          alert(`Rep created! API Token (copied to clipboard):\n\n${tokenValue}\n\nSave this token - it's the rep's login key!`);
+          // Show appropriate message based on token type
+          if (isRep && twilioSid && tokenValue === twilioSid) {
+            // Update token info message
+            document.getElementById('tokenInfo').textContent = 'This is the rep\'s Twilio Account SID (used as their API token for login).';
+            alert(`Rep created! API Token (Twilio Account SID - copied to clipboard):\n\n${tokenValue}\n\nThis is the rep's login key (same as their Twilio Account SID).`);
+          } else if (!isRep) {
+            // Owner token
+            document.getElementById('tokenInfo').textContent = 'This is the owner\'s randomly generated API token (permanent first-time key).';
+            alert(`Owner created! API Token (copied to clipboard):\n\n${tokenValue}\n\nSave this token - it's the owner's login key!`);
+          } else {
+            // Rep without Twilio SID (fallback random token)
+            document.getElementById('tokenInfo').textContent = 'This is a randomly generated API token (Twilio Account SID was not provided).';
+            alert(`Rep created! API Token (copied to clipboard):\n\n${tokenValue}\n\nNote: Twilio Account SID was not provided, so a random token was generated.`);
+          }
           
           // Reload users after a delay
           setTimeout(() => {

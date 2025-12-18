@@ -87,13 +87,29 @@ def create_user(
     """
     Create a new user (rep or admin).
     Returns dict with user info including the plaintext token (only shown once).
+    
+    API Token Strategy:
+    - Owner (admin role): Randomly generated token (permanent first-time key)
+    - Reps: Use Twilio Account SID as API token (normalized)
     """
     if not user_id:
         # Generate user_id from username (lowercase, replace spaces with underscores)
         user_id = username.lower().replace(" ", "_").replace("-", "_")
     
-    # Generate API token
-    plaintext_token = generate_api_token()
+    # API Token Strategy:
+    # - Owner (admin): Always generate random token
+    # - Reps: Use Twilio Account SID if provided, otherwise generate random
+    if role == "admin":
+        # Owner: Always use randomly generated token
+        plaintext_token = generate_api_token()
+    else:
+        # Rep: Use Twilio Account SID as API token if provided
+        if twilio_account_sid:
+            plaintext_token = twilio_account_sid
+        else:
+            # Fallback: Generate random token if no Twilio Account SID provided
+            plaintext_token = generate_api_token()
+    
     hashed_token = hash_token(plaintext_token)
     
     with conn.cursor() as cur:
