@@ -56,12 +56,35 @@ def send_rep_message(
     if not account_sid or not auth_token:
         raise ValueError("Twilio credentials not configured for user or system")
     
-    # Send SMS via Twilio
-    client = Client(account_sid, auth_token)
-    messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
+    # Send SMS via Twilio with comprehensive logging
+    import traceback
+    
+    print("=" * 80)
+    print(f"[REP_MESSAGE] 🚀 SENDING REP MESSAGE")
+    print("=" * 80)
+    print(f"[REP_MESSAGE] Rep User ID: {user_id}")
+    print(f"[REP_MESSAGE] Rep Username: {user.get('username')}")
+    print(f"[REP_MESSAGE] Card ID: {card_id}")
+    print(f"[REP_MESSAGE] To Phone: {phone}")
+    print(f"[REP_MESSAGE] Message length: {len(message)} chars")
+    print(f"[REP_MESSAGE] Rep Twilio Phone: {user['twilio_phone_number']}")
+    print(f"[REP_MESSAGE] Account SID: {account_sid[:10]}... (length: {len(account_sid)})" if account_sid else "[REP_MESSAGE] Account SID: None")
+    print(f"[REP_MESSAGE] Auth Token: {auth_token[:15]}... (length: {len(auth_token)})" if auth_token else "[REP_MESSAGE] Auth Token: None")
     
     try:
+        print(f"[REP_MESSAGE] Creating Twilio Client...")
+        client = Client(account_sid, auth_token)
+        print(f"[REP_MESSAGE] ✅ Twilio Client created")
+        
+        messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
+        print(f"[REP_MESSAGE] Messaging Service SID: {messaging_service_sid or 'NOT SET'}")
+        
         if messaging_service_sid:
+            print(f"[REP_MESSAGE] Using Messaging Service: {messaging_service_sid}")
+            print(f"[REP_MESSAGE] Calling client.messages.create() with:")
+            print(f"[REP_MESSAGE]   to: {phone}")
+            print(f"[REP_MESSAGE]   messaging_service_sid: {messaging_service_sid}")
+            print(f"[REP_MESSAGE]   body length: {len(message)}")
             msg = client.messages.create(
                 to=phone,
                 messaging_service_sid=messaging_service_sid,
@@ -69,11 +92,39 @@ def send_rep_message(
             )
         else:
             # Use rep's phone number as From
+            print(f"[REP_MESSAGE] Using From Number: {user['twilio_phone_number']}")
+            print(f"[REP_MESSAGE] Calling client.messages.create() with:")
+            print(f"[REP_MESSAGE]   to: {phone}")
+            print(f"[REP_MESSAGE]   from_: {user['twilio_phone_number']}")
+            print(f"[REP_MESSAGE]   body length: {len(message)}")
             msg = client.messages.create(
                 to=phone,
                 from_=user["twilio_phone_number"],
                 body=message
             )
+        
+        # Log comprehensive response
+        print("=" * 80)
+        print(f"[REP_MESSAGE] ✅ TWILIO API CALL SUCCESSFUL")
+        print("=" * 80)
+        print(f"[REP_MESSAGE] Message SID: {msg.sid}")
+        print(f"[REP_MESSAGE] Status: {msg.status}")
+        print(f"[REP_MESSAGE] To: {msg.to}")
+        print(f"[REP_MESSAGE] From: {msg.from_}")
+        print(f"[REP_MESSAGE] Date Created: {msg.date_created}")
+        print(f"[REP_MESSAGE] Date Sent: {msg.date_sent}")
+        print(f"[REP_MESSAGE] Error Code: {msg.error_code or 'None'}")
+        print(f"[REP_MESSAGE] Error Message: {msg.error_message or 'None'}")
+        print(f"[REP_MESSAGE] Price: {msg.price or 'None'}")
+        print(f"[REP_MESSAGE] Price Unit: {msg.price_unit or 'None'}")
+        print(f"[REP_MESSAGE] URI: {msg.uri or 'None'}")
+        print("=" * 80)
+        
+        # Check for error status
+        if msg.status in ['failed', 'undelivered']:
+            print(f"[REP_MESSAGE] ⚠️ WARNING: Message status is '{msg.status}'")
+            print(f"[REP_MESSAGE] Error Code: {msg.error_code}")
+            print(f"[REP_MESSAGE] Error Message: {msg.error_message}")
         
         # Update conversation to rep mode (with card_id for proper linking)
         switch_conversation_to_rep(conn, phone, user_id, user["twilio_phone_number"], card_id=card_id)
@@ -93,9 +144,18 @@ def send_rep_message(
             "twilio_sid": msg.sid,
             "status": msg.status,
             "phone": phone,
+            "error_code": msg.error_code,
+            "error_message": msg.error_message,
         }
     except Exception as e:
-        print(f"[REP_MESSAGE] Error sending message: {e}")
+        print("=" * 80)
+        print(f"[REP_MESSAGE] ❌ TWILIO API CALL FAILED")
+        print("=" * 80)
+        print(f"[REP_MESSAGE] Error Type: {type(e).__name__}")
+        print(f"[REP_MESSAGE] Error Message: {str(e)}")
+        print(f"[REP_MESSAGE] Traceback:")
+        traceback.print_exc()
+        print("=" * 80)
         raise
 
 
