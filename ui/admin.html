@@ -491,24 +491,47 @@
     }
 
     function updateAssignmentStatus(cardId, userId) {
+      console.log('🔥 BUTTON CLICKED: updateAssignmentStatus', cardId, userId);
       const status = prompt('Enter new status (assigned, active, closed, lost):');
-      if (!status || !['assigned', 'active', 'closed', 'lost'].includes(status)) return;
+      if (!status || !['assigned', 'active', 'closed', 'lost'].includes(status)) {
+        console.log('🔥 updateAssignmentStatus: invalid status or cancelled');
+        return;
+      }
 
+      const payload = { status };
+      console.log('🔥 ABOUT TO FETCH /admin/assignments/' + cardId, payload);
+      console.log('🔥 Headers:', headers);
+      console.log('🔥 BACKEND URL:', BACKEND);
+
+      console.log('🔥 FETCHING /admin/assignments/' + cardId);
       fetch(`${BACKEND}/admin/assignments/${encodeURIComponent(cardId)}`, {
         method: 'PUT',
         headers,
-        body: JSON.stringify({ status })
+        body: JSON.stringify(payload)
       })
-      .then(res => res.json())
+      .then(res => {
+        console.log('🔥 RESPONSE STATUS', res.status);
+        if (!res.ok) {
+          return res.text().then(text => {
+            console.error('🔥 Error response:', text);
+            throw new Error(`HTTP ${res.status}: ${text}`);
+          });
+        }
+        return res.json();
+      })
       .then(data => {
+        console.log('🔥 RESPONSE DATA', data);
         if (data.ok) {
-          alert('Status updated');
+          alert('Status updated successfully');
           loadAssignments();
         } else {
           alert(`Failed: ${data.detail || 'Unknown error'}`);
         }
       })
-      .catch(error => alert(`Error: ${error.message}`));
+      .catch(error => {
+        console.error('🔥 FETCH ERROR', error);
+        alert(`Error: ${error.message}`);
+      });
     }
 
     document.getElementById('assignSearch')?.addEventListener('input', renderAssignments);
