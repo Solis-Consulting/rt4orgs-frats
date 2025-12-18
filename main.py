@@ -2151,9 +2151,18 @@ async def get_markov_states():
 
 @app.get("/markov/responses")
 async def get_markov_responses(
-    current_user: Dict = Depends(get_current_owner_or_rep)
+    request: Request
 ):
     """Get all configured Markov state responses. Owner gets global, reps get their own."""
+    # Authenticate user manually
+    try:
+        current_user = await get_current_owner_or_rep(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[MARKOV_RESPONSES] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
     conn = get_conn()
     user_id = None if current_user.get("role") == "admin" else current_user.get("id")
     
@@ -2218,10 +2227,19 @@ async def get_markov_responses(
 
 @app.post("/markov/response")
 async def update_single_markov_response(
-    payload: Dict[str, Any] = Body(...),
-    current_user: Dict = Depends(get_current_owner_or_rep)
+    request: Request,
+    payload: Dict[str, Any] = Body(...)
 ):
     """Update a single Markov state response. Owner saves global, reps save their own."""
+    # Authenticate user manually
+    try:
+        current_user = await get_current_owner_or_rep(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[MARKOV_RESPONSE] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
     logger.info("🧠 ENTER save_markov_response")
     logger.info(f"📦 payload={json.dumps(payload, indent=2)}")
     
@@ -2275,10 +2293,19 @@ async def update_single_markov_response(
 
 @app.post("/markov/responses")
 async def update_markov_responses(
-    payload: Dict[str, Any] = Body(...),
-    current_user: Dict = Depends(get_current_owner_or_rep)
+    request: Request,
+    payload: Dict[str, Any] = Body(...)
 ):
     """Update Markov state responses. Owner saves global, reps save their own."""
+    # Authenticate user manually
+    try:
+        current_user = await get_current_owner_or_rep(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[MARKOV_RESPONSES_BATCH] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
     logger.info("📥 POST /markov/responses called (batch)")
     logger.info(f"📦 Payload keys: {list(payload.keys())}")
     
@@ -2892,8 +2919,8 @@ async def admin_unassign_card(
 
 @app.get("/rep/cards")
 async def rep_get_cards(
-    status: Optional[str] = None,
-    current_user: Dict = Depends(get_current_owner_or_rep)
+    request: Request,
+    status: Optional[str] = None
 ):
     """
     Get rep's assigned cards. 
@@ -2963,8 +2990,17 @@ async def rep_get_cards(
 
 
 @app.get("/rep/conversations")
-async def rep_get_conversations(current_user: Dict = Depends(get_current_owner_or_rep)):
+async def rep_get_conversations(request: Request):
     """Get rep's active conversations. Owner sees all, reps see only their own."""
+    # Authenticate user manually
+    try:
+        current_user = await get_current_owner_or_rep(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[REP_CONVERSATIONS] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
     conn = get_conn()
     
     # Owner can see all conversations, reps see only their own
@@ -3014,9 +3050,16 @@ async def rep_get_conversations(current_user: Dict = Depends(get_current_owner_o
 
 @app.post("/rep/blast")
 async def rep_blast(
-    request: Request,
-    user = Depends(get_current_owner_or_rep)
+    request: Request
 ):
+    # Authenticate user manually
+    try:
+        user = await get_current_owner_or_rep(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[REP_BLAST] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
     # 🔥 CRITICAL: Log IMMEDIATELY - this proves the handler was entered
     # This MUST be the first line - if this doesn't log, FastAPI is rejecting before handler
@@ -3384,10 +3427,18 @@ async def rep_blast(
 
 @app.post("/rep/messages/send")
 async def rep_send_message(
-    payload: Dict[str, Any] = Body(...),
-    current_user: Dict = Depends(get_current_owner_or_rep)
+    request: Request,
+    payload: Dict[str, Any] = Body(...)
 ):
     """Send a message to a specific card/phone. Owner can send to any, reps to their assigned cards."""
+    # Authenticate user manually
+    try:
+        current_user = await get_current_owner_or_rep(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[REP_SEND_MESSAGE] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
     card_id = payload.get("card_id")
     phone = payload.get("phone")
     message = payload.get("message")
@@ -3460,9 +3511,17 @@ async def rep_send_message(
 @app.get("/rep/messages/{phone}")
 async def rep_get_messages(
     phone: str,
-    current_user: Dict = Depends(get_current_owner_or_rep)
+    request: Request
 ):
     """Get conversation history for a phone number. Owner can see all, reps only their own."""
+    # Authenticate user manually
+    try:
+        current_user = await get_current_owner_or_rep(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[REP_GET_MESSAGES] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
     conn = get_conn()
     
     # Reps can only see their assigned conversations
@@ -3484,8 +3543,16 @@ async def rep_get_messages(
 
 
 @app.get("/rep/stats")
-async def rep_get_stats(current_user: Dict = Depends(get_current_owner_or_rep)):
+async def rep_get_stats(request: Request):
     """Get conversion metrics. Owner sees all stats, reps see only their own."""
+    # Authenticate user manually
+    try:
+        current_user = await get_current_owner_or_rep(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[REP_STATS] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
     conn = get_conn()
     
     if current_user.get("role") == "admin":
