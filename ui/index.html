@@ -105,6 +105,46 @@
   <script type="module">
     import { BACKEND_URL } from '/config.js';
     const BACKEND = BACKEND_URL;
+
+    // Owner-only authentication check
+    (async function checkOwnerAuth() {
+      const apiToken = localStorage.getItem('apiToken');
+      if (!apiToken) {
+        window.location.href = 'login.html';
+        return;
+      }
+
+      // Verify token is owner/admin by calling admin endpoint
+      try {
+        const res = await fetch(`${BACKEND}/admin/users`, {
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (res.status === 401 || res.status === 403) {
+          // Not owner/admin - redirect to login
+          localStorage.removeItem('apiToken');
+          window.location.href = 'login.html';
+          return;
+        }
+
+        if (!res.ok) {
+          // Unexpected error - redirect to login
+          localStorage.removeItem('apiToken');
+          window.location.href = 'login.html';
+          return;
+        }
+
+        // Owner token validated - continue loading page
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        localStorage.removeItem('apiToken');
+        window.location.href = 'login.html';
+        return;
+      }
+    })();
     let allLeads = [];
     let allCards = [];
     let currentSort = "state";
@@ -203,8 +243,24 @@
     }
 
     async function load() {
+      const apiToken = localStorage.getItem('apiToken');
+      if (!apiToken) {
+        window.location.href = 'login.html';
+        return;
+      }
+
       try {
-        const res = await fetch(BACKEND + "/leads");
+        const res = await fetch(BACKEND + "/leads", {
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem('apiToken');
+          window.location.href = 'login.html';
+          return;
+        }
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
@@ -237,6 +293,12 @@
 
     // Cards view functions
     async function loadCards() {
+      const apiToken = localStorage.getItem('apiToken');
+      if (!apiToken) {
+        window.location.href = 'login.html';
+        return;
+      }
+
       try {
         const typeFilter = document.getElementById("cardTypeFilter").value;
         const stateFilter = document.getElementById("cardStateFilter").value;
@@ -245,7 +307,17 @@
         if (typeFilter) url += `&type=${encodeURIComponent(typeFilter)}`;
         if (stateFilter) url += `&sales_state=${encodeURIComponent(stateFilter)}`;
         
-        const res = await fetch(url);
+        const res = await fetch(url, {
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem('apiToken');
+          window.location.href = 'login.html';
+          return;
+        }
         const data = await res.json();
         allCards = data.cards || [];
         

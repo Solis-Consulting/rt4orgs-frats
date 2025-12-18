@@ -193,9 +193,19 @@
           payload.source_batch_id = source_batch_id.value.trim();
         }
 
+        const apiToken = localStorage.getItem('apiToken');
+        if (!apiToken) {
+          showStatus('Please login as owner/admin', 'error');
+          window.location.href = 'login.html';
+          return;
+        }
+
         const res = await fetch(`${BACKEND_URL}/admin/blast`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiToken}`
+          },
           body: JSON.stringify(payload)
         });
 
