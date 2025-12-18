@@ -149,8 +149,11 @@
           <input type="text" id="newTwilioPhone" placeholder="+1234567890">
         </div>
         <div class="form-group">
-          <label>Twilio Account SID (optional)</label>
-          <input type="text" id="newTwilioSid">
+          <label>Twilio Account SID (starts with AC, optional)</label>
+          <input type="text" id="newTwilioSid" placeholder="AC...">
+          <small style="color: #9ca3af; font-size: 11px; display: block; margin-top: 4px;">
+            Account SID starts with "AC" (for authentication). Phone Number SID (PN) is different - use Account SID here.
+          </small>
         </div>
         <div class="form-group">
           <label>Twilio Auth Token (optional)</label>

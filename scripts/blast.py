@@ -165,7 +165,7 @@ def find_unblasted_contacts(leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return unblasted
 
 
-def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, account_sid: Optional[str] = None) -> Dict[str, Any]:
+def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, account_sid: Optional[str] = None, rep_phone_number: Optional[str] = None) -> Dict[str, Any]:
     """
     Send SMS via Twilio with comprehensive logging.
     
@@ -260,16 +260,24 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, accoun
             "body": body
         }
         
+        # Determine "from" number: use rep's phone if provided, otherwise system phone
+        # But always use Messaging Service if available (for A2P compliance)
+        from_phone_number = rep_phone_number if rep_phone_number else TWILIO_PHONE_NUMBER
+        
         if TWILIO_MESSAGING_SERVICE_SID:
             # Preferred: send via Messaging Service for A2P / compliance
+            # Note: When using Messaging Service, we can't specify "from" - the service handles routing
+            # But we can add the phone number to the Messaging Service in Twilio console
             message_params["messaging_service_sid"] = TWILIO_MESSAGING_SERVICE_SID
             print(f"[SEND_SMS] Using Messaging Service: {TWILIO_MESSAGING_SERVICE_SID}")
-        elif TWILIO_PHONE_NUMBER:
-            # Fallback: direct From number if configured
-            message_params["from_"] = TWILIO_PHONE_NUMBER
-            print(f"[SEND_SMS] Using From Number: {TWILIO_PHONE_NUMBER}")
+            if from_phone_number:
+                print(f"[SEND_SMS] Note: Rep phone {from_phone_number} should be added to Messaging Service in Twilio console")
+        elif from_phone_number:
+            # Fallback: direct From number if Messaging Service not available
+            message_params["from_"] = from_phone_number
+            print(f"[SEND_SMS] Using From Number (rep phone): {from_phone_number}")
         else:
-            error_msg = "Twilio configuration error: set TWILIO_MESSAGING_SERVICE_SID or TWILIO_PHONE_NUMBER"
+            error_msg = "Twilio configuration error: set TWILIO_MESSAGING_SERVICE_SID or provide rep phone number"
             print(f"[SEND_SMS] ❌ {error_msg}")
             raise ValueError(error_msg)
         

@@ -2747,33 +2747,20 @@ async def rep_blast(
         rep_user_id = None if current_user.get("role") == "admin" else current_user["id"]
         rep_phone_number = None if current_user.get("role") == "admin" else current_user.get("twilio_phone_number")
         
-        # Get rep's Twilio credentials if rep is blasting
+        # For reps: Use system Account SID and Auth Token (from env vars), but rep's phone number
+        # All reps use the same Account SID and Messaging Service, but different phone numbers
         rep_account_sid = None
         rep_auth_token = None
         if rep_user_id:
-            # Fetch full user record to get Twilio credentials
-            from backend.auth import get_user
-            rep_user = get_user(conn, rep_user_id)
-            if rep_user:
-                rep_account_sid = rep_user.get("twilio_account_sid")
-                rep_auth_token = rep_user.get("twilio_auth_token")
-                
-                # Validate Account SID format
-                if rep_account_sid and not rep_account_sid.startswith('AC'):
-                    logger.error(f"[BLAST] ❌ Rep {rep_user_id} has invalid Account SID: {rep_account_sid[:20]}...")
-                    logger.error(f"[BLAST] Account SIDs must start with 'AC', but got '{rep_account_sid[:2]}'")
-                    logger.error(f"[BLAST] This looks like a Phone Number SID (PN) or other SID type.")
-                    logger.error(f"[BLAST] Please update the rep's Twilio Account SID in the admin dashboard.")
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid Account SID for rep {rep_user_id}: Account SIDs must start with 'AC', but got '{rep_account_sid[:2]}...' (this looks like a {rep_account_sid[:2]} SID, not an Account SID). Please update the rep's Twilio Account SID in the admin dashboard."
-                    )
-                
-                logger.info(f"[BLAST] Rep {rep_user_id} Twilio credentials: account_sid={'SET (' + rep_account_sid[:10] + '...)' if rep_account_sid else 'NOT SET'}, auth_token={'SET' if rep_auth_token else 'NOT SET'}")
-            else:
-                logger.warning(f"[BLAST] Rep {rep_user_id} not found in database")
+            # Reps use system Account SID and Auth Token (same for all)
+            # Only their phone number is different
+            import os
+            rep_account_sid = os.getenv("TWILIO_ACCOUNT_SID")  # Use system Account SID for all reps
+            rep_auth_token = os.getenv("TWILIO_AUTH_TOKEN")  # Use system Auth Token for all reps
+            
+            logger.info(f"[BLAST] Rep {rep_user_id} using system Account SID: {rep_account_sid[:10] if rep_account_sid else 'NOT SET'}..., rep phone: {rep_phone_number}")
         
-        logger.info(f"[BLAST] Running blast for {len(card_ids)} cards, rep_user_id={rep_user_id}, rep_phone={rep_phone_number}, using_rep_credentials={bool(rep_auth_token)}")
+        logger.info(f"[BLAST] Running blast for {len(card_ids)} cards, rep_user_id={rep_user_id}, rep_phone={rep_phone_number}, using_system_account_sid={bool(rep_account_sid)}")
         
         result = run_blast_for_cards(
             conn=conn,
@@ -2781,10 +2768,10 @@ async def rep_blast(
             limit=None,  # Already applied limit above if needed
             owner=current_user["id"],
             source="owner_ui" if current_user.get("role") == "admin" else "rep_ui",
-            auth_token=rep_auth_token,  # Use rep's auth token if available, otherwise None (will use system)
-            account_sid=rep_account_sid,  # Use rep's account SID if available
+            auth_token=rep_auth_token,  # System auth token for all reps
+            account_sid=rep_account_sid,  # System account SID for all reps
             rep_user_id=rep_user_id,
-            rep_phone_number=rep_phone_number,
+            rep_phone_number=rep_phone_number,  # Rep's specific phone number
         )
         
         logger.info(f"[BLAST] Blast completed: sent={result.get('sent', 0)}, skipped={result.get('skipped', 0)}")
