@@ -50,19 +50,9 @@ from archive_intelligence.message_processor.utils import (
 )
 from archive_intelligence.message_processor.generate_message import generate_message
 
-# Try to import config from multiple possible locations
-try:
-    from config import (
-        TWILIO_ACCOUNT_SID,
-        TWILIO_AUTH_TOKEN,
-        TWILIO_MESSAGING_SERVICE_SID,
-    )
-except ImportError:
-    # Fallback: try importing from backend or root via env vars
-    import os
-    TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-    TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-    TWILIO_MESSAGING_SERVICE_SID = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
+# ALWAYS use environment variables - no config file fallbacks
+# This ensures Railway deployment uses the correct variables
+import os
 
 BASE_DIR = ARCHIVE_DIR
 TEMPLATE_PATH = BASE_DIR / "templates" / "messages.txt"
