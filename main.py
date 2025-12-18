@@ -2681,12 +2681,46 @@ async def rep_blast(
     current_user: Dict = Depends(get_current_owner_or_rep)
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
+    # #region agent log - Blast endpoint entry
+    try:
+        import json as _json
+        from datetime import datetime
+        with open("/Users/alanelrod/Desktop/rt4orgs-frats-v5/.cursor/debug.log", "a") as f:
+            f.write(_json.dumps({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "timestamp": int(datetime.now().timestamp() * 1000),
+                "location": "main.py:rep_blast:ENTRY",
+                "message": "Blast endpoint called",
+                "data": {"user_id": current_user.get('id'), "role": current_user.get('role'), "payload_keys": list(payload.keys())},
+                "hypothesisId": "A"
+            }) + "\n")
+    except: pass
+    # #endregion
+    
     logger.info(f"[BLAST] rep_blast called by {current_user['id']} (role: {current_user.get('role')})")
     logger.info(f"[BLAST] payload = {payload}")
     
     limit = payload.get("limit")
     status_filter = payload.get("status", "assigned")
     card_ids = payload.get("card_ids")  # Optional: specific card IDs to blast
+    
+    # #region agent log - Blast parameters
+    try:
+        import json as _json
+        from datetime import datetime
+        with open("/Users/alanelrod/Desktop/rt4orgs-frats-v5/.cursor/debug.log", "a") as f:
+            f.write(_json.dumps({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "timestamp": int(datetime.now().timestamp() * 1000),
+                "location": "main.py:rep_blast:PARAMS",
+                "message": "Blast parameters extracted",
+                "data": {"limit": limit, "status_filter": status_filter, "card_ids": card_ids, "card_ids_count": len(card_ids) if card_ids else 0},
+                "hypothesisId": "B"
+            }) + "\n")
+    except: pass
+    # #endregion
     
     conn = get_conn()
     
@@ -2766,6 +2800,23 @@ async def rep_blast(
         
         logger.info(f"[BLAST] Running blast for {len(card_ids)} cards, rep_user_id={rep_user_id}, rep_phone={rep_phone_number}, using_system_account_sid={bool(rep_account_sid)}")
         
+        # #region agent log - Before run_blast_for_cards
+        try:
+            import json as _json
+            from datetime import datetime
+            with open("/Users/alanelrod/Desktop/rt4orgs-frats-v5/.cursor/debug.log", "a") as f:
+                f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "timestamp": int(datetime.now().timestamp() * 1000),
+                    "location": "main.py:rep_blast:BEFORE_RUN",
+                    "message": "About to call run_blast_for_cards",
+                    "data": {"card_ids_count": len(card_ids), "rep_user_id": rep_user_id, "rep_phone": rep_phone_number, "has_account_sid": bool(rep_account_sid), "has_auth_token": bool(rep_auth_token)},
+                    "hypothesisId": "C"
+                }) + "\n")
+        except: pass
+        # #endregion
+        
         result = run_blast_for_cards(
             conn=conn,
             card_ids=card_ids,
@@ -2779,8 +2830,44 @@ async def rep_blast(
         )
         
         logger.info(f"[BLAST] Blast completed: sent={result.get('sent', 0)}, skipped={result.get('skipped', 0)}")
+        
+        # #region agent log - Blast result
+        try:
+            import json as _json
+            from datetime import datetime
+            with open("/Users/alanelrod/Desktop/rt4orgs-frats-v5/.cursor/debug.log", "a") as f:
+                f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "timestamp": int(datetime.now().timestamp() * 1000),
+                    "location": "main.py:rep_blast:RESULT",
+                    "message": "Blast completed successfully",
+                    "data": {"ok": result.get('ok'), "sent": result.get('sent', 0), "skipped": result.get('skipped', 0), "results_count": len(result.get('results', []))},
+                    "hypothesisId": "D"
+                }) + "\n")
+        except: pass
+        # #endregion
+        
         return result
     except Exception as e:
+        # #region agent log - Blast exception
+        try:
+            import json as _json
+            from datetime import datetime
+            import traceback
+            with open("/Users/alanelrod/Desktop/rt4orgs-frats-v5/.cursor/debug.log", "a") as f:
+                f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "timestamp": int(datetime.now().timestamp() * 1000),
+                    "location": "main.py:rep_blast:EXCEPTION",
+                    "message": "Blast failed with exception",
+                    "data": {"error": str(e), "error_type": type(e).__name__, "traceback": traceback.format_exc()},
+                    "hypothesisId": "E"
+                }) + "\n")
+        except: pass
+        # #endregion
+        
         logger.error(f"[BLAST] Blast failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Blast failed: {str(e)}")
 

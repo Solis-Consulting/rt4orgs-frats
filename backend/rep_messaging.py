@@ -216,18 +216,18 @@ def get_rep_conversations(conn: Any, user_id: str) -> List[Dict[str, Any]]:
     - Conversations where rep_user_id = user_id (rep mode)
     - Conversations for assigned cards (even if still in AI mode)
     """
+    # Helper function to convert datetime to ISO string (defined outside loop)
+    def to_iso(dt):
+        if dt is None:
+            return None
+        if hasattr(dt, 'isoformat'):
+            return dt.isoformat()
+        return str(dt)
+    
     with conn.cursor() as cur:
         # Get conversations where:
         # 1. rep_user_id = user_id (rep mode conversations)
         # 2. OR card_id is in rep's assigned cards (assigned cards, even if AI mode)
-        # Helper function to convert datetime to ISO string
-        def to_iso(dt):
-            if dt is None:
-                return None
-            if hasattr(dt, 'isoformat'):
-                return dt.isoformat()
-            return str(dt)
-        
         cur.execute("""
             SELECT DISTINCT
                 c.phone, c.card_id, c.state, c.routing_mode, c.rep_phone_number,
@@ -266,6 +266,7 @@ def get_rep_conversations(conn: Any, user_id: str) -> List[Dict[str, Any]]:
                 else:
                     unread_count = len([m for m in history if m.get("direction") == "inbound"])
             
+            # Convert all datetime objects to ISO strings
             conversations.append({
                 "phone": row[0],
                 "card_id": row[1],

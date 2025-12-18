@@ -272,8 +272,11 @@ def run_blast_for_cards(
         }
 
     # Fetch cards from DB
+    print(f"[BLAST_RUN] Fetching {len(card_ids)} cards from database...", flush=True)
     cards = _fetch_cards_by_ids(conn, card_ids)
+    print(f"[BLAST_RUN] Found {len(cards)} person cards with phone numbers", flush=True)
     if not cards:
+        print(f"[BLAST_RUN] ❌ No matching person cards with phone numbers found", flush=True)
         return {
             "ok": False,
             "error": "No matching person cards with phone numbers found for given card_ids",
@@ -631,6 +634,15 @@ def run_blast_for_cards(
 
     # Note: HTTP 200 + ok=True means "blast attempt completed",
     # even if some or all contacts were skipped; per-Card status is in results.
+    print("=" * 80, flush=True)
+    print(f"[BLAST_RUN] ✅ BLAST COMPLETE", flush=True)
+    print("=" * 80, flush=True)
+    print(f"[BLAST_RUN] Sent: {sent_count}", flush=True)
+    print(f"[BLAST_RUN] Skipped: {skipped_count}", flush=True)
+    print(f"[BLAST_RUN] Total Cards: {len(cards)}", flush=True)
+    print(f"[BLAST_RUN] Results: {len(results)}", flush=True)
+    print("=" * 80, flush=True)
+    
     return {
         "ok": True,
         "blast_run_id": blast_id,
