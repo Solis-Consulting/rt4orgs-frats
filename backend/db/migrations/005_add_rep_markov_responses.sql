@@ -20,12 +20,13 @@ BEGIN
         CREATE INDEX IF NOT EXISTS idx_markov_responses_user_id ON markov_responses(user_id);
         
         -- Create unique constraint: state_key + user_id (NULL user_id = global)
-        -- Note: PostgreSQL allows multiple NULLs in unique constraints
+        -- Use partial unique indexes to handle NULL user_id correctly
+        -- For rep-specific responses (user_id IS NOT NULL): unique on (state_key, user_id)
         CREATE UNIQUE INDEX IF NOT EXISTS idx_markov_responses_state_user 
-        ON markov_responses(state_key, COALESCE(user_id, ''))
+        ON markov_responses(state_key, user_id)
         WHERE user_id IS NOT NULL;
         
-        -- For NULL user_id (global), ensure uniqueness per state_key
+        -- For global responses (user_id IS NULL): unique on state_key only
         CREATE UNIQUE INDEX IF NOT EXISTS idx_markov_responses_state_global
         ON markov_responses(state_key)
         WHERE user_id IS NULL;

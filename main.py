@@ -2229,11 +2229,11 @@ async def update_single_markov_response(
     try:
         with conn.cursor() as cur:
             if user_id:
-                # Rep: save with user_id
+                # Rep: save with user_id (use partial unique index)
                 cur.execute("""
                     INSERT INTO markov_responses (state_key, response_text, description, updated_at, user_id)
                     VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (state_key, COALESCE(user_id, ''))
+                    ON CONFLICT (state_key, user_id) WHERE user_id IS NOT NULL
                     DO UPDATE SET
                         response_text = EXCLUDED.response_text,
                         description = EXCLUDED.description,
@@ -2293,11 +2293,11 @@ async def update_markov_responses(
                 
                 try:
                     if user_id:
-                        # Rep: save with user_id
+                        # Rep: save with user_id (use partial unique index)
                         cur.execute("""
                             INSERT INTO markov_responses (state_key, response_text, description, updated_at, user_id)
                             VALUES (%s, %s, %s, %s, %s)
-                            ON CONFLICT (state_key, COALESCE(user_id, ''))
+                            ON CONFLICT (state_key, user_id) WHERE user_id IS NOT NULL
                             DO UPDATE SET
                                 response_text = EXCLUDED.response_text,
                                 description = EXCLUDED.description,
@@ -2326,11 +2326,11 @@ async def update_markov_responses(
                 logger.info("✏️ Saving initial_outreach")
                 try:
                     if user_id:
-                        # Rep: save with user_id
+                        # Rep: save with user_id (use partial unique index)
                         cur.execute("""
                             INSERT INTO markov_responses (state_key, response_text, updated_at, user_id)
                             VALUES ('__initial_outreach__', %s, %s, %s)
-                            ON CONFLICT (state_key, COALESCE(user_id, ''))
+                            ON CONFLICT (state_key, user_id) WHERE user_id IS NOT NULL
                             DO UPDATE SET
                                 response_text = EXCLUDED.response_text,
                                 updated_at = EXCLUDED.updated_at;
