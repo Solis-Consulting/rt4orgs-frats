@@ -2895,165 +2895,24 @@ async def rep_blast(
         except Exception as e:
             logger.error(f"[DEBUG_LOG] Failed to write debug log: {e}")
         # #endregion
-    
-    logger.info(f"[BLAST] rep_blast called by {current_user['id']} (role: {current_user.get('role')})")
-    logger.info(f"[BLAST] payload = {payload}")
-    print(f"[BLAST_ENDPOINT] User: {current_user['id']} (role: {current_user.get('role')})", flush=True)
-    print(f"[BLAST_ENDPOINT] Payload keys: {list(payload.keys())}", flush=True)
-    print(f"[BLAST_ENDPOINT] Payload: {payload}", flush=True)
-    
-    limit = payload.get("limit")
-    status_filter = payload.get("status", "assigned")
-    card_ids = payload.get("card_ids")  # Optional: specific card IDs to blast
-    
-    print(f"[BLAST_ENDPOINT] Extracted parameters:", flush=True)
-    print(f"[BLAST_ENDPOINT]   limit: {limit}", flush=True)
-    print(f"[BLAST_ENDPOINT]   status_filter: {status_filter}", flush=True)
-    print(f"[BLAST_ENDPOINT]   card_ids: {card_ids} (type: {type(card_ids)}, length: {len(card_ids) if card_ids else 0})", flush=True)
-    logger.info(f"[BLAST] limit={limit}, status_filter={status_filter}, card_ids={card_ids} (count: {len(card_ids) if card_ids else 0})")
-    
-    # #region agent log - Blast parameters
-    try:
-        import json as _json
-        from datetime import datetime
-        from pathlib import Path
-        debug_log_path = Path(__file__).resolve().parent / ".cursor" / "debug.log"
-        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(debug_log_path, "a") as f:
-            f.write(_json.dumps({
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "timestamp": int(datetime.now().timestamp() * 1000),
-                "location": "main.py:rep_blast:PARAMS",
-                "message": "Blast parameters extracted",
-                "data": {"limit": limit, "status_filter": status_filter, "card_ids": card_ids, "card_ids_count": len(card_ids) if card_ids else 0},
-                "hypothesisId": "B"
-            }) + "\n")
-    except Exception as e:
-        logger.error(f"[DEBUG_LOG] Failed to write debug log: {e}")
-    # #endregion
-    
-    print(f"[BLAST_ENDPOINT] Getting database connection...", flush=True)
-    conn = get_conn()
-    print(f"[BLAST_ENDPOINT] Database connection obtained", flush=True)
-    
-    # CRITICAL: Enforce assignment boundaries
-    print(f"[BLAST_ENDPOINT] Checking user role: {current_user.get('role')}", flush=True)
-    if current_user.get("role") == "admin":
-        print(f"[BLAST_ENDPOINT] User is admin - can blast any cards", flush=True)
-        # Owner: can blast any cards
-        if card_ids and isinstance(card_ids, list):
-            # Use provided card IDs (owner has full access)
-            print(f"[BLAST_ENDPOINT] Admin using provided card_ids: {card_ids}", flush=True)
-            pass
-        else:
-            print(f"[BLAST_ENDPOINT] Admin - no card_ids provided, fetching all cards...", flush=True)
-            # Get all cards (or filtered by query if needed)
-            print(f"[BLAST_ENDPOINT] Building query for all cards...", flush=True)
-            from backend.query import build_list_query
-            query, params = build_list_query(where={}, limit=limit or 10000)
-            print(f"[BLAST_ENDPOINT] Query built, executing...", flush=True)
-            
-            card_ids = []
-            with conn.cursor() as cur:
-                cur.execute(query, params)
-                rows = cur.fetchall()
-                print(f"[BLAST_ENDPOINT] Fetched {len(rows)} cards from database", flush=True)
-                for row in rows:
-                    card_ids.append(row[0])  # row[0] is the id
-            print(f"[BLAST_ENDPOINT] Admin - final card_ids count: {len(card_ids)}", flush=True)
-    else:
-        # Rep: STRICT enforcement - can ONLY blast assigned cards
-        print(f"[BLAST_ENDPOINT] User is rep - enforcing assignment boundaries", flush=True)
-        logger.info(f"[BLAST] Rep {current_user['id']} attempting blast - enforcing assignment boundaries")
         
-        # Get all cards assigned to this rep
-        print(f"[BLAST_ENDPOINT] Fetching assigned cards for rep {current_user['id']}...", flush=True)
-        all_assigned = get_rep_assigned_cards(conn, current_user["id"])
-        print(f"[BLAST_ENDPOINT] Found {len(all_assigned)} assigned cards", flush=True)
-        assigned_ids = {c["id"] for c in all_assigned}
-        print(f"[BLAST_ENDPOINT] Assigned card IDs: {list(assigned_ids)[:5]}..." if len(assigned_ids) > 5 else f"[BLAST_ENDPOINT] Assigned card IDs: {list(assigned_ids)}", flush=True)
+        logger.info(f"[BLAST] rep_blast called by {current_user['id']} (role: {current_user.get('role')})")
+        logger.info(f"[BLAST] payload = {payload}")
+        print(f"[BLAST_ENDPOINT] User: {current_user['id']} (role: {current_user.get('role')})", flush=True)
+        print(f"[BLAST_ENDPOINT] Payload keys: {list(payload.keys())}", flush=True)
+        print(f"[BLAST_ENDPOINT] Payload: {payload}", flush=True)
         
-        if card_ids and isinstance(card_ids, list):
-            # Verify ALL specified cards are assigned to this rep
-            unauthorized = [cid for cid in card_ids if cid not in assigned_ids]
-            if unauthorized:
-                logger.warning(f"[BLAST] Rep {current_user['id']} attempted to blast unauthorized cards: {unauthorized}")
-                return {"ok": False, "error": f"Unauthorized: {len(unauthorized)} card(s) not assigned to you", "sent": 0, "skipped": 0}
-            
-            # Filter to only assigned cards (safety check)
-            card_ids = [cid for cid in card_ids if cid in assigned_ids]
-            
-            if not card_ids:
-                logger.warning(f"[BLAST] Rep {current_user['id']} - no valid assigned cards after filtering")
-                return {"ok": False, "error": "None of the specified cards are assigned to you", "sent": 0, "skipped": 0}
-        else:
-            # Get rep's assigned cards (only uncontacted/active ones)
-            cards = get_rep_assigned_cards(conn, current_user["id"], status=status_filter)
-            if not cards:
-                logger.info(f"[BLAST] Rep {current_user['id']} - no assigned cards found with status={status_filter}")
-                return {"ok": False, "error": "No assigned cards found", "sent": 0, "skipped": 0}
-            
-            card_ids = [c["id"] for c in cards]
-            
-            # Apply limit if provided
-            if limit:
-                card_ids = card_ids[:limit]
+        limit = payload.get("limit")
+        status_filter = payload.get("status", "assigned")
+        card_ids = payload.get("card_ids")  # Optional: specific card IDs to blast
         
-        logger.info(f"[BLAST] Rep {current_user['id']} - authorized to blast {len(card_ids)} assigned cards")
-    
-    print(f"[BLAST_ENDPOINT] Final card_ids count: {len(card_ids) if card_ids else 0}", flush=True)
-    if not card_ids:
-        print(f"[BLAST_ENDPOINT] ❌ No cards to blast - returning error", flush=True)
-        return {"ok": False, "error": "No cards to blast", "sent": 0, "skipped": 0}
-    
-    print(f"[BLAST_ENDPOINT] ✅ Card validation passed - {len(card_ids)} cards to blast", flush=True)
-    
-    # Run blast
-    print(f"[BLAST_ENDPOINT] Starting blast execution...", flush=True)
-    try:
-        # All users (admin and reps) use system phone number via Messaging Service
-        rep_user_id = None if current_user.get("role") == "admin" else current_user["id"]
-        print(f"[BLAST_ENDPOINT] rep_user_id: {rep_user_id}", flush=True)
+        print(f"[BLAST_ENDPOINT] Extracted parameters:", flush=True)
+        print(f"[BLAST_ENDPOINT]   limit: {limit}", flush=True)
+        print(f"[BLAST_ENDPOINT]   status_filter: {status_filter}", flush=True)
+        print(f"[BLAST_ENDPOINT]   card_ids: {card_ids} (type: {type(card_ids)}, length: {len(card_ids) if card_ids else 0})", flush=True)
+        logger.info(f"[BLAST] limit={limit}, status_filter={status_filter}, card_ids={card_ids} (count: {len(card_ids) if card_ids else 0})")
         
-        # Validate Messaging Service SID is configured
-        import os
-        print(f"[BLAST_ENDPOINT] Validating Twilio environment variables...", flush=True)
-        messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
-        if not messaging_service_sid:
-            error_msg = "TWILIO_MESSAGING_SERVICE_SID is not set in environment variables. Blast cannot proceed."
-            print(f"[BLAST_ENDPOINT] ❌ {error_msg}", flush=True)
-            logger.error(f"[BLAST] ❌ {error_msg}")
-            return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
-        print(f"[BLAST_ENDPOINT] ✅ TWILIO_MESSAGING_SERVICE_SID: {messaging_service_sid}", flush=True)
-        
-        # All users (admin and reps) use system Account SID and Auth Token (from env vars)
-        # All messages sent from system phone number (919) 443-6288 via Messaging Service
-        # Explicitly set for both admin and rep users
-        rep_account_sid = os.getenv("TWILIO_ACCOUNT_SID")  # Use system Account SID for all users
-        rep_auth_token = os.getenv("TWILIO_AUTH_TOKEN")  # Use system Auth Token for all users
-        
-        if not rep_account_sid:
-            error_msg = "TWILIO_ACCOUNT_SID is not set in environment variables. Blast cannot proceed."
-            print(f"[BLAST_ENDPOINT] ❌ {error_msg}", flush=True)
-            logger.error(f"[BLAST] ❌ {error_msg}")
-            return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
-        print(f"[BLAST_ENDPOINT] ✅ TWILIO_ACCOUNT_SID: {rep_account_sid[:10]}...", flush=True)
-        
-        if not rep_auth_token:
-            error_msg = "TWILIO_AUTH_TOKEN is not set in environment variables. Blast cannot proceed."
-            print(f"[BLAST_ENDPOINT] ❌ {error_msg}", flush=True)
-            logger.error(f"[BLAST] ❌ {error_msg}")
-            return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
-        print(f"[BLAST_ENDPOINT] ✅ TWILIO_AUTH_TOKEN: {rep_auth_token[:10]}...", flush=True)
-        
-        logger.info(f"[BLAST] User {current_user['id']} (role: {current_user.get('role')}) using system Account SID: {rep_account_sid[:10]}...")
-        logger.info(f"[BLAST] Messaging Service SID: {messaging_service_sid}")
-        logger.info(f"[BLAST] System phone: (919) 443-6288 (configured in Messaging Service)")
-        logger.info(f"[BLAST] Running blast for {len(card_ids)} cards, rep_user_id={rep_user_id}, using_system_account_sid={bool(rep_account_sid)}")
-        print(f"[BLAST_ENDPOINT] ✅ All validations passed - calling run_blast_for_cards()", flush=True)
-        
-        # #region agent log - Before run_blast_for_cards
+        # #region agent log - Blast parameters
         try:
             import json as _json
             from datetime import datetime
@@ -3065,106 +2924,256 @@ async def rep_blast(
                     "sessionId": "debug-session",
                     "runId": "run1",
                     "timestamp": int(datetime.now().timestamp() * 1000),
-                    "location": "main.py:rep_blast:BEFORE_RUN",
-                    "message": "About to call run_blast_for_cards",
-                    "data": {"card_ids_count": len(card_ids), "rep_user_id": rep_user_id, "has_account_sid": bool(rep_account_sid), "has_auth_token": bool(rep_auth_token)},
-                    "hypothesisId": "C"
+                    "location": "main.py:rep_blast:PARAMS",
+                    "message": "Blast parameters extracted",
+                    "data": {"limit": limit, "status_filter": status_filter, "card_ids": card_ids, "card_ids_count": len(card_ids) if card_ids else 0},
+                    "hypothesisId": "B"
                 }) + "\n")
         except Exception as e:
             logger.error(f"[DEBUG_LOG] Failed to write debug log: {e}")
         # #endregion
         
-        print(f"[BLAST_ENDPOINT] About to call run_blast_for_cards() with:", flush=True)
-        print(f"[BLAST_ENDPOINT]   card_ids: {card_ids}", flush=True)
-        print(f"[BLAST_ENDPOINT]   owner: {current_user['id']}", flush=True)
-        print(f"[BLAST_ENDPOINT]   source: {'owner_ui' if current_user.get('role') == 'admin' else 'rep_ui'}", flush=True)
-        print(f"[BLAST_ENDPOINT]   rep_user_id: {rep_user_id}", flush=True)
-        print(f"[BLAST_ENDPOINT] Calling run_blast_for_cards() NOW...", flush=True)
+        print(f"[BLAST_ENDPOINT] Getting database connection...", flush=True)
+        conn = get_conn()
+        print(f"[BLAST_ENDPOINT] Database connection obtained", flush=True)
         
+        # CRITICAL: Enforce assignment boundaries
+        print(f"[BLAST_ENDPOINT] Checking user role: {current_user.get('role')}", flush=True)
+        if current_user.get("role") == "admin":
+            print(f"[BLAST_ENDPOINT] User is admin - can blast any cards", flush=True)
+            # Owner: can blast any cards
+            if card_ids and isinstance(card_ids, list):
+                # Use provided card IDs (owner has full access)
+                print(f"[BLAST_ENDPOINT] Admin using provided card_ids: {card_ids}", flush=True)
+                pass
+            else:
+                print(f"[BLAST_ENDPOINT] Admin - no card_ids provided, fetching all cards...", flush=True)
+                # Get all cards (or filtered by query if needed)
+                print(f"[BLAST_ENDPOINT] Building query for all cards...", flush=True)
+                from backend.query import build_list_query
+                query, params = build_list_query(where={}, limit=limit or 10000)
+                print(f"[BLAST_ENDPOINT] Query built, executing...", flush=True)
+                
+                card_ids = []
+                with conn.cursor() as cur:
+                    cur.execute(query, params)
+                    rows = cur.fetchall()
+                    print(f"[BLAST_ENDPOINT] Fetched {len(rows)} cards from database", flush=True)
+                    for row in rows:
+                        card_ids.append(row[0])  # row[0] is the id
+                print(f"[BLAST_ENDPOINT] Admin - final card_ids count: {len(card_ids)}", flush=True)
+        else:
+            # Rep: STRICT enforcement - can ONLY blast assigned cards
+            print(f"[BLAST_ENDPOINT] User is rep - enforcing assignment boundaries", flush=True)
+            logger.info(f"[BLAST] Rep {current_user['id']} attempting blast - enforcing assignment boundaries")
+            
+            # Get all cards assigned to this rep
+            print(f"[BLAST_ENDPOINT] Fetching assigned cards for rep {current_user['id']}...", flush=True)
+            all_assigned = get_rep_assigned_cards(conn, current_user["id"])
+            print(f"[BLAST_ENDPOINT] Found {len(all_assigned)} assigned cards", flush=True)
+            assigned_ids = {c["id"] for c in all_assigned}
+            print(f"[BLAST_ENDPOINT] Assigned card IDs: {list(assigned_ids)[:5]}..." if len(assigned_ids) > 5 else f"[BLAST_ENDPOINT] Assigned card IDs: {list(assigned_ids)}", flush=True)
+            
+            if card_ids and isinstance(card_ids, list):
+                # Verify ALL specified cards are assigned to this rep
+                unauthorized = [cid for cid in card_ids if cid not in assigned_ids]
+                if unauthorized:
+                    logger.warning(f"[BLAST] Rep {current_user['id']} attempted to blast unauthorized cards: {unauthorized}")
+                    return {"ok": False, "error": f"Unauthorized: {len(unauthorized)} card(s) not assigned to you", "sent": 0, "skipped": 0}
+                
+                # Filter to only assigned cards (safety check)
+                card_ids = [cid for cid in card_ids if cid in assigned_ids]
+                
+                if not card_ids:
+                    logger.warning(f"[BLAST] Rep {current_user['id']} - no valid assigned cards after filtering")
+                    return {"ok": False, "error": "None of the specified cards are assigned to you", "sent": 0, "skipped": 0}
+            else:
+                # Get rep's assigned cards (only uncontacted/active ones)
+                cards = get_rep_assigned_cards(conn, current_user["id"], status=status_filter)
+                if not cards:
+                    logger.info(f"[BLAST] Rep {current_user['id']} - no assigned cards found with status={status_filter}")
+                    return {"ok": False, "error": "No assigned cards found", "sent": 0, "skipped": 0}
+                
+                card_ids = [c["id"] for c in cards]
+                
+                # Apply limit if provided
+                if limit:
+                    card_ids = card_ids[:limit]
+            
+            logger.info(f"[BLAST] Rep {current_user['id']} - authorized to blast {len(card_ids)} assigned cards")
+        
+        print(f"[BLAST_ENDPOINT] Final card_ids count: {len(card_ids) if card_ids else 0}", flush=True)
+        if not card_ids:
+            print(f"[BLAST_ENDPOINT] ❌ No cards to blast - returning error", flush=True)
+            return {"ok": False, "error": "No cards to blast", "sent": 0, "skipped": 0}
+        
+        print(f"[BLAST_ENDPOINT] ✅ Card validation passed - {len(card_ids)} cards to blast", flush=True)
+        
+        # Run blast
+        print(f"[BLAST_ENDPOINT] Starting blast execution...", flush=True)
         try:
-            result = run_blast_for_cards(
-                conn=conn,
-                card_ids=card_ids,
-                limit=None,  # Already applied limit above if needed
-                owner=current_user["id"],
-                source="owner_ui" if current_user.get("role") == "admin" else "rep_ui",
-                rep_user_id=rep_user_id,
-            )
-            print(f"[BLAST_ENDPOINT] ✅ run_blast_for_cards() returned successfully", flush=True)
-        except Exception as run_error:
-            print("=" * 80, flush=True)
-            print(f"[BLAST_ENDPOINT] ❌ EXCEPTION in run_blast_for_cards()", flush=True)
-            print("=" * 80, flush=True)
-            print(f"[BLAST_ENDPOINT] Error type: {type(run_error).__name__}", flush=True)
-            print(f"[BLAST_ENDPOINT] Error message: {str(run_error)}", flush=True)
-            import traceback
-            print(f"[BLAST_ENDPOINT] Full traceback:", flush=True)
-            traceback.print_exc()
-            print("=" * 80, flush=True)
-            raise
-        
-        logger.info(f"[BLAST] Blast completed: sent={result.get('sent', 0)}, skipped={result.get('skipped', 0)}")
-        logger.info(f"[BLAST] Result details: {result}")
-        print(f"[BLAST_ENDPOINT] Blast result: ok={result.get('ok')}, sent={result.get('sent', 0)}, skipped={result.get('skipped', 0)}", flush=True)
-        
-        # #region agent log - Blast result
-        try:
-            import json as _json
-            from datetime import datetime
-            from pathlib import Path
-            debug_log_path = Path(__file__).resolve().parent / ".cursor" / "debug.log"
-            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(debug_log_path, "a") as f:
-                f.write(_json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "timestamp": int(datetime.now().timestamp() * 1000),
-                    "location": "main.py:rep_blast:RESULT",
-                    "message": "Blast completed successfully",
-                    "data": {"ok": result.get('ok'), "sent": result.get('sent', 0), "skipped": result.get('skipped', 0), "results_count": len(result.get('results', []))},
-                    "hypothesisId": "D"
-                }) + "\n")
+            # All users (admin and reps) use system phone number via Messaging Service
+            rep_user_id = None if current_user.get("role") == "admin" else current_user["id"]
+            print(f"[BLAST_ENDPOINT] rep_user_id: {rep_user_id}", flush=True)
+            
+            # Validate Messaging Service SID is configured
+            import os
+            print(f"[BLAST_ENDPOINT] Validating Twilio environment variables...", flush=True)
+            messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
+            if not messaging_service_sid:
+                error_msg = "TWILIO_MESSAGING_SERVICE_SID is not set in environment variables. Blast cannot proceed."
+                print(f"[BLAST_ENDPOINT] ❌ {error_msg}", flush=True)
+                logger.error(f"[BLAST] ❌ {error_msg}")
+                return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
+            print(f"[BLAST_ENDPOINT] ✅ TWILIO_MESSAGING_SERVICE_SID: {messaging_service_sid}", flush=True)
+            
+            # All users (admin and reps) use system Account SID and Auth Token (from env vars)
+            # All messages sent from system phone number (919) 443-6288 via Messaging Service
+            # Explicitly set for both admin and rep users
+            rep_account_sid = os.getenv("TWILIO_ACCOUNT_SID")  # Use system Account SID for all users
+            rep_auth_token = os.getenv("TWILIO_AUTH_TOKEN")  # Use system Auth Token for all users
+            
+            if not rep_account_sid:
+                error_msg = "TWILIO_ACCOUNT_SID is not set in environment variables. Blast cannot proceed."
+                print(f"[BLAST_ENDPOINT] ❌ {error_msg}", flush=True)
+                logger.error(f"[BLAST] ❌ {error_msg}")
+                return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
+            print(f"[BLAST_ENDPOINT] ✅ TWILIO_ACCOUNT_SID: {rep_account_sid[:10]}...", flush=True)
+            
+            if not rep_auth_token:
+                error_msg = "TWILIO_AUTH_TOKEN is not set in environment variables. Blast cannot proceed."
+                print(f"[BLAST_ENDPOINT] ❌ {error_msg}", flush=True)
+                logger.error(f"[BLAST] ❌ {error_msg}")
+                return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
+            print(f"[BLAST_ENDPOINT] ✅ TWILIO_AUTH_TOKEN: {rep_auth_token[:10]}...", flush=True)
+            
+            logger.info(f"[BLAST] User {current_user['id']} (role: {current_user.get('role')}) using system Account SID: {rep_account_sid[:10]}...")
+            logger.info(f"[BLAST] Messaging Service SID: {messaging_service_sid}")
+            logger.info(f"[BLAST] System phone: (919) 443-6288 (configured in Messaging Service)")
+            logger.info(f"[BLAST] Running blast for {len(card_ids)} cards, rep_user_id={rep_user_id}, using_system_account_sid={bool(rep_account_sid)}")
+            print(f"[BLAST_ENDPOINT] ✅ All validations passed - calling run_blast_for_cards()", flush=True)
+            
+            # #region agent log - Before run_blast_for_cards
+            try:
+                import json as _json
+                from datetime import datetime
+                from pathlib import Path
+                debug_log_path = Path(__file__).resolve().parent / ".cursor" / "debug.log"
+                debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(debug_log_path, "a") as f:
+                    f.write(_json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "timestamp": int(datetime.now().timestamp() * 1000),
+                        "location": "main.py:rep_blast:BEFORE_RUN",
+                        "message": "About to call run_blast_for_cards",
+                        "data": {"card_ids_count": len(card_ids), "rep_user_id": rep_user_id, "has_account_sid": bool(rep_account_sid), "has_auth_token": bool(rep_auth_token)},
+                        "hypothesisId": "C"
+                    }) + "\n")
+            except Exception as e:
+                logger.error(f"[DEBUG_LOG] Failed to write debug log: {e}")
+            # #endregion
+            
+            print(f"[BLAST_ENDPOINT] About to call run_blast_for_cards() with:", flush=True)
+            print(f"[BLAST_ENDPOINT]   card_ids: {card_ids}", flush=True)
+            print(f"[BLAST_ENDPOINT]   owner: {current_user['id']}", flush=True)
+            print(f"[BLAST_ENDPOINT]   source: {'owner_ui' if current_user.get('role') == 'admin' else 'rep_ui'}", flush=True)
+            print(f"[BLAST_ENDPOINT]   rep_user_id: {rep_user_id}", flush=True)
+            print(f"[BLAST_ENDPOINT] Calling run_blast_for_cards() NOW...", flush=True)
+            
+            try:
+                result = run_blast_for_cards(
+                    conn=conn,
+                    card_ids=card_ids,
+                    limit=None,  # Already applied limit above if needed
+                    owner=current_user["id"],
+                    source="owner_ui" if current_user.get("role") == "admin" else "rep_ui",
+                    rep_user_id=rep_user_id,
+                )
+                print(f"[BLAST_ENDPOINT] ✅ run_blast_for_cards() returned successfully", flush=True)
+            except Exception as run_error:
+                print("=" * 80, flush=True)
+                print(f"[BLAST_ENDPOINT] ❌ EXCEPTION in run_blast_for_cards()", flush=True)
+                print("=" * 80, flush=True)
+                print(f"[BLAST_ENDPOINT] Error type: {type(run_error).__name__}", flush=True)
+                print(f"[BLAST_ENDPOINT] Error message: {str(run_error)}", flush=True)
+                import traceback
+                print(f"[BLAST_ENDPOINT] Full traceback:", flush=True)
+                traceback.print_exc()
+                print("=" * 80, flush=True)
+                raise
+            
+            logger.info(f"[BLAST] Blast completed: sent={result.get('sent', 0)}, skipped={result.get('skipped', 0)}")
+            logger.info(f"[BLAST] Result details: {result}")
+            print(f"[BLAST_ENDPOINT] Blast result: ok={result.get('ok')}, sent={result.get('sent', 0)}, skipped={result.get('skipped', 0)}", flush=True)
+            
+            # #region agent log - Blast result
+            try:
+                import json as _json
+                from datetime import datetime
+                from pathlib import Path
+                debug_log_path = Path(__file__).resolve().parent / ".cursor" / "debug.log"
+                debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(debug_log_path, "a") as f:
+                    f.write(_json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "timestamp": int(datetime.now().timestamp() * 1000),
+                        "location": "main.py:rep_blast:RESULT",
+                        "message": "Blast completed successfully",
+                        "data": {"ok": result.get('ok'), "sent": result.get('sent', 0), "skipped": result.get('skipped', 0), "results_count": len(result.get('results', []))},
+                        "hypothesisId": "D"
+                    }) + "\n")
+            except Exception as e:
+                logger.error(f"[DEBUG_LOG] Failed to write debug log: {e}")
+            # #endregion
+            
+            return result
         except Exception as e:
-            logger.error(f"[DEBUG_LOG] Failed to write debug log: {e}")
-        # #endregion
-        
-        return result
-    except Exception as e:
-        # #region agent log - Blast exception
-        try:
-            import json as _json
-            from datetime import datetime
+            # #region agent log - Blast exception
+            try:
+                import json as _json
+                from datetime import datetime
+                import traceback
+                from pathlib import Path
+                debug_log_path = Path(__file__).resolve().parent / ".cursor" / "debug.log"
+                debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(debug_log_path, "a") as f:
+                    f.write(_json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "timestamp": int(datetime.now().timestamp() * 1000),
+                        "location": "main.py:rep_blast:EXCEPTION",
+                        "message": "Blast failed with exception",
+                        "data": {"error": str(e), "error_type": type(e).__name__, "traceback": traceback.format_exc()},
+                        "hypothesisId": "E"
+                    }) + "\n")
+            except Exception as log_err:
+                logger.error(f"[DEBUG_LOG] Failed to write debug log: {log_err}")
+            # #endregion
+            
+            # CRITICAL: Log exception immediately
+            print("=" * 80, flush=True)
+            print(f"[BLAST_ENDPOINT] ❌ EXCEPTION CAUGHT", flush=True)
+            print(f"[BLAST_ENDPOINT] Error: {str(e)}", flush=True)
+            print(f"[BLAST_ENDPOINT] Error type: {type(e).__name__}", flush=True)
             import traceback
-            from pathlib import Path
-            debug_log_path = Path(__file__).resolve().parent / ".cursor" / "debug.log"
-            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(debug_log_path, "a") as f:
-                f.write(_json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "timestamp": int(datetime.now().timestamp() * 1000),
-                    "location": "main.py:rep_blast:EXCEPTION",
-                    "message": "Blast failed with exception",
-                    "data": {"error": str(e), "error_type": type(e).__name__, "traceback": traceback.format_exc()},
-                    "hypothesisId": "E"
-                }) + "\n")
-        except Exception as log_err:
-            logger.error(f"[DEBUG_LOG] Failed to write debug log: {log_err}")
-        # #endregion
-        
-        # CRITICAL: Log exception immediately
+            error_trace = traceback.format_exc()
+            print(f"[BLAST_ENDPOINT] Full traceback:\n{error_trace}", flush=True)
+            print("=" * 80, flush=True)
+            
+            # This should never be reached because we catch exceptions above
+            logger.error(f"[BLAST] ❌ EXCEPTION in rep_blast: {e}")
+            logger.error(f"[BLAST] Traceback:\n{error_trace}")
+            raise HTTPException(status_code=500, detail=f"Blast failed: {str(e)}")
+    except Exception as e:
+        # Outer try block exception handler
         print("=" * 80, flush=True)
-        print(f"[BLAST_ENDPOINT] ❌ EXCEPTION CAUGHT", flush=True)
+        print(f"[BLAST_ENDPOINT] ❌ OUTER EXCEPTION CAUGHT", flush=True)
         print(f"[BLAST_ENDPOINT] Error: {str(e)}", flush=True)
-        print(f"[BLAST_ENDPOINT] Error type: {type(e).__name__}", flush=True)
         import traceback
-        error_trace = traceback.format_exc()
-        print(f"[BLAST_ENDPOINT] Full traceback:\n{error_trace}", flush=True)
+        traceback.print_exc()
         print("=" * 80, flush=True)
-        
-        # This should never be reached because we catch exceptions above
-        logger.error(f"[BLAST] ❌ EXCEPTION in rep_blast: {e}")
-        logger.error(f"[BLAST] Traceback:\n{error_trace}")
         raise HTTPException(status_code=500, detail=f"Blast failed: {str(e)}")
 
 
