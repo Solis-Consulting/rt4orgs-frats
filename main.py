@@ -1341,10 +1341,14 @@ async def admin_migrate():
 # ============================================================================
 
 @app.post("/cards/upload")
-async def upload_cards(cards: List[Dict[str, Any]]):
+async def upload_cards(
+    cards: List[Dict[str, Any]],
+    current_user: Dict = Depends(get_current_owner_or_rep)
+):
     """
     Upload array of heterogeneous JSON card objects.
     Validates schema, normalizes IDs, resolves references, and stores cards.
+    Requires owner or rep authentication.
     """
     print("=" * 60)
     print("UPLOAD HIT")
