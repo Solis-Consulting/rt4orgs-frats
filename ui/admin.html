@@ -284,7 +284,11 @@
         html += `<td style="font-family: monospace; font-size: 11px; word-break: break-all; max-width: 400px;">${user.twilio_account_sid || '-'}</td>`;
         html += `<td style="font-family: monospace; font-size: 10px; color: #9ca3af;">${user.api_token ? (user.api_token.substring(0, 20) + '...') : 'N/A (hashed)'}</td>`;
         html += `<td>${user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}</td>`;
-        html += `<td><a class='link' href='#' onclick='editUser("${user.id}"); return false;'>Edit Phone Pairing</a></td>`;
+        html += `<td style="display: flex; gap: 8px; align-items: center;">`;
+        html += `<a class='link' href='#' onclick='editUser("${user.id}"); return false;'>Edit Phone Pairing</a>`;
+        html += `<span style="color: #6b7280;">|</span>`;
+        html += `<a class='link' href='#' onclick='deleteUser("${user.id}", "${user.username.replace(/'/g, "\\'")}"); return false;' style="color: #ef4444;">Delete</a>`;
+        html += `</td>`;
         html += '</tr>';
       });
 
@@ -816,8 +820,49 @@
       }
     }
     // Expose all functions to window for inline onclick handlers
+    async function deleteUser(userId, username) {
+      console.log('🔥 BUTTON CLICKED: deleteUser', userId, username);
+      
+      if (!confirm(`⚠️ Delete user "${username}" (${userId})?\n\nThis will:\n- Delete the user account\n- Remove all card assignments for this user\n\nThis action cannot be undone.`)) {
+        console.log('🔥 deleteUser: cancelled');
+        return;
+      }
+
+      try {
+        console.log('[ADMIN] Deleting user:', userId);
+        console.log('🔥 FETCHING DELETE /admin/users/' + userId);
+        const res = await fetch(`${BACKEND}/admin/users/${encodeURIComponent(userId)}`, {
+          method: 'DELETE',
+          headers
+        });
+
+        console.log('[ADMIN] Delete response status:', res.status);
+        
+        if (!res.ok) {
+          const text = await res.text();
+          console.error('[ADMIN] Error response:', text);
+          alert(`Error ${res.status}: ${text}`);
+          return;
+        }
+
+        const data = await res.json();
+        console.log('[ADMIN] Delete response data:', data);
+        
+        if (data.ok) {
+          alert(`User "${username}" deleted successfully`);
+          loadUsers();
+        } else {
+          alert(`Failed to delete user: ${data.detail || 'Unknown error'}`);
+        }
+      } catch (error) {
+        console.error('[ADMIN] Delete exception:', error);
+        alert(`Error: ${error.message}`);
+      }
+    }
+
     window.logout = logout;
     window.editUser = editUser;
+    window.deleteUser = deleteUser;
     window.updateAssignmentStatus = updateAssignmentStatus;
 
     async function unassignCard(cardId, userId, cardName) {
