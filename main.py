@@ -2828,6 +2828,10 @@ async def rep_blast(
     current_user: Dict = Depends(get_current_owner_or_rep)
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
+    # 🔥 CRITICAL: Log IMMEDIATELY - this proves the handler was entered
+    print("🔥🔥🔥 BLAST HANDLER HIT 🔥🔥🔥", flush=True)
+    logger.warning("🔥 BLAST HANDLER HIT")
+    
     # CRITICAL: Parse body manually to avoid FastAPI Body() validation errors that might fail silently
     try:
         body_bytes = await request.body()
@@ -2902,9 +2906,27 @@ async def rep_blast(
         print(f"[BLAST_ENDPOINT] Payload keys: {list(payload.keys())}", flush=True)
         print(f"[BLAST_ENDPOINT] Payload: {payload}", flush=True)
         
+        # ✅ FIX 3: Normalize payload defensively - handle multiple payload shapes
+        # Frontend might send: card_ids, ids, leads, or other variations
+        card_ids = (
+            payload.get("card_ids")
+            or payload.get("ids")
+            or payload.get("leads")
+            or payload.get("cardIds")  # camelCase variant
+            or []
+        )
+        
+        # Ensure card_ids is a list
+        if not isinstance(card_ids, list):
+            if card_ids:
+                card_ids = [card_ids]  # Convert single value to list
+            else:
+                card_ids = []
+        
         limit = payload.get("limit")
         status_filter = payload.get("status", "assigned")
-        card_ids = payload.get("card_ids")  # Optional: specific card IDs to blast
+        
+        print(f"[BLAST_ENDPOINT] Normalized card_ids: {card_ids} (type: {type(card_ids)}, length: {len(card_ids)})", flush=True)
         
         print(f"[BLAST_ENDPOINT] Extracted parameters:", flush=True)
         print(f"[BLAST_ENDPOINT]   limit: {limit}", flush=True)
@@ -2937,9 +2959,13 @@ async def rep_blast(
         conn = get_conn()
         print(f"[BLAST_ENDPOINT] Database connection obtained", flush=True)
         
-        # CRITICAL: Enforce assignment boundaries
-        print(f"[BLAST_ENDPOINT] Checking user role: {current_user.get('role')}", flush=True)
-        if current_user.get("role") == "admin":
+        # ✅ FIX 4: Allow admin blasting explicitly
+        user_role = current_user.get("role")
+        print(f"[BLAST_ENDPOINT] Checking user role: {user_role}", flush=True)
+        
+        if user_role == "admin":
+            logger.info("🔥 Admin blast mode enabled")
+            print(f"[BLAST_ENDPOINT] ✅ Admin user - full access granted", flush=True)
             print(f"[BLAST_ENDPOINT] User is admin - can blast any cards", flush=True)
             # Owner: can blast any cards
             if card_ids and isinstance(card_ids, list):
