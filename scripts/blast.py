@@ -262,29 +262,23 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, accoun
             "body": body
         }
         
-        # Strategy: Use rep's phone directly as "from" for guaranteed sender identity
-        # But still use Messaging Service for traceability if rep phone is not available
-        # This ensures messages come from the correct rep's number while maintaining traceability
-        if rep_phone_number:
-            # Use rep's phone directly as "from" - this guarantees the message comes from their number
-            # All reps use same Account SID (AC...) for auth, but different phone numbers as "from"
-            message_params["from_"] = rep_phone_number
-            print(f"[SEND_SMS] Using Rep Phone as From: {rep_phone_number}")
-            print(f"[SEND_SMS] Using System Account SID: {sid_to_use[:10]}... (same for all reps)")
-            print(f"[SEND_SMS] Note: Message will come from rep's specific phone number")
-        elif TWILIO_MESSAGING_SERVICE_SID:
-            # No rep phone: use Messaging Service for traceability and A2P compliance
-            message_params["messaging_service_sid"] = TWILIO_MESSAGING_SERVICE_SID
-            print(f"[SEND_SMS] Using Messaging Service: {TWILIO_MESSAGING_SERVICE_SID}")
-            print(f"[SEND_SMS] Note: No rep phone specified, using Messaging Service")
-        elif TWILIO_PHONE_NUMBER:
-            # Fallback: use system phone number
-            message_params["from_"] = TWILIO_PHONE_NUMBER
-            print(f"[SEND_SMS] Using System Phone as From: {TWILIO_PHONE_NUMBER}")
-        else:
-            error_msg = "Twilio configuration error: provide rep phone number or set TWILIO_MESSAGING_SERVICE_SID or TWILIO_PHONE_NUMBER"
+        # Always use Messaging Service for traceability and A2P compliance
+        # The rep's phone number should be in the Messaging Service sender pool
+        # Enable "Sticky Sender" in Twilio console to ensure same sender for each recipient
+        if not TWILIO_MESSAGING_SERVICE_SID:
+            error_msg = "TWILIO_MESSAGING_SERVICE_SID must be set in environment variables"
             print(f"[SEND_SMS] ❌ {error_msg}")
             raise ValueError(error_msg)
+        
+        # Use Messaging Service (rep's phone should be in sender pool, Sticky Sender enabled)
+        message_params["messaging_service_sid"] = TWILIO_MESSAGING_SERVICE_SID
+        print(f"[SEND_SMS] Using Messaging Service: {TWILIO_MESSAGING_SERVICE_SID}")
+        print(f"[SEND_SMS] Using System Account SID: {sid_to_use[:10]}... (same for all reps)")
+        if rep_phone_number:
+            print(f"[SEND_SMS] Rep Phone: {rep_phone_number} (should be in Messaging Service sender pool)")
+            print(f"[SEND_SMS] Note: Enable 'Sticky Sender' in Twilio Messaging Service settings")
+            print(f"[SEND_SMS] Note: This ensures messages route through rep's phone when possible")
+        print(f"[SEND_SMS] All messages are traceable through Messaging Service logs")
         
         print(f"[SEND_SMS] Calling client.messages.create() with params:")
         print(f"[SEND_SMS]   to: {message_params.get('to')}")
