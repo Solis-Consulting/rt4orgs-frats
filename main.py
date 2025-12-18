@@ -2661,6 +2661,7 @@ def get_markov_response(conn: Any, state_key: str, user_id: Optional[str] = None
             user_id_str = str(user_id).strip() if user_id else None
             if not user_id_str:
                 print(f"[GET_MARKOV_RESPONSE] ⚠️ user_id is empty after normalization, skipping rep-specific lookup", flush=True)
+                user_id_str = None  # Ensure it's None for consistency
             else:
                 # Try rep-specific first
                 print(f"[GET_MARKOV_RESPONSE] 🔎 Querying rep-specific response...", flush=True)
@@ -2672,33 +2673,37 @@ def get_markov_response(conn: Any, state_key: str, user_id: Optional[str] = None
                 """, (state_key, user_id_str))
                 row = cur.fetchone()
                 print(f"[GET_MARKOV_RESPONSE]   Query returned: {row}", flush=True)
-            if row and row[0]:
-                response_text = row[0].strip()
-                print(f"[GET_MARKOV_RESPONSE]   Raw response_text: '{response_text}'", flush=True)
-                print(f"[GET_MARKOV_RESPONSE]   Response_text length: {len(response_text)}", flush=True)
-                if response_text:  # Make sure it's not empty
-                    print("=" * 80, flush=True)
-                    print(f"[GET_MARKOV_RESPONSE] ✅✅✅ FOUND REP-SPECIFIC RESPONSE ✅✅✅", flush=True)
-                    print("=" * 80, flush=True)
-                    print(f"[GET_MARKOV_RESPONSE]   state_key: '{state_key}'", flush=True)
-                    print(f"[GET_MARKOV_RESPONSE]   user_id: '{user_id_str}'", flush=True)
-                    print(f"[GET_MARKOV_RESPONSE]   response_text: '{response_text}'", flush=True)
-                    print(f"[GET_MARKOV_RESPONSE]   length: {len(response_text)} chars", flush=True)
-                    print("=" * 80, flush=True)
-                    return response_text
+                if row and row[0]:
+                    response_text = row[0].strip()
+                    print(f"[GET_MARKOV_RESPONSE]   Raw response_text: '{response_text}'", flush=True)
+                    print(f"[GET_MARKOV_RESPONSE]   Response_text length: {len(response_text)}", flush=True)
+                    if response_text:  # Make sure it's not empty
+                        print("=" * 80, flush=True)
+                        print(f"[GET_MARKOV_RESPONSE] ✅✅✅ FOUND REP-SPECIFIC RESPONSE ✅✅✅", flush=True)
+                        print("=" * 80, flush=True)
+                        print(f"[GET_MARKOV_RESPONSE]   state_key: '{state_key}'", flush=True)
+                        print(f"[GET_MARKOV_RESPONSE]   user_id: '{user_id_str}'", flush=True)
+                        print(f"[GET_MARKOV_RESPONSE]   response_text: '{response_text}'", flush=True)
+                        print(f"[GET_MARKOV_RESPONSE]   length: {len(response_text)} chars", flush=True)
+                        print("=" * 80, flush=True)
+                        return response_text
+                    else:
+                        print(f"[GET_MARKOV_RESPONSE] ⚠️ Rep-specific response exists but is empty, falling back to global", flush=True)
                 else:
-                    print(f"[GET_MARKOV_RESPONSE] ⚠️ Rep-specific response exists but is empty, falling back to global", flush=True)
-            else:
-                print(f"[GET_MARKOV_RESPONSE] ⚠️ No rep-specific response found, falling back to global", flush=True)
-                # Debug: Check what responses exist for this user
-                cur.execute("""
-                    SELECT state_key, response_text FROM markov_responses
-                    WHERE user_id = %s
-                    ORDER BY state_key
-                """, (user_id_str,))
-                all_rep_responses = cur.fetchall()
-                print(f"[GET_MARKOV_RESPONSE]   Debug: All rep responses for user_id='{user_id_str}': {len(all_rep_responses)} total", flush=True)
-                for resp_row in all_rep_responses[:10]:  # Show first 10
+                    print(f"[GET_MARKOV_RESPONSE] ⚠️ No rep-specific response found, falling back to global", flush=True)
+                    # Debug: Check what responses exist for this user
+                    cur.execute("""
+                        SELECT state_key, response_text FROM markov_responses
+                        WHERE user_id = %s
+                        ORDER BY state_key
+                    """, (user_id_str,))
+                    all_rep_responses = cur.fetchall()
+                    print(f"[GET_MARKOV_RESPONSE]   Debug: All rep responses for user_id='{user_id_str}': {len(all_rep_responses)} total", flush=True)
+                    for resp_row in all_rep_responses[:10]:  # Show first 10
+                        state_in_db = resp_row[0]
+                        response_preview = resp_row[1][:50] if resp_row[1] else 'EMPTY'
+                        match_status = "✅ MATCH" if state_in_db == state_key else "❌ NO MATCH"
+                        print(f"[GET_MARKOV_RESPONSE]     {match_status} state_key='{state_in_db}' response='{response_preview}...'", flush=True)
                     state_in_db = resp_row[0]
                     response_preview = resp_row[1][:50] if resp_row[1] else 'EMPTY'
                     match_status = "✅ MATCH" if state_in_db == state_key else "❌ NO MATCH"
