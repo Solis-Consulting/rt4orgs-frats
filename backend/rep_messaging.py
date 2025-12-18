@@ -238,7 +238,7 @@ def get_rep_conversations(conn: Any, user_id: str) -> List[Dict[str, Any]]:
         
         conversations = []
         for row in cur.fetchall():
-            history = row[9] or []  # history is still at index 9 (sort_date is at index 10, not used in Python)
+            history = row[10] or []  # history is at index 10 (sort_date is at index 11, not used in Python)
             if isinstance(history, str):
                 try:
                     history = json.loads(history)
