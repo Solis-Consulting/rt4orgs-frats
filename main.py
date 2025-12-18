@@ -2189,17 +2189,51 @@ async def get_markov_responses(
         raise HTTPException(status_code=401, detail="Authentication required")
     
     conn = get_conn()
-    user_id = None if current_user.get("role") == "admin" else current_user.get("id")
+    user_role = current_user.get("role")
+    user_id = None if user_role == "admin" else current_user.get("id")
     
     with conn.cursor() as cur:
         if user_id:
-            # Rep: get rep-specific responses
+            # Rep: get rep-specific responses, but also include owner's defaults for states they haven't customized
+            # First get rep-specific responses
             cur.execute("""
                 SELECT state_key, response_text, description, updated_at
                 FROM markov_responses
                 WHERE user_id = %s
                 ORDER BY state_key;
             """, (user_id,))
+            rep_rows = cur.fetchall()
+            
+            # Then get owner's global responses
+            cur.execute("""
+                SELECT state_key, response_text, description, updated_at
+                FROM markov_responses
+                WHERE user_id IS NULL
+                ORDER BY state_key;
+            """)
+            global_rows = cur.fetchall()
+            
+            # Merge: rep-specific overrides global, but include global for states rep hasn't customized
+            rep_responses = {row[0]: row for row in rep_rows}
+            global_responses = {row[0]: row for row in global_rows}
+            
+            # Start with global defaults, then override with rep-specific
+            responses = {}
+            for state_key, row in global_responses.items():
+                responses[state_key] = {
+                    "response_text": row[1],
+                    "description": row[2],
+                    "updated_at": row[3].isoformat() if row[3] else None,
+                    "is_custom": False,  # This is from owner's defaults
+                }
+            # Override with rep-specific customizations
+            for state_key, row in rep_responses.items():
+                responses[state_key] = {
+                    "response_text": row[1],
+                    "description": row[2],
+                    "updated_at": row[3].isoformat() if row[3] else None,
+                    "is_custom": True,  # This is rep's customization
+                }
         else:
             # Owner: get global responses (user_id IS NULL)
             cur.execute("""
@@ -2208,16 +2242,17 @@ async def get_markov_responses(
                 WHERE user_id IS NULL
                 ORDER BY state_key;
             """)
-        rows = cur.fetchall()
-    
-    responses = {
-        row[0]: {
-            "response_text": row[1],
-            "description": row[2],
-            "updated_at": row[3].isoformat() if row[3] else None,
-        }
-        for row in rows
-    }
+            rows = cur.fetchall()
+            
+            responses = {
+                row[0]: {
+                    "response_text": row[1],
+                    "description": row[2],
+                    "updated_at": row[3].isoformat() if row[3] else None,
+                    "is_custom": True,  # Owner's responses are always "custom" (they're the defaults)
+                }
+                for row in rows
+            }
     
     # Also get initial outreach (stored as special key)
     with conn.cursor() as cur:
@@ -2255,7 +2290,13 @@ async def update_single_markov_response(
     request: Request,
     payload: Dict[str, Any] = Body(...)
 ):
-    """Update a single Markov state response. Owner saves global, reps save their own."""
+    """
+    Update a single Markov state response.
+    
+    CRITICAL: Owner saves global (user_id=NULL), reps save their own (user_id=rep_id).
+    Reps can ONLY modify their own responses, never the owner's defaults.
+    If a rep doesn't have a custom response, the system falls back to owner's default.
+    """
     # Authenticate user manually
     try:
         current_user = await get_current_owner_or_rep(request)
@@ -2269,7 +2310,14 @@ async def update_single_markov_response(
     logger.info(f"📦 payload={json.dumps(payload, indent=2)}")
     
     conn = get_conn()
-    user_id = None if current_user.get("role") == "admin" else current_user.get("id")
+    user_role = current_user.get("role")
+    user_id = None if user_role == "admin" else current_user.get("id")
+    
+    # CRITICAL: Reps can ONLY save their own responses, never modify owner's defaults
+    # The owner's responses (user_id=NULL) are protected - only admin role can modify them
+    if user_role != "admin" and user_id is None:
+        logger.error(f"[MARKOV_RESPONSE] ❌ Rep attempted to modify global response - BLOCKED")
+        raise HTTPException(status_code=403, detail="Reps can only modify their own responses, not global defaults")
     
     state_key = payload.get("state_key")
     response_text = payload.get("response_text", "")
@@ -2324,7 +2372,13 @@ async def update_markov_responses(
     request: Request,
     payload: Dict[str, Any] = Body(...)
 ):
-    """Update Markov state responses. Owner saves global, reps save their own."""
+    """
+    Update Markov state responses (batch).
+    
+    CRITICAL: Owner saves global (user_id=NULL), reps save their own (user_id=rep_id).
+    Reps can ONLY modify their own responses, never the owner's defaults.
+    If a rep doesn't have a custom response, the system falls back to owner's default.
+    """
     # Authenticate user manually
     try:
         current_user = await get_current_owner_or_rep(request)
@@ -2338,7 +2392,13 @@ async def update_markov_responses(
     logger.info(f"📦 Payload keys: {list(payload.keys())}")
     
     conn = get_conn()
-    user_id = None if current_user.get("role") == "admin" else current_user.get("id")
+    user_role = current_user.get("role")
+    user_id = None if user_role == "admin" else current_user.get("id")
+    
+    # CRITICAL: Reps can ONLY save their own responses, never modify owner's defaults
+    if user_role != "admin" and user_id is None:
+        logger.error(f"[MARKOV_RESPONSES_BATCH] ❌ Rep attempted to modify global responses - BLOCKED")
+        raise HTTPException(status_code=403, detail="Reps can only modify their own responses, not global defaults")
     
     responses = payload.get("responses", {})
     initial_outreach = payload.get("initial_outreach")
@@ -2447,6 +2507,10 @@ def classify_intent_simple(text: str) -> Dict[str, Any]:
     # Interest indicators
     if any(word in text_lower for word in ["interested", "yes", "sounds good", "tell me more", "i want", "i need"]):
         return {"category": "interest", "subcategory": "light_interest"}
+    
+    # Confused interest - user is confused but maybe interested
+    if any(word in text_lower for word in ["confused", "confusion", "not sure", "unsure", "don't understand", "unclear"]):
+        return {"category": "interest", "subcategory": "confused_interest"}
     
     # Pricing questions
     if any(word in text_lower for word in ["price", "cost", "how much", "$", "dollar", "pay"]):
