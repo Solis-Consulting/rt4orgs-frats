@@ -2496,7 +2496,7 @@ async def rep_get_cards(
     if current_user.get("role") == "admin":
         # Owner: get all cards
         from backend.query import build_list_query
-        query_result = build_list_query(conn, {}, limit=10000)
+        query_result = build_list_query(conn, {}, 10000)  # Pass limit as positional arg
         cards = query_result.get("cards", [])
     else:
         # Rep: get only assigned cards
