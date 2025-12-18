@@ -850,7 +850,13 @@ async def twilio_inbound(request: Request):
         
         # Normalize phone number from Twilio (E.164 format)
         normalized_phone = normalize_phone(From)
-        print(f"[TWILIO_INBOUND] Normalized phone: {normalized_phone}")
+        print("=" * 80, flush=True)
+        print(f"[TWILIO_INBOUND] 🔥🔥🔥 INBOUND WEBHOOK RECEIVED 🔥🔥🔥", flush=True)
+        print("=" * 80, flush=True)
+        print(f"[TWILIO_INBOUND] Original From: {From}", flush=True)
+        print(f"[TWILIO_INBOUND] Normalized phone: {normalized_phone}", flush=True)
+        print(f"[TWILIO_INBOUND] Message body: {Body[:100]}...", flush=True)
+        print(f"[TWILIO_INBOUND] Message body length: {len(Body)}", flush=True)
         
         # Get conversation to check routing mode and identify which rep owns this conversation
         # CRITICAL: Each rep has their own Markov handler (response text), but NLP logic is shared.
@@ -859,21 +865,32 @@ async def twilio_inbound(request: Request):
         conn = get_conn()
         routing_mode = 'ai'  # Default to AI
         rep_user_id = None
+        conversation_state = None
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT routing_mode, rep_user_id FROM conversations WHERE phone = %s LIMIT 1
+                SELECT routing_mode, rep_user_id, state FROM conversations WHERE phone = %s LIMIT 1
             """, (normalized_phone,))
             row = cur.fetchone()
             if row:
                 routing_mode = row[0] or 'ai'
                 rep_user_id = row[1]
+                conversation_state = row[2]
+                print(f"[TWILIO_INBOUND] ✅ Conversation found in DB", flush=True)
+                print(f"[TWILIO_INBOUND]   routing_mode: {routing_mode}", flush=True)
+                print(f"[TWILIO_INBOUND]   rep_user_id: {rep_user_id}", flush=True)
+                print(f"[TWILIO_INBOUND]   current_state: {conversation_state}", flush=True)
+            else:
+                print(f"[TWILIO_INBOUND] ⚠️ No conversation found in DB for phone: {normalized_phone}", flush=True)
         
-        print(f"[TWILIO_INBOUND] Routing mode: {routing_mode}, Rep user ID: {rep_user_id}")
-        print(f"[TWILIO_INBOUND] Phone: {normalized_phone} (original: {From})")
+        print(f"[TWILIO_INBOUND] 📋 Conversation Summary:", flush=True)
+        print(f"[TWILIO_INBOUND]   Phone: {normalized_phone} (original: {From})", flush=True)
+        print(f"[TWILIO_INBOUND]   Routing mode: {routing_mode}", flush=True)
+        print(f"[TWILIO_INBOUND]   Rep user ID: {rep_user_id}", flush=True)
+        print(f"[TWILIO_INBOUND]   Current state: {conversation_state}", flush=True)
         if rep_user_id:
-            print(f"[TWILIO_INBOUND] ✅ Using rep-specific Markov responses for user_id: {rep_user_id}")
+            print(f"[TWILIO_INBOUND] ✅ Will use rep-specific Markov responses for user_id: {rep_user_id}", flush=True)
         else:
-            print(f"[TWILIO_INBOUND] ⚠️ Using global Markov responses (no rep assigned)")
+            print(f"[TWILIO_INBOUND] ⚠️ Will use global Markov responses (no rep assigned)", flush=True)
             # Debug: Check if conversation exists but rep_user_id is NULL
             with conn.cursor() as debug_cur:
                 debug_cur.execute("""
@@ -881,7 +898,7 @@ async def twilio_inbound(request: Request):
                 """, (normalized_phone,))
                 debug_row = debug_cur.fetchone()
                 if debug_row:
-                    print(f"[TWILIO_INBOUND] DEBUG: Conversation exists - rep_user_id={debug_row[0]}, last_outbound_at={debug_row[1]}, owner={debug_row[2]}")
+                    print(f"[TWILIO_INBOUND] DEBUG: Conversation exists - rep_user_id={debug_row[0]}, last_outbound_at={debug_row[1]}, owner={debug_row[2]}", flush=True)
         
         # Store inbound message in history regardless of routing mode
         from backend.rep_messaging import add_message_to_history
@@ -894,8 +911,11 @@ async def twilio_inbound(request: Request):
         
         # Continue with AI processing for 'ai' mode
         # Classify intent from message text (simple keyword-based for now)
+        print(f"[TWILIO_INBOUND] 🔍 Classifying intent from message: '{Body}'", flush=True)
         intent = classify_intent_simple(Body)
-        print(f"[TWILIO_INBOUND] Classified intent: {intent}")
+        print(f"[TWILIO_INBOUND] ✅ Classified intent: {intent}", flush=True)
+        print(f"[TWILIO_INBOUND]   category: {intent.get('category')}", flush=True)
+        print(f"[TWILIO_INBOUND]   subcategory: {intent.get('subcategory')}", flush=True)
         
         # Prepare event payload for inbound_intelligent
         event = {
@@ -905,12 +925,14 @@ async def twilio_inbound(request: Request):
             "intent": intent
         }
         
-        print(f"[TWILIO_INBOUND] Calling inbound_intelligent for {normalized_phone}")
+        print(f"[TWILIO_INBOUND] 📞 Calling inbound_intelligent for {normalized_phone}", flush=True)
+        print(f"[TWILIO_INBOUND]   Event payload: {json.dumps(event, indent=2)}", flush=True)
         
         # Call the intelligence handler directly (no HTTP overhead)
         result = await inbound_intelligent(event)
         
-        print(f"[TWILIO_INBOUND] Intelligence result: {result}")
+        print(f"[TWILIO_INBOUND] ✅ Intelligence result received:", flush=True)
+        print(f"[TWILIO_INBOUND]   {json.dumps(result, indent=2, default=str)}", flush=True)
         
         # Get card by phone to generate contextual reply
         card = None
@@ -929,26 +951,50 @@ async def twilio_inbound(request: Request):
             next_state = result["next_state"]
             previous_state = result.get("previous_state", "initial_outreach")
             
-            print(f"[TWILIO_INBOUND] State transition: {previous_state} → {next_state}")
+            print("=" * 80, flush=True)
+            print(f"[TWILIO_INBOUND] 🔄 STATE TRANSITION", flush=True)
+            print("=" * 80, flush=True)
+            print(f"[TWILIO_INBOUND]   Previous state: {previous_state}", flush=True)
+            print(f"[TWILIO_INBOUND]   Next state: {next_state}", flush=True)
+            print(f"[TWILIO_INBOUND]   Transition: {previous_state} → {next_state}", flush=True)
+            print("=" * 80, flush=True)
             
             # CRITICAL: Get rep-specific Markov response text
             # - NLP logic (state transitions) is SHARED across all reps (same conversation tree)
             # - Response TEXT is REP-SPECIFIC (each rep can customize their pitch/responses)
             # - If rep_user_id is set, uses that rep's responses; otherwise uses global responses
             # - If multiple reps messaged, rep_user_id reflects the LAST rep to message (conflict resolution)
-            print(f"[TWILIO_INBOUND] 🔍 Looking up Markov response for state='{next_state}', rep_user_id={rep_user_id}")
-            print(f"[TWILIO_INBOUND] 📋 Conversation details: phone={normalized_phone}, routing_mode={routing_mode}")
+            print(f"[TWILIO_INBOUND] 🔍 Looking up Markov response:", flush=True)
+            print(f"[TWILIO_INBOUND]   state_key: '{next_state}'", flush=True)
+            print(f"[TWILIO_INBOUND]   rep_user_id: {rep_user_id}", flush=True)
+            print(f"[TWILIO_INBOUND]   phone: {normalized_phone}", flush=True)
+            print(f"[TWILIO_INBOUND]   routing_mode: {routing_mode}", flush=True)
             configured_response = get_markov_response(conn, next_state, rep_user_id)
             if configured_response:
-                print(f"[TWILIO_INBOUND] ✅ Found response (length: {len(configured_response)} chars, preview: {configured_response[:50]}...)")
-                print(f"[TWILIO_INBOUND] 📝 Full response: {configured_response}")
+                print("=" * 80, flush=True)
+                print(f"[TWILIO_INBOUND] ✅ RESPONSE FOUND", flush=True)
+                print("=" * 80, flush=True)
+                print(f"[TWILIO_INBOUND]   Response length: {len(configured_response)} chars", flush=True)
+                print(f"[TWILIO_INBOUND]   Response preview: {configured_response[:100]}...", flush=True)
+                print(f"[TWILIO_INBOUND]   Full response: {configured_response}", flush=True)
+                print("=" * 80, flush=True)
             else:
-                print(f"[TWILIO_INBOUND] ⚠️ No configured response found for state='{next_state}', rep_user_id={rep_user_id}")
-                print(f"[TWILIO_INBOUND] 💡 Suggestion: Rep should configure a response for this state, or owner should set a global default")
+                print("=" * 80, flush=True)
+                print(f"[TWILIO_INBOUND] ⚠️ NO RESPONSE FOUND", flush=True)
+                print("=" * 80, flush=True)
+                print(f"[TWILIO_INBOUND]   State: '{next_state}'", flush=True)
+                print(f"[TWILIO_INBOUND]   Rep user ID: {rep_user_id}", flush=True)
+                print(f"[TWILIO_INBOUND]   💡 Suggestion: Rep should configure a response for this state, or owner should set a global default", flush=True)
+                print("=" * 80, flush=True)
             
             if configured_response:
+                print(f"[TWILIO_INBOUND] ✅ Configured response found, processing...", flush=True)
+                print(f"[TWILIO_INBOUND]   Original response: {configured_response}", flush=True)
+                print(f"[TWILIO_INBOUND]   Response length: {len(configured_response)} chars", flush=True)
+                
                 # If we have a card, substitute template placeholders
                 if card and card.get("card_data"):
+                    print(f"[TWILIO_INBOUND] 📋 Card found, applying template substitution...", flush=True)
                     from backend.blast import _substitute_template
                     from archive_intelligence.message_processor.utils import load_sales_history, find_matching_fraternity
                     
@@ -959,10 +1005,13 @@ async def twilio_inbound(request: Request):
                         purchased_example = find_matching_fraternity(data, sales_history)
                     
                     reply_text = _substitute_template(configured_response, data, purchased_example)
-                    print(f"[TWILIO_INBOUND] Using configured response for state '{next_state}' (with template substitution)")
+                    print(f"[TWILIO_INBOUND] ✅ Template substitution complete", flush=True)
+                    print(f"[TWILIO_INBOUND]   Substituted response: {reply_text}", flush=True)
+                    print(f"[TWILIO_INBOUND]   Substituted length: {len(reply_text)} chars", flush=True)
                 else:
                     reply_text = configured_response
-                    print(f"[TWILIO_INBOUND] Using configured response for state '{next_state}' (no substitution)")
+                    print(f"[TWILIO_INBOUND] ✅ Using configured response as-is (no card for substitution)", flush=True)
+                    print(f"[TWILIO_INBOUND]   Final reply_text: {reply_text}", flush=True)
             else:
                 # No configured response found (neither rep-specific nor global)
                 print(f"[TWILIO_INBOUND] ⚠️ No configured response found for state='{next_state}', rep_user_id={rep_user_id}")
@@ -971,27 +1020,58 @@ async def twilio_inbound(request: Request):
                 reply_text = None
         
         # Send explicit reply via Twilio (webhook return does NOT send SMS)
+        print("=" * 80, flush=True)
+        print(f"[TWILIO_INBOUND] 📤 PREPARING TO SEND REPLY", flush=True)
+        print("=" * 80, flush=True)
+        print(f"[TWILIO_INBOUND]   reply_text: {reply_text}", flush=True)
+        print(f"[TWILIO_INBOUND]   reply_text type: {type(reply_text)}", flush=True)
+        if reply_text:
+            print(f"[TWILIO_INBOUND]   reply_text length: {len(reply_text)}", flush=True)
+            print(f"[TWILIO_INBOUND]   reply_text preview: {reply_text[:100]}...", flush=True)
+        
         # Filter out "OK" messages - don't send standalone "OK" responses
         if reply_text:
             reply_text_clean = reply_text.strip().upper()
+            print(f"[TWILIO_INBOUND]   Cleaned reply_text: '{reply_text_clean}'", flush=True)
             # Skip sending if reply is just "OK" or variations
             if reply_text_clean in ["OK", "OKAY", "K", "OK."]:
-                print(f"[TWILIO_INBOUND] Skipping 'OK' message - not sending reply")
+                print(f"[TWILIO_INBOUND] ⚠️ Skipping 'OK' message - not sending reply", flush=True)
                 reply_text = None
+            else:
+                print(f"[TWILIO_INBOUND] ✅ Reply text is valid (not 'OK')", flush=True)
         
         if reply_text:
+            print("=" * 80, flush=True)
+            print(f"[TWILIO_INBOUND] 🚀 SENDING REPLY VIA TWILIO", flush=True)
+            print("=" * 80, flush=True)
+            print(f"[TWILIO_INBOUND]   To: {normalized_phone}", flush=True)
+            print(f"[TWILIO_INBOUND]   From: {twilio_phone}", flush=True)
+            print(f"[TWILIO_INBOUND]   Message: {reply_text}", flush=True)
+            print(f"[TWILIO_INBOUND]   Message length: {len(reply_text)} chars", flush=True)
             try:
                 twilio_sid = os.getenv("TWILIO_ACCOUNT_SID")
                 twilio_token = os.getenv("TWILIO_AUTH_TOKEN")
                 twilio_phone = os.getenv("TWILIO_PHONE_NUMBER")
                 
+                print(f"[TWILIO_INBOUND] 🔑 Twilio credentials:", flush=True)
+                print(f"[TWILIO_INBOUND]   Account SID: {twilio_sid[:10]}... (length: {len(twilio_sid) if twilio_sid else 0})", flush=True)
+                print(f"[TWILIO_INBOUND]   Auth Token: {'✅ SET' if twilio_token else '❌ NOT SET'} (length: {len(twilio_token) if twilio_token else 0})", flush=True)
+                print(f"[TWILIO_INBOUND]   Phone Number: {twilio_phone}", flush=True)
+                
                 if twilio_sid and twilio_token and twilio_phone:
-                    print(f"[TWILIO_INBOUND] Sending reply via Twilio...", flush=True)
-                    print(f"[TWILIO_INBOUND] From: {twilio_phone}", flush=True)
-                    print(f"[TWILIO_INBOUND] To: {From}", flush=True)
-                    print(f"[TWILIO_INBOUND] Reply text: {reply_text[:100]}...", flush=True)
+                    print(f"[TWILIO_INBOUND] 🔑 Twilio credentials validated", flush=True)
+                    print(f"[TWILIO_INBOUND]   Account SID: {twilio_sid[:10]}... (length: {len(twilio_sid) if twilio_sid else 0})", flush=True)
+                    print(f"[TWILIO_INBOUND]   Auth Token: {'✅ SET' if twilio_token else '❌ NOT SET'} (length: {len(twilio_token) if twilio_token else 0})", flush=True)
+                    print(f"[TWILIO_INBOUND]   Phone Number: {twilio_phone}", flush=True)
+                    print(f"[TWILIO_INBOUND] 📞 Creating Twilio client...", flush=True)
                     
                     client = Client(twilio_sid, twilio_token)
+                    
+                    print(f"[TWILIO_INBOUND] 📨 Creating message:", flush=True)
+                    print(f"[TWILIO_INBOUND]   to: {From} (original Twilio From)", flush=True)
+                    print(f"[TWILIO_INBOUND]   from_: {twilio_phone}", flush=True)
+                    print(f"[TWILIO_INBOUND]   body: {reply_text}", flush=True)
+                    print(f"[TWILIO_INBOUND]   body length: {len(reply_text)} chars", flush=True)
                     
                     # Send directly from phone number (not Messaging Service) to avoid filtering
                     msg = client.messages.create(
@@ -1000,7 +1080,16 @@ async def twilio_inbound(request: Request):
                         body=reply_text
                     )
                     
-                    print(f"[TWILIO_INBOUND] ✅ Reply sent successfully (SID: {msg.sid})", flush=True)
+                    print("=" * 80, flush=True)
+                    print(f"[TWILIO_INBOUND] ✅✅✅ REPLY SENT SUCCESSFULLY ✅✅✅", flush=True)
+                    print("=" * 80, flush=True)
+                    print(f"[TWILIO_INBOUND]   Twilio SID: {msg.sid}", flush=True)
+                    print(f"[TWILIO_INBOUND]   Status: {msg.status}", flush=True)
+                    print(f"[TWILIO_INBOUND]   To: {msg.to}", flush=True)
+                    print(f"[TWILIO_INBOUND]   From: {msg.from_}", flush=True)
+                    print(f"[TWILIO_INBOUND]   Body: {msg.body}", flush=True)
+                    print(f"[TWILIO_INBOUND]   Date Created: {msg.date_created}", flush=True)
+                    print("=" * 80, flush=True)
                     
                     # Store outbound reply in conversation history
                     try:
