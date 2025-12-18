@@ -2874,27 +2874,27 @@ async def rep_blast(
         logger.info("=" * 80)
         logger.info("[BLAST_ENDPOINT] 🚀 ENDPOINT CALLED")
         logger.info("=" * 80)
-    
-    # #region agent log - Blast endpoint entry
-    try:
-        import json as _json
-        from datetime import datetime
-        from pathlib import Path
-        debug_log_path = Path(__file__).resolve().parent / ".cursor" / "debug.log"
-        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(debug_log_path, "a") as f:
-            f.write(_json.dumps({
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "timestamp": int(datetime.now().timestamp() * 1000),
-                "location": "main.py:rep_blast:ENTRY",
-                "message": "Blast endpoint called",
-                "data": {"user_id": current_user.get('id'), "role": current_user.get('role'), "payload_keys": list(payload.keys())},
-                "hypothesisId": "A"
-            }) + "\n")
-    except Exception as e:
-        logger.error(f"[DEBUG_LOG] Failed to write debug log: {e}")
-    # #endregion
+        
+        # #region agent log - Blast endpoint entry
+        try:
+            import json as _json
+            from datetime import datetime
+            from pathlib import Path
+            debug_log_path = Path(__file__).resolve().parent / ".cursor" / "debug.log"
+            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(debug_log_path, "a") as f:
+                f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "timestamp": int(datetime.now().timestamp() * 1000),
+                    "location": "main.py:rep_blast:ENTRY",
+                    "message": "Blast endpoint called",
+                    "data": {"user_id": current_user.get('id'), "role": current_user.get('role'), "payload_keys": list(payload.keys())},
+                    "hypothesisId": "A"
+                }) + "\n")
+        except Exception as e:
+            logger.error(f"[DEBUG_LOG] Failed to write debug log: {e}")
+        # #endregion
     
     logger.info(f"[BLAST] rep_blast called by {current_user['id']} (role: {current_user.get('role')})")
     logger.info(f"[BLAST] payload = {payload}")
