@@ -228,8 +228,6 @@ def run_blast_for_cards(
     limit: Optional[int],
     owner: str,
     source: str,
-    auth_token: Optional[str] = None,
-    account_sid: Optional[str] = None,
     rep_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
@@ -239,27 +237,28 @@ def run_blast_for_cards(
     - Generates messages using archive_intelligence templates
     - Sends via Twilio (using scripts.blast.send_sms)
     - Records conversations and blast_run summary
-    - All messages sent from system phone number via Messaging Service
+    - All messages sent from system phone number (919) 443-6288 via Messaging Service
+    - Always uses system Twilio credentials from environment variables
     
     Args:
-        auth_token: Optional authorization token to use for Twilio (overrides env var)
-        account_sid: Optional account SID to use for Twilio (overrides env var)
-        rep_user_id: Optional rep user ID (if blasting from rep account)
+        conn: Database connection
+        card_ids: List of card IDs to blast
+        limit: Optional limit on number of cards
+        owner: Owner identifier
+        source: Source identifier (e.g., "rep_ui", "owner_ui")
+        rep_user_id: Optional rep user ID (for conversation tracking)
     """
     # High-level run visibility with detailed logging
     print("=" * 80, flush=True)
     print(f"[BLAST_RUN] 🚀 STARTING BLAST", flush=True)
     print("=" * 80, flush=True)
-    print(f"[BLAST_RUN] Card IDs: {card_ids}", flush=True)
+    print(f"[BLAST_RUN] Card IDs: {card_ids} (count: {len(card_ids)})", flush=True)
     print(f"[BLAST_RUN] Limit: {limit}", flush=True)
     print(f"[BLAST_RUN] Owner: {owner}", flush=True)
     print(f"[BLAST_RUN] Source: {source}", flush=True)
-    print(f"[BLAST_RUN] Auth Token Provided: {bool(auth_token)}", flush=True)
-    print(f"[BLAST_RUN] Account SID Provided: {bool(account_sid)}", flush=True)
-    if account_sid:
-        print(f"[BLAST_RUN] Account SID: {account_sid[:10]}... (length: {len(account_sid)})", flush=True)
     print(f"[BLAST_RUN] Rep User ID: {rep_user_id}", flush=True)
-    print(f"[BLAST_RUN] Using System Phone Number (via Messaging Service)", flush=True)
+    print(f"[BLAST_RUN] Using System Phone Number (919) 443-6288 via Messaging Service", flush=True)
+    print(f"[BLAST_RUN] Using System Twilio Credentials (from environment variables)", flush=True)
     print("=" * 80, flush=True)
 
     if not card_ids:
@@ -460,21 +459,10 @@ def run_blast_for_cards(
             print(f"[BLAST_SEND_ATTEMPT] Rep User ID: {rep_user_id}", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Using System Phone Number (via Messaging Service)", flush=True)
             
-            if auth_token:
-                print(f"[BLAST_SEND_ATTEMPT] Auth token provided: {auth_token[:10]}...{auth_token[-4:] if len(auth_token) > 14 else auth_token} (length: {len(auth_token)})", flush=True)
-            else:
-                print(f"[BLAST_SEND_ATTEMPT] No auth_token provided, send_sms will use environment variable", flush=True)
-            
-            # Use provided account_sid (system Account SID for all users)
-            account_sid_to_use = account_sid  # This is the system Account SID from env vars
-            
-            if account_sid_to_use:
-                print(f"[BLAST_SEND_ATTEMPT] Account SID provided: {account_sid_to_use[:10]}...{account_sid_to_use[-4:] if len(account_sid_to_use) > 14 else account_sid_to_use} (length: {len(account_sid_to_use)})", flush=True)
-            else:
-                print(f"[BLAST_SEND_ATTEMPT] No account_sid provided, send_sms will use environment variable", flush=True)
-            
+            print(f"[BLAST_SEND_ATTEMPT] send_sms() will use system Twilio credentials from environment variables", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Calling send_sms() NOW...", flush=True)
-            sms_result = send_sms(phone, message, auth_token=auth_token, account_sid=account_sid_to_use)
+            # send_sms() now always uses environment variables - no parameters needed
+            sms_result = send_sms(phone, message)
             print(f"[BLAST_SEND_ATTEMPT] send_sms() returned, processing result...", flush=True)
             
             # #region agent log - After send attempt

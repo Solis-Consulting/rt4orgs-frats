@@ -2386,13 +2386,14 @@ async def blast_run(
     conn = get_conn()
 
     try:
+        # run_blast_for_cards() now always uses environment variables - no auth params needed
         result = run_blast_for_cards(
             conn=conn,
             card_ids=card_ids,
             limit=limit,
             owner=owner,
             source=source,
-            auth_token=auth_token,
+            rep_user_id=None,  # Legacy endpoint doesn't track rep_user_id
         )
         return result
     except Exception as e:
@@ -2962,14 +2963,13 @@ async def rep_blast(
             logger.error(f"[DEBUG_LOG] Failed to write debug log: {e}")
         # #endregion
         
+        # run_blast_for_cards() now always uses environment variables - no auth params needed
         result = run_blast_for_cards(
             conn=conn,
             card_ids=card_ids,
             limit=None,  # Already applied limit above if needed
             owner=current_user["id"],
             source="owner_ui" if current_user.get("role") == "admin" else "rep_ui",
-            auth_token=rep_auth_token,  # System auth token for all users
-            account_sid=rep_account_sid,  # System account SID for all users
             rep_user_id=rep_user_id,
         )
         

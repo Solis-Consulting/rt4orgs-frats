@@ -163,95 +163,71 @@ def find_unblasted_contacts(leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return unblasted
 
 
-def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, account_sid: Optional[str] = None) -> Dict[str, Any]:
+def send_sms(to_number: str, body: str) -> Dict[str, Any]:
     """
     Send SMS via Twilio with comprehensive logging.
-    All messages sent from system phone number via Messaging Service.
+    Always uses system Twilio credentials from environment variables.
+    All messages sent from system phone number (919) 443-6288 via Messaging Service.
     
     Args:
         to_number: Recipient phone number
         body: Message body
-        auth_token: Optional Twilio auth token (overrides TWILIO_AUTH_TOKEN env var)
-        account_sid: Optional Twilio account SID (overrides TWILIO_ACCOUNT_SID env var)
     
     Returns:
         Dict with sid, status, and detailed response info
     """
     import traceback
+    import os
     
-    print("=" * 80)
-    print(f"[SEND_SMS] 🚀 STARTING SMS SEND")
-    print("=" * 80)
-    print(f"[SEND_SMS] To: {to_number}")
-    print(f"[SEND_SMS] Body length: {len(body)} chars")
-    print(f"[SEND_SMS] Body preview: {body[:100]}...")
+    print("=" * 80, flush=True)
+    print(f"[SEND_SMS] 🚀 STARTING SMS SEND", flush=True)
+    print("=" * 80, flush=True)
+    print(f"[SEND_SMS] To: {to_number}", flush=True)
+    print(f"[SEND_SMS] Body length: {len(body)} chars", flush=True)
+    print(f"[SEND_SMS] Body preview: {body[:100]}...", flush=True)
     
-    # Use provided auth_token or fall back to environment variable
-    if auth_token and auth_token.strip():
-        token_to_use = auth_token.strip()
-        token_source = "PROVIDED"
-        if TWILIO_AUTH_TOKEN and token_to_use != TWILIO_AUTH_TOKEN:
-            print(f"[SEND_SMS] ✅ Using PROVIDED auth token (DIFFERENT from env var)")
-            print(f"[SEND_SMS]   Provided: {token_to_use[:15]}... (length: {len(token_to_use)})")
-            print(f"[SEND_SMS]   Env var:  {TWILIO_AUTH_TOKEN[:15]}... (length: {len(TWILIO_AUTH_TOKEN)})")
-        else:
-            print(f"[SEND_SMS] ✅ Using PROVIDED auth token (same as env var)")
-            print(f"[SEND_SMS]   Token: {token_to_use[:15]}... (length: {len(token_to_use)})")
-    else:
-        token_to_use = TWILIO_AUTH_TOKEN
-        token_source = "ENV_VAR"
-        if not token_to_use:
-            print(f"[SEND_SMS] ❌ ERROR: No auth token provided and TWILIO_AUTH_TOKEN not set")
-            raise ValueError("Twilio auth token not provided and TWILIO_AUTH_TOKEN not set")
-        else:
-            print(f"[SEND_SMS] ⚠️ Using environment variable TWILIO_AUTH_TOKEN")
-            print(f"[SEND_SMS]   Token: {token_to_use[:15]}... (length: {len(token_to_use)})")
+    # ALWAYS use environment variables - no parameters
+    token_to_use = os.getenv("TWILIO_AUTH_TOKEN")
+    sid_to_use = os.getenv("TWILIO_ACCOUNT_SID")
+    messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
     
+    # Validate immediately - fail fast with clear errors
     if not token_to_use:
-        raise ValueError("Twilio auth token not provided and TWILIO_AUTH_TOKEN not set")
+        error_msg = "TWILIO_AUTH_TOKEN not set in environment variables"
+        print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
+        raise ValueError(error_msg)
+    
+    if not sid_to_use:
+        error_msg = "TWILIO_ACCOUNT_SID not set in environment variables"
+        print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
+        raise ValueError(error_msg)
+    
+    if not messaging_service_sid:
+        error_msg = "TWILIO_MESSAGING_SERVICE_SID not set in environment variables"
+        print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
+        raise ValueError(error_msg)
+    
+    # Validate Account SID format
+    if not sid_to_use.startswith('AC'):
+        error_msg = f"Invalid Account SID format: must start with 'AC', got '{sid_to_use[:2]}...'"
+        print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
+        raise ValueError(error_msg)
     
     # Validate phone number format
     if not to_number:
         raise ValueError("Phone number is empty")
     if not to_number.startswith('+'):
-        print(f"[SEND_SMS] ⚠️ WARNING: Phone number doesn't start with +: {to_number}")
+        print(f"[SEND_SMS] ⚠️ WARNING: Phone number doesn't start with +: {to_number}", flush=True)
     
-    # Determine which Account SID to use (provided or env var)
-    sid_to_use = account_sid if account_sid else TWILIO_ACCOUNT_SID
-    if account_sid:
-        sid_source = "PROVIDED"
-        # Validate Account SID format (must start with AC)
-        if not account_sid.startswith('AC'):
-            print(f"[SEND_SMS] ❌ ERROR: Invalid Account SID format: {account_sid[:20]}...")
-            print(f"[SEND_SMS] Account SIDs must start with 'AC', but got '{account_sid[:2]}'")
-            print(f"[SEND_SMS] This looks like a Phone Number SID (PN) or other SID type.")
-            print(f"[SEND_SMS] Please use the Account SID (starts with AC) for authentication.")
-            raise ValueError(f"Invalid Account SID format: Account SIDs must start with 'AC', but got '{account_sid[:2]}...' (this looks like a {account_sid[:2]} SID, not an Account SID)")
-        print(f"[SEND_SMS] ✅ Using PROVIDED Account SID: {account_sid[:10]}... (length: {len(account_sid)})")
-    else:
-        sid_source = "ENV_VAR"
-        if not TWILIO_ACCOUNT_SID:
-            print(f"[SEND_SMS] ❌ ERROR: No account SID provided and TWILIO_ACCOUNT_SID not set")
-            raise ValueError("Twilio account SID not provided and TWILIO_ACCOUNT_SID not set")
-        else:
-            # Validate env var Account SID format
-            if not TWILIO_ACCOUNT_SID.startswith('AC'):
-                print(f"[SEND_SMS] ❌ ERROR: Invalid Account SID in environment variable: {TWILIO_ACCOUNT_SID[:20]}...")
-                print(f"[SEND_SMS] Account SIDs must start with 'AC'")
-                raise ValueError(f"Invalid Account SID in environment: must start with 'AC'")
-            print(f"[SEND_SMS] ⚠️ Using environment variable TWILIO_ACCOUNT_SID")
-    
-    # Log which account and token are being used
-    account_sid_preview = sid_to_use[:10] + "..." if sid_to_use and len(sid_to_use) > 10 else str(sid_to_use)
-    print(f"[SEND_SMS] Account SID: {account_sid_preview}")
-    print(f"[SEND_SMS] Account SID Source: {sid_source}")
-    print(f"[SEND_SMS] Auth Token Source: {token_source}")
-    print(f"[SEND_SMS] Messaging Service SID: {TWILIO_MESSAGING_SERVICE_SID or 'NOT SET'} (REQUIRED - from env var)")
-    print(f"[SEND_SMS] Using System Phone Number (via Messaging Service)")
-    print(f"[SEND_SMS] Note: All messages use Messaging Service for traceability and A2P compliance")
+    print(f"[SEND_SMS] ✅ Using system Twilio credentials from environment variables", flush=True)
+    print(f"[SEND_SMS] Account SID: {sid_to_use[:10]}...{sid_to_use[-4:]} (length: {len(sid_to_use)})", flush=True)
+    print(f"[SEND_SMS] Auth Token: {token_to_use[:10]}...{token_to_use[-4:]} (length: {len(token_to_use)})", flush=True)
+    print(f"[SEND_SMS] Messaging Service SID: {messaging_service_sid}", flush=True)
+    print(f"[SEND_SMS] System phone: (919) 443-6288 (configured in Messaging Service)", flush=True)
+    print(f"[SEND_SMS] Note: All messages use Messaging Service for traceability and A2P compliance", flush=True)
     
     try:
-        print(f"[SEND_SMS] Creating Twilio Client with Account SID: {sid_to_use[:10]}... and Token: {token_to_use[:15]}...")
+        print(f"[SEND_SMS] Creating Twilio Client with Account SID: {sid_to_use[:10]}... and Token: {token_to_use[:15]}...", flush=True)
         client = Client(sid_to_use, token_to_use)
         print(f"[SEND_SMS] ✅ Twilio Client created")
         
@@ -261,58 +237,49 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, accoun
             "body": body
         }
         
-        # Always use Messaging Service for traceability and A2P compliance
-        # All messages sent from single system phone number via Messaging Service
-        if not TWILIO_MESSAGING_SERVICE_SID:
-            error_msg = "TWILIO_MESSAGING_SERVICE_SID must be set in environment variables"
-            print(f"[SEND_SMS] ❌ {error_msg}")
-            raise ValueError(error_msg)
-        
         # Use Messaging Service only - no from_ parameter
-        message_params["messaging_service_sid"] = TWILIO_MESSAGING_SERVICE_SID
+        message_params["messaging_service_sid"] = messaging_service_sid
         
         # ENHANCED LOGGING: Log all parameters being sent to Twilio
-        print("=" * 80)
-        print(f"[SEND_SMS] 📤 PREPARING TWILIO API CALL")
-        print("=" * 80)
-        print(f"[SEND_SMS] Account SID: {sid_to_use[:10]}...{sid_to_use[-4:] if len(sid_to_use) > 14 else sid_to_use} (full length: {len(sid_to_use)})")
-        print(f"[SEND_SMS] Auth Token: {token_to_use[:10]}...{token_to_use[-4:] if len(token_to_use) > 14 else token_to_use} (full length: {len(token_to_use)})")
-        print(f"[SEND_SMS] Messaging Service SID: {TWILIO_MESSAGING_SERVICE_SID}")
-        print(f"[SEND_SMS] Messaging Service SID Length: {len(TWILIO_MESSAGING_SERVICE_SID) if TWILIO_MESSAGING_SERVICE_SID else 0}")
-        print(f"[SEND_SMS] Using System Phone Number (via Messaging Service)")
-        print(f"[SEND_SMS] Rep isolation maintained via card_assignments table")
-        print("=" * 80)
-        print(f"[SEND_SMS] 📋 EXACT PARAMETERS BEING SENT TO TWILIO:")
-        print(f"[SEND_SMS]   to: {message_params.get('to')}")
-        print(f"[SEND_SMS]   messaging_service_sid: {message_params.get('messaging_service_sid')}")
-        print(f"[SEND_SMS]   body: {message_params.get('body', '')[:100]}{'...' if len(message_params.get('body', '')) > 100 else ''}")
-        print(f"[SEND_SMS]   body length: {len(message_params.get('body', ''))} chars")
-        print(f"[SEND_SMS]   from_ parameter: NOT SET (using Messaging Service only)")
-        print("=" * 80)
+        print("=" * 80, flush=True)
+        print(f"[SEND_SMS] 📤 PREPARING TWILIO API CALL", flush=True)
+        print("=" * 80, flush=True)
+        print(f"[SEND_SMS] Account SID: {sid_to_use[:10]}...{sid_to_use[-4:]} (length: {len(sid_to_use)})", flush=True)
+        print(f"[SEND_SMS] Auth Token: {token_to_use[:10]}...{token_to_use[-4:]} (length: {len(token_to_use)})", flush=True)
+        print(f"[SEND_SMS] Messaging Service SID: {messaging_service_sid}", flush=True)
+        print(f"[SEND_SMS] System phone: (919) 443-6288 (configured in Messaging Service)", flush=True)
+        print("=" * 80, flush=True)
+        print(f"[SEND_SMS] 📋 EXACT PARAMETERS BEING SENT TO TWILIO:", flush=True)
+        print(f"[SEND_SMS]   to: {message_params.get('to')}", flush=True)
+        print(f"[SEND_SMS]   messaging_service_sid: {message_params.get('messaging_service_sid')}", flush=True)
+        print(f"[SEND_SMS]   body: {message_params.get('body', '')[:100]}{'...' if len(message_params.get('body', '')) > 100 else ''}", flush=True)
+        print(f"[SEND_SMS]   body length: {len(message_params.get('body', ''))} chars", flush=True)
+        print(f"[SEND_SMS]   from_ parameter: NOT SET (using Messaging Service only)", flush=True)
+        print("=" * 80, flush=True)
         
         # Make the API call
-        print(f"[SEND_SMS] 🚀 Calling client.messages.create() NOW...")
+        print(f"[SEND_SMS] 🚀 Calling client.messages.create() NOW...", flush=True)
         msg = client.messages.create(**message_params)
-        print(f"[SEND_SMS] ✅ API call completed, processing response...")
+        print(f"[SEND_SMS] ✅ API call completed, processing response...", flush=True)
         
         # ENHANCED LOGGING: Log comprehensive response details
-        print("=" * 80)
-        print(f"[SEND_SMS] ✅ TWILIO API RESPONSE RECEIVED")
-        print("=" * 80)
-        print(f"[SEND_SMS] Message SID: {msg.sid}")
-        print(f"[SEND_SMS] Status: {msg.status} {'⚠️' if msg.status in ['failed', 'undelivered'] else '✅' if msg.status in ['sent', 'delivered', 'queued', 'accepted'] else ''}")
-        print(f"[SEND_SMS] To: {msg.to}")
-        print(f"[SEND_SMS] From (actual sender): {msg.from_}")
-        print(f"[SEND_SMS] Account SID Used: {msg.account_sid}")
-        print(f"[SEND_SMS] Messaging Service SID: {getattr(msg, 'messaging_service_sid', 'N/A')}")
-        print(f"[SEND_SMS] Date Created: {msg.date_created}")
-        print(f"[SEND_SMS] Date Sent: {msg.date_sent or 'Not sent yet'}")
-        print(f"[SEND_SMS] Date Updated: {msg.date_updated}")
-        print(f"[SEND_SMS] Error Code: {msg.error_code or 'None (no error)'}")
-        print(f"[SEND_SMS] Error Message: {msg.error_message or 'None (no error)'}")
-        print(f"[SEND_SMS] Price: {msg.price or 'None'}")
-        print(f"[SEND_SMS] Price Unit: {msg.price_unit or 'None'}")
-        print(f"[SEND_SMS] URI: {msg.uri or 'None'}")
+        print("=" * 80, flush=True)
+        print(f"[SEND_SMS] ✅ TWILIO API RESPONSE RECEIVED", flush=True)
+        print("=" * 80, flush=True)
+        print(f"[SEND_SMS] Message SID: {msg.sid}", flush=True)
+        print(f"[SEND_SMS] Status: {msg.status} {'⚠️' if msg.status in ['failed', 'undelivered'] else '✅' if msg.status in ['sent', 'delivered', 'queued', 'accepted'] else ''}", flush=True)
+        print(f"[SEND_SMS] To: {msg.to}", flush=True)
+        print(f"[SEND_SMS] From (actual sender): {msg.from_}", flush=True)
+        print(f"[SEND_SMS] Account SID Used: {msg.account_sid}", flush=True)
+        print(f"[SEND_SMS] Messaging Service SID: {getattr(msg, 'messaging_service_sid', 'N/A')}", flush=True)
+        print(f"[SEND_SMS] Date Created: {msg.date_created}", flush=True)
+        print(f"[SEND_SMS] Date Sent: {msg.date_sent or 'Not sent yet'}", flush=True)
+        print(f"[SEND_SMS] Date Updated: {msg.date_updated}", flush=True)
+        print(f"[SEND_SMS] Error Code: {msg.error_code or 'None (no error)'}", flush=True)
+        print(f"[SEND_SMS] Error Message: {msg.error_message or 'None (no error)'}", flush=True)
+        print(f"[SEND_SMS] Price: {msg.price or 'None'}", flush=True)
+        print(f"[SEND_SMS] Price Unit: {msg.price_unit or 'None'}", flush=True)
+        print(f"[SEND_SMS] URI: {msg.uri or 'None'}", flush=True)
         
         # Log all available attributes for debugging
         print(f"[SEND_SMS] All response attributes: {dir(msg)}")
