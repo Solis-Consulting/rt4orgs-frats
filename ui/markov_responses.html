@@ -62,7 +62,7 @@
     <div class="card">
       <a href="index.html" class="link">&larr; Back to list</a>
       <h1>Markov Response Editor</h1>
-      <div class="sub">Configure auto-responses for each Markov state and the initial outreach message.</div>
+      <div class="sub" id="editorSubtitle">Configure auto-responses for each Markov state and the initial outreach message.</div>
 
       <div id="status"></div>
 
@@ -152,7 +152,29 @@
           return;
         }
 
-        // Token validated - continue loading page
+        // Token validated - determine if owner or rep and update UI
+        try {
+          const adminRes = await fetch(`${BACKEND}/admin/users`, {
+            headers: {
+              'Authorization': `Bearer ${apiToken}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (adminRes.ok) {
+            // Owner/admin
+            document.getElementById('editorSubtitle').textContent = 
+              'Configure global auto-responses for each Markov state and the initial outreach message.';
+          } else {
+            // Rep
+            document.getElementById('editorSubtitle').textContent = 
+              'Configure your rep-specific auto-responses for each Markov state and the initial outreach message. Each rep has their own microenvironment.';
+          }
+        } catch (e) {
+          // Default to rep message if can't determine
+          document.getElementById('editorSubtitle').textContent = 
+            'Configure your rep-specific auto-responses for each Markov state and the initial outreach message.';
+        }
       } catch (error) {
         console.error('Auth check failed:', error);
         localStorage.removeItem('apiToken');
