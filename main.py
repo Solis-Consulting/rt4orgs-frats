@@ -2613,11 +2613,11 @@ async def rep_blast(
     
     conn = get_conn()
     
-    # Owner can blast any cards, reps can only blast their assignments
+    # CRITICAL: Enforce assignment boundaries
     if current_user.get("role") == "admin":
         # Owner: can blast any cards
         if card_ids and isinstance(card_ids, list):
-            # Use provided card IDs
+            # Use provided card IDs (owner has full access)
             pass
         else:
             # Get all cards (or filtered by query if needed)
@@ -2630,19 +2630,31 @@ async def rep_blast(
                 for row in cur.fetchall():
                     card_ids.append(row[0])  # row[0] is the id
     else:
-        # Rep: can only blast assigned cards
+        # Rep: STRICT enforcement - can ONLY blast assigned cards
+        logger.info(f"[BLAST] Rep {current_user['id']} attempting blast - enforcing assignment boundaries")
+        
+        # Get all cards assigned to this rep
+        all_assigned = get_rep_assigned_cards(conn, current_user["id"])
+        assigned_ids = {c["id"] for c in all_assigned}
+        
         if card_ids and isinstance(card_ids, list):
-            # Verify these cards are assigned to the rep
-            all_assigned = get_rep_assigned_cards(conn, current_user["id"])
-            assigned_ids = {c["id"] for c in all_assigned}
+            # Verify ALL specified cards are assigned to this rep
+            unauthorized = [cid for cid in card_ids if cid not in assigned_ids]
+            if unauthorized:
+                logger.warning(f"[BLAST] Rep {current_user['id']} attempted to blast unauthorized cards: {unauthorized}")
+                return {"ok": False, "error": f"Unauthorized: {len(unauthorized)} card(s) not assigned to you", "sent": 0, "skipped": 0}
+            
+            # Filter to only assigned cards (safety check)
             card_ids = [cid for cid in card_ids if cid in assigned_ids]
             
             if not card_ids:
+                logger.warning(f"[BLAST] Rep {current_user['id']} - no valid assigned cards after filtering")
                 return {"ok": False, "error": "None of the specified cards are assigned to you", "sent": 0, "skipped": 0}
         else:
-            # Get rep's assigned cards
+            # Get rep's assigned cards (only uncontacted/active ones)
             cards = get_rep_assigned_cards(conn, current_user["id"], status=status_filter)
             if not cards:
+                logger.info(f"[BLAST] Rep {current_user['id']} - no assigned cards found with status={status_filter}")
                 return {"ok": False, "error": "No assigned cards found", "sent": 0, "skipped": 0}
             
             card_ids = [c["id"] for c in cards]
@@ -2650,6 +2662,8 @@ async def rep_blast(
             # Apply limit if provided
             if limit:
                 card_ids = card_ids[:limit]
+        
+        logger.info(f"[BLAST] Rep {current_user['id']} - authorized to blast {len(card_ids)} assigned cards")
     
     if not card_ids:
         return {"ok": False, "error": "No cards to blast", "sent": 0, "skipped": 0}

@@ -74,7 +74,8 @@
             <option value="closed">Closed</option>
             <option value="lost">Lost</option>
           </select>
-          <button id="blastBtn" disabled>Blast Selected Cards</button>
+          <button id="blastBtn" disabled>Blast Selected Assigned Leads</button>
+          <button id="blastAllBtn" style="background: #10b981; margin-left: 8px;">Blast All My Assigned Leads</button>
         </div>
         <div id="cardsTableWrap"></div>
       </div>
@@ -215,6 +216,8 @@
 
     document.getElementById('cardSearch').addEventListener('input', renderCards);
     document.getElementById('statusFilter').addEventListener('change', loadCards);
+    
+    // Blast selected cards
     document.getElementById('blastBtn').addEventListener('click', async () => {
       const selected = Array.from(document.querySelectorAll('.card-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
       if (selected.length === 0) {
@@ -222,20 +225,30 @@
         return;
       }
 
-      if (!confirm(`Blast ${selected.length} card(s)?`)) return;
+      if (!confirm(`Blast ${selected.length} assigned lead(s)?`)) return;
 
       const btn = document.getElementById('blastBtn');
       btn.disabled = true;
       btn.textContent = 'Blasting...';
 
       try {
+        console.log('[REP_BLAST] Blasting selected cards:', selected);
         const res = await fetch(`${BACKEND}/rep/blast`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ card_ids: selected })
         });
 
+        if (!res.ok) {
+          const text = await res.text();
+          console.error('[REP_BLAST] Error:', text);
+          alert(`Error ${res.status}: ${text}`);
+          return;
+        }
+
         const data = await res.json();
+        console.log('[REP_BLAST] Response:', data);
+        
         if (data.ok) {
           alert(`Blast complete. Sent: ${data.sent}, Skipped: ${data.skipped}`);
           loadCards();
@@ -243,10 +256,52 @@
           alert(`Blast failed: ${data.error || 'Unknown error'}`);
         }
       } catch (error) {
+        console.error('[REP_BLAST] Exception:', error);
         alert(`Error: ${error.message}`);
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Blast Selected Cards';
+        btn.textContent = 'Blast Selected Assigned Leads';
+      }
+    });
+
+    // Blast all assigned leads (no selection needed)
+    document.getElementById('blastAllBtn').addEventListener('click', async () => {
+      if (!confirm('Blast all your assigned leads? This will send messages to all uncontacted assigned cards.')) return;
+
+      const btn = document.getElementById('blastAllBtn');
+      btn.disabled = true;
+      btn.textContent = 'Blasting All...';
+
+      try {
+        console.log('[REP_BLAST] Blasting all assigned leads');
+        const res = await fetch(`${BACKEND}/rep/blast`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ status: 'assigned' })  // Only blast assigned, uncontacted leads
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          console.error('[REP_BLAST] Error:', text);
+          alert(`Error ${res.status}: ${text}`);
+          return;
+        }
+
+        const data = await res.json();
+        console.log('[REP_BLAST] Response:', data);
+        
+        if (data.ok) {
+          alert(`Blast complete. Sent: ${data.sent}, Skipped: ${data.skipped}`);
+          loadCards();
+        } else {
+          alert(`Blast failed: ${data.error || 'Unknown error'}`);
+        }
+      } catch (error) {
+        console.error('[REP_BLAST] Exception:', error);
+        alert(`Error: ${error.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Blast All My Assigned Leads';
       }
     });
 

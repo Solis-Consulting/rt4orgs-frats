@@ -93,9 +93,10 @@
             <option value="won">Won</option>
             <option value="lost">Lost</option>
           </select>
-          <button id="blastSelectedBtn" disabled>Run Blast on Selected Cards</button>
+          <!-- Legacy admin blast - emergency use only -->
+          <button id="blastSelectedBtn" disabled style="display: none; background: #ef4444; opacity: 0.6;" title="Legacy mode - use admin dashboard instead">⚠️ Legacy Blast (Emergency Only)</button>
           <button id="deleteSelectedBtn" disabled style="background: #ef4444; margin-left: 8px;">Delete Selected Cards</button>
-          <input id="authToken" type="password" placeholder="Auth Token (optional)" style="width: 180px; margin-left: 8px;">
+          <!-- Auth token input removed - tokens should never be pasted in UI -->
         </div>
         <div class="meta" id="cardSummary"></div>
         <div id="cardTableWrap"></div>
@@ -224,15 +225,9 @@
       }
     }
 
-    // Load saved auth token from localStorage on page load
+    // Legacy function - deprecated (tokens should never be pasted in UI)
     function loadSavedAuthToken() {
-      const savedToken = localStorage.getItem("blastAuthToken");
-      if (savedToken) {
-        const authTokenInput = document.getElementById("authToken");
-        if (authTokenInput) {
-          authTokenInput.value = savedToken;
-        }
-      }
+      // No-op - auth token input removed
     }
 
     // Cards view functions
@@ -352,14 +347,21 @@
       updateBlastButtonState();
     }
 
+    // LEGACY FUNCTION - Deprecated. Use admin dashboard or rep dashboard instead.
+    // This is kept for emergency use only and should be hidden by default.
     async function runBlastOnSelectedCards() {
+      // Double confirmation for legacy mode
+      if (!confirm("⚠️ LEGACY MODE: This is deprecated. Use Admin Dashboard for blasting.\n\nContinue anyway?")) {
+        return;
+      }
+      
       const selectedIds = getSelectedCardIds();
       if (selectedIds.length === 0) {
-        alert("No cards selected");
+        alert("Please select at least one card to blast.");
         return;
       }
 
-      if (!confirm(`Run blast on ${selectedIds.length} card(s)?`)) {
+      if (!confirm(`⚠️ Run legacy blast on ${selectedIds.length} card(s)?`)) {
         return;
       }
 
@@ -367,38 +369,17 @@
       blastBtn.disabled = true;
       blastBtn.textContent = "Blasting...";
 
-      // Get auth token from input and save to localStorage
-      const authTokenInput = document.getElementById("authToken");
-      const authToken = authTokenInput ? authTokenInput.value.trim() : "";
-      if (authToken) {
-        localStorage.setItem("blastAuthToken", authToken);
-      }
-
-      // Build headers with auth token if available
+      // Legacy mode - no auth token, use system defaults
       const headers = { "Content-Type": "application/json" };
-      const storedToken = localStorage.getItem("blastAuthToken");
-      const tokenToUse = authToken || storedToken || null;
-      
-      console.log("[BLAST] Auth token from input:", authToken ? "***" : "empty");
-      console.log("[BLAST] Auth token from storage:", storedToken ? "***" : "empty");
-      console.log("[BLAST] Token to use:", tokenToUse ? "***" : "none");
-      
-      if (tokenToUse) {
-        headers["Authorization"] = `Bearer ${tokenToUse}`;
-      }
-
-      // Build payload - only include auth_token if we have one
       const payload = {
         card_ids: selectedIds,
         limit: selectedIds.length,
         owner: "system",
-        source: "cards_ui"
+        source: "legacy_cards_ui"
       };
-      if (tokenToUse) {
-        payload.auth_token = tokenToUse;
-      }
 
       try {
+        console.log("[LEGACY_BLAST] Using legacy blast endpoint");
         const res = await fetch(`${BACKEND}/blast/run`, {
           method: "POST",
           headers: headers,
@@ -409,16 +390,16 @@
 
         if (!res.ok || !data.ok) {
           const msg = data.error || `HTTP ${res.status}`;
-          alert(`Blast failed: ${msg}`);
+          alert(`Legacy blast failed: ${msg}`);
           return;
         }
 
-        alert(`Blast complete.\nSent: ${data.sent}\nSkipped: ${data.skipped}`);
+        alert(`Legacy blast complete.\nSent: ${data.sent}\nSkipped: ${data.skipped}`);
       } catch (error) {
-        alert(`Blast error: ${error.message}`);
+        alert(`Legacy blast error: ${error.message}`);
       } finally {
         blastBtn.disabled = false;
-        blastBtn.textContent = "Run Blast on Selected Cards";
+        blastBtn.textContent = "⚠️ Legacy Blast (Emergency Only)";
       }
     }
 
