@@ -858,6 +858,9 @@ async def twilio_inbound(request: Request):
         print(f"[TWILIO_INBOUND] Message body: {Body[:100]}...", flush=True)
         print(f"[TWILIO_INBOUND] Message body length: {len(Body)}", flush=True)
         
+        # Initialize twilio_phone at the top to avoid UnboundLocalError
+        twilio_phone = os.getenv("TWILIO_PHONE_NUMBER")
+        
         # Get conversation to check routing mode and identify which rep owns this conversation
         # CRITICAL: Each rep has their own Markov handler (response text), but NLP logic is shared.
         # The rep_user_id determines which rep's configured responses to use.
@@ -866,21 +869,51 @@ async def twilio_inbound(request: Request):
         routing_mode = 'ai'  # Default to AI
         rep_user_id = None
         conversation_state = None
+        card_id = None
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT routing_mode, rep_user_id, state FROM conversations WHERE phone = %s LIMIT 1
+                SELECT routing_mode, rep_user_id, state, card_id FROM conversations WHERE phone = %s LIMIT 1
             """, (normalized_phone,))
             row = cur.fetchone()
             if row:
                 routing_mode = row[0] or 'ai'
                 rep_user_id = row[1]
                 conversation_state = row[2]
+                card_id = row[3]
                 print(f"[TWILIO_INBOUND] ✅ Conversation found in DB", flush=True)
                 print(f"[TWILIO_INBOUND]   routing_mode: {routing_mode}", flush=True)
-                print(f"[TWILIO_INBOUND]   rep_user_id: {rep_user_id}", flush=True)
+                print(f"[TWILIO_INBOUND]   rep_user_id (from conversations): {rep_user_id}", flush=True)
                 print(f"[TWILIO_INBOUND]   current_state: {conversation_state}", flush=True)
+                print(f"[TWILIO_INBOUND]   card_id: {card_id}", flush=True)
             else:
                 print(f"[TWILIO_INBOUND] ⚠️ No conversation found in DB for phone: {normalized_phone}", flush=True)
+        
+        # 🔧 FIX A: If rep_user_id is NULL, try to resolve it from card_assignments
+        # This ensures rep-specific responses work even if the conversation was created before rep assignment
+        if not rep_user_id and card_id:
+            print(f"[TWILIO_INBOUND] 🔍 rep_user_id is NULL, attempting to resolve from card_assignments...", flush=True)
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT user_id FROM card_assignments
+                    WHERE card_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """, (card_id,))
+                assignment_row = cur.fetchone()
+                if assignment_row and assignment_row[0]:
+                    rep_user_id = assignment_row[0]
+                    print(f"[TWILIO_INBOUND] ✅ Resolved rep_user_id from card_assignments: {rep_user_id}", flush=True)
+                    
+                    # Update the conversation with the resolved rep_user_id for future lookups
+                    with conn.cursor() as update_cur:
+                        update_cur.execute("""
+                            UPDATE conversations
+                            SET rep_user_id = %s
+                            WHERE phone = %s
+                        """, (rep_user_id, normalized_phone))
+                        print(f"[TWILIO_INBOUND] ✅ Updated conversation with resolved rep_user_id: {rep_user_id}", flush=True)
+                else:
+                    print(f"[TWILIO_INBOUND] ⚠️ No card assignment found for card_id: {card_id}", flush=True)
         
         print(f"[TWILIO_INBOUND] 📋 Conversation Summary:", flush=True)
         print(f"[TWILIO_INBOUND]   Phone: {normalized_phone} (original: {From})", flush=True)
