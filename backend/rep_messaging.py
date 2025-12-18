@@ -79,29 +79,25 @@ def send_rep_message(
         messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
         print(f"[REP_MESSAGE] Messaging Service SID: {messaging_service_sid or 'NOT SET'}")
         
-        if messaging_service_sid:
-            print(f"[REP_MESSAGE] Using Messaging Service: {messaging_service_sid}")
-            print(f"[REP_MESSAGE] Calling client.messages.create() with:")
-            print(f"[REP_MESSAGE]   to: {phone}")
-            print(f"[REP_MESSAGE]   messaging_service_sid: {messaging_service_sid}")
-            print(f"[REP_MESSAGE]   body length: {len(message)}")
-            msg = client.messages.create(
-                to=phone,
-                messaging_service_sid=messaging_service_sid,
-                body=message
-            )
-        else:
-            # Use rep's phone number as From
-            print(f"[REP_MESSAGE] Using From Number: {user['twilio_phone_number']}")
-            print(f"[REP_MESSAGE] Calling client.messages.create() with:")
-            print(f"[REP_MESSAGE]   to: {phone}")
-            print(f"[REP_MESSAGE]   from_: {user['twilio_phone_number']}")
-            print(f"[REP_MESSAGE]   body length: {len(message)}")
-            msg = client.messages.create(
-                to=phone,
-                from_=user["twilio_phone_number"],
-                body=message
-            )
+        if not messaging_service_sid:
+            error_msg = "TWILIO_MESSAGING_SERVICE_SID must be set in environment variables"
+            print(f"[REP_MESSAGE] ❌ {error_msg}")
+            raise ValueError(error_msg)
+        
+        # Always use Messaging Service for traceability and A2P compliance
+        # The rep's phone number should be added to the Messaging Service in Twilio console
+        print(f"[REP_MESSAGE] Using Messaging Service: {messaging_service_sid}")
+        print(f"[REP_MESSAGE] Rep Phone: {user['twilio_phone_number']} (should be added to Messaging Service in Twilio console)")
+        print(f"[REP_MESSAGE] Calling client.messages.create() with:")
+        print(f"[REP_MESSAGE]   to: {phone}")
+        print(f"[REP_MESSAGE]   messaging_service_sid: {messaging_service_sid}")
+        print(f"[REP_MESSAGE]   body length: {len(message)}")
+        print(f"[REP_MESSAGE] Note: Messages will route through Messaging Service, which should include rep's phone number")
+        msg = client.messages.create(
+            to=phone,
+            messaging_service_sid=messaging_service_sid,
+            body=message
+        )
         
         # Log comprehensive response
         print("=" * 80)

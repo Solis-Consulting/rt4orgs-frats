@@ -246,10 +246,10 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, accoun
     print(f"[SEND_SMS] Account SID: {account_sid_preview}")
     print(f"[SEND_SMS] Account SID Source: {sid_source}")
     print(f"[SEND_SMS] Auth Token Source: {token_source}")
-    print(f"[SEND_SMS] Messaging Service SID: {TWILIO_MESSAGING_SERVICE_SID or 'NOT SET'} (from env var, used if no rep phone)")
-    print(f"[SEND_SMS] System Phone Number: {TWILIO_PHONE_NUMBER or 'NOT SET'} (from env var, used if no rep phone)")
+    print(f"[SEND_SMS] Messaging Service SID: {TWILIO_MESSAGING_SERVICE_SID or 'NOT SET'} (REQUIRED - from env var)")
     if rep_phone_number:
-        print(f"[SEND_SMS] Rep Phone Number: {rep_phone_number} (will be used as 'from')")
+        print(f"[SEND_SMS] Rep Phone Number: {rep_phone_number} (should be added to Messaging Service in Twilio)")
+    print(f"[SEND_SMS] Note: All messages use Messaging Service for traceability and A2P compliance")
     
     try:
         print(f"[SEND_SMS] Creating Twilio Client with Account SID: {sid_to_use[:10]}... and Token: {token_to_use[:15]}...")
@@ -262,29 +262,21 @@ def send_sms(to_number: str, body: str, auth_token: Optional[str] = None, accoun
             "body": body
         }
         
-        # Determine "from" number: use rep's phone if provided, otherwise system phone
-        # If rep phone is provided, use it directly (not Messaging Service)
-        # If no rep phone, use Messaging Service if available
-        from_phone_number = rep_phone_number if rep_phone_number else TWILIO_PHONE_NUMBER
-        
-        if rep_phone_number:
-            # Rep phone provided: use it directly as "from" number
-            # All reps use same Account SID (AC...) for auth, but different phone numbers
-            message_params["from_"] = rep_phone_number
-            print(f"[SEND_SMS] Using Rep Phone as From: {rep_phone_number}")
-            print(f"[SEND_SMS] Using System Account SID: {sid_to_use[:10]}... (same for all reps)")
-        elif TWILIO_MESSAGING_SERVICE_SID:
-            # No rep phone: use Messaging Service for A2P / compliance
-            message_params["messaging_service_sid"] = TWILIO_MESSAGING_SERVICE_SID
-            print(f"[SEND_SMS] Using Messaging Service: {TWILIO_MESSAGING_SERVICE_SID}")
-        elif from_phone_number:
-            # Fallback: direct From number if Messaging Service not available
-            message_params["from_"] = from_phone_number
-            print(f"[SEND_SMS] Using From Number (system): {from_phone_number}")
-        else:
-            error_msg = "Twilio configuration error: provide rep phone number or set TWILIO_MESSAGING_SERVICE_SID or TWILIO_PHONE_NUMBER"
+        # Always use Messaging Service for traceability and A2P compliance
+        # The rep's phone number should be added to the Messaging Service in Twilio console
+        # This ensures messages are traceable and compliant, while routing through the rep's number
+        if not TWILIO_MESSAGING_SERVICE_SID:
+            error_msg = "TWILIO_MESSAGING_SERVICE_SID must be set in environment variables"
             print(f"[SEND_SMS] ❌ {error_msg}")
             raise ValueError(error_msg)
+        
+        # Use Messaging Service (rep's phone should be added to this service in Twilio)
+        message_params["messaging_service_sid"] = TWILIO_MESSAGING_SERVICE_SID
+        print(f"[SEND_SMS] Using Messaging Service: {TWILIO_MESSAGING_SERVICE_SID}")
+        if rep_phone_number:
+            print(f"[SEND_SMS] Rep Phone: {rep_phone_number} (should be added to Messaging Service in Twilio console)")
+            print(f"[SEND_SMS] Note: Messages will route through Messaging Service, which should include rep's phone number")
+        print(f"[SEND_SMS] Using System Account SID: {sid_to_use[:10]}... (same for all reps)")
         
         print(f"[SEND_SMS] Calling client.messages.create() with params:")
         print(f"[SEND_SMS]   to: {message_params.get('to')}")
