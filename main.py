@@ -52,7 +52,8 @@ from backend.resolve import resolve_target, extract_phones_from_cards
 from backend.webhook_config import WEBHOOK_CONFIG, WebhookConfig
 from backend.blast import run_blast_for_cards
 from backend.auth import (
-    get_user_by_token, create_user, list_users, update_user_twilio_config, get_user
+    get_user_by_token, create_user, list_users, update_user_twilio_config, get_user,
+    delete_user, regenerate_api_token, clear_twilio_config
 )
 from backend.assignments import (
     assign_card_to_rep, get_rep_assigned_cards, get_card_assignment,
@@ -2451,6 +2452,85 @@ async def admin_update_user(
     except Exception as e:
         logger.error(f"[ADMIN] update_user exception: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to update user: {str(e)}")
+
+
+@app.delete("/admin/users/{user_id}")
+async def admin_delete_user(
+    user_id: str,
+    current_user: Dict = Depends(get_current_admin_user)
+):
+    """Delete a user and all their card assignments."""
+    logger.info(f"[ADMIN] delete_user called by {current_user['id']} for {user_id}")
+    
+    # Prevent deleting yourself
+    if user_id == current_user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot delete your own user account")
+    
+    conn = get_conn()
+    try:
+        success = delete_user(conn, user_id)
+        
+        if success:
+            logger.info(f"[ADMIN] delete_user success: {user_id}")
+            return {"ok": True, "message": "User deleted successfully"}
+        else:
+            logger.warning(f"[ADMIN] delete_user failed: user not found: {user_id}")
+            raise HTTPException(status_code=404, detail="User not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ADMIN] delete_user exception: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete user: {str(e)}")
+
+
+@app.post("/admin/users/{user_id}/regenerate-token")
+async def admin_regenerate_token(
+    user_id: str,
+    current_user: Dict = Depends(get_current_admin_user)
+):
+    """Regenerate API token for a user. Returns new token (only shown once)."""
+    logger.info(f"[ADMIN] regenerate_token called by {current_user['id']} for {user_id}")
+    
+    conn = get_conn()
+    try:
+        new_token = regenerate_api_token(conn, user_id)
+        
+        if new_token:
+            logger.info(f"[ADMIN] regenerate_token success: {user_id}")
+            return {"ok": True, "api_token": new_token, "message": "New API token generated. Save this token - it will not be shown again."}
+        else:
+            logger.warning(f"[ADMIN] regenerate_token failed: user not found: {user_id}")
+            raise HTTPException(status_code=404, detail="User not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ADMIN] regenerate_token exception: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to regenerate token: {str(e)}")
+
+
+@app.post("/admin/users/{user_id}/clear-twilio")
+async def admin_clear_twilio(
+    user_id: str,
+    current_user: Dict = Depends(get_current_admin_user)
+):
+    """Clear all Twilio configuration (phone, account_sid, auth_token) for a user."""
+    logger.info(f"[ADMIN] clear_twilio called by {current_user['id']} for {user_id}")
+    
+    conn = get_conn()
+    try:
+        success = clear_twilio_config(conn, user_id)
+        
+        if success:
+            logger.info(f"[ADMIN] clear_twilio success: {user_id}")
+            return {"ok": True, "message": "Twilio configuration cleared successfully"}
+        else:
+            logger.warning(f"[ADMIN] clear_twilio failed: user not found: {user_id}")
+            raise HTTPException(status_code=404, detail="User not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ADMIN] clear_twilio exception: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to clear Twilio config: {str(e)}")
 
 
 @app.post("/admin/assignments")

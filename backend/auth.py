@@ -237,3 +237,54 @@ def list_users(conn: Any, include_inactive: bool = False) -> list[Dict[str, Any]
             })
         
         return users
+
+
+def delete_user(conn: Any, user_id: str) -> bool:
+    """Delete a user by ID. Also removes all card assignments."""
+    with conn.cursor() as cur:
+        # First, delete all card assignments for this user
+        cur.execute("""
+            DELETE FROM card_assignments WHERE user_id = %s
+        """, (user_id,))
+        
+        # Then delete the user
+        cur.execute("""
+            DELETE FROM users WHERE id = %s
+        """, (user_id,))
+        
+        return cur.rowcount > 0
+
+
+def regenerate_api_token(conn: Any, user_id: str) -> Optional[str]:
+    """
+    Regenerate API token for a user.
+    Returns the new plaintext token (only shown once).
+    """
+    plaintext_token = generate_api_token()
+    hashed_token = hash_token(plaintext_token)
+    
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE users
+            SET api_token = %s, updated_at = NOW()
+            WHERE id = %s
+        """, (hashed_token, user_id))
+        
+        if cur.rowcount > 0:
+            return plaintext_token
+        return None
+
+
+def clear_twilio_config(conn: Any, user_id: str) -> bool:
+    """Clear all Twilio configuration (phone, account_sid, auth_token) for a user."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE users
+            SET twilio_phone_number = NULL,
+                twilio_account_sid = NULL,
+                twilio_auth_token = NULL,
+                updated_at = NOW()
+            WHERE id = %s
+        """, (user_id,))
+        
+        return cur.rowcount > 0
