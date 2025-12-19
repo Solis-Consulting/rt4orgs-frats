@@ -108,6 +108,8 @@ def _substitute_template(template: str, data: Dict[str, Any], purchased_example:
     Supported placeholders:
     - {name} - from data.get("name")
     - {fraternity} - from data.get("fraternity")
+    - {faith_group} - from data.get("faith_group")
+    - {university} - from data.get("university")
     - {purchased_names} or {names_given} - from purchased_example (names given)
     - {purchased_chapter} or {matched_chapter} - from purchased_example (chapter)
     - {purchased_institution} or {matched_institution} - from purchased_example (institution)
@@ -121,7 +123,9 @@ def _substitute_template(template: str, data: Dict[str, Any], purchased_example:
     # Extract values from card data
     name = data.get("name") or ""
     fraternity = data.get("fraternity") or ""
-    print(f"[SUBSTITUTE] Card data - name: '{name}', fraternity: '{fraternity}'", flush=True)
+    faith_group = data.get("faith_group") or ""
+    university = data.get("university") or ""
+    print(f"[SUBSTITUTE] Card data - name: '{name}', fraternity: '{fraternity}', faith_group: '{faith_group}', university: '{university}'", flush=True)
     
     # Extract values from purchased example (deal)
     purchased_names = ""
@@ -150,6 +154,8 @@ def _substitute_template(template: str, data: Dict[str, Any], purchased_example:
         result = template.format(
             name=name,
             fraternity=fraternity,
+            faith_group=faith_group,
+            university=university,
             purchased_names=purchased_names,
             names_given=purchased_names,  # Alias for backward compatibility
             purchased_chapter=purchased_chapter,
@@ -167,6 +173,8 @@ def _substitute_template(template: str, data: Dict[str, Any], purchased_example:
         result = template
         result = result.replace("{name}", name)
         result = result.replace("{fraternity}", fraternity)
+        result = result.replace("{faith_group}", faith_group)
+        result = result.replace("{university}", university)
         result = result.replace("{purchased_names}", purchased_names)
         result = result.replace("{names_given}", purchased_names)
         result = result.replace("{purchased_chapter}", purchased_chapter)
@@ -615,12 +623,14 @@ def run_blast_for_cards(
                     except:
                         existing_history = []
                 
-                # Add outbound message to history
+                # Add outbound message to history with correct state
+                # Use new_state (which is 'initial_outreach' if ownership changing, 'awaiting_response' otherwise)
+                # This ensures history reflects the actual conversation state, not always initial_outreach
                 outbound_msg = {
                     "direction": "outbound",
                     "text": message,
                     "timestamp": datetime.utcnow().isoformat(),
-                    "state": "initial_outreach"
+                    "state": new_state  # Use actual state, not hardcoded "initial_outreach"
                 }
                 updated_history = existing_history + [outbound_msg]
                 
