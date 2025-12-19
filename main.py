@@ -877,7 +877,30 @@ async def twilio_inbound(request: Request):
         # Initialize twilio_phone at the top to avoid UnboundLocalError
         twilio_phone = os.getenv("TWILIO_PHONE_NUMBER")
         
+        # 🔥 CRITICAL: Prevent bot loop - check if we just sent a message to this number
+        # If we sent an outbound in the last 5 seconds, ignore this inbound (it's likely our own echo)
         conn = get_conn()
+        try:
+            with conn.cursor() as loop_check_cur:
+                loop_check_cur.execute("""
+                    SELECT sent_at, direction, message_text
+                    FROM message_events
+                    WHERE phone_number = %s
+                      AND direction = 'outbound'
+                      AND message_sid IS NOT NULL
+                    ORDER BY sent_at DESC
+                    LIMIT 1
+                """, (normalized_phone,))
+                recent_outbound = loop_check_cur.fetchone()
+                if recent_outbound:
+                    sent_at = recent_outbound[0]
+                    time_since_sent = (datetime.utcnow() - sent_at).total_seconds()
+                    if time_since_sent < 5:  # Less than 5 seconds ago
+                        print(f"[TWILIO_INBOUND] 🛑 BOT LOOP PREVENTION: Ignoring inbound - we just sent outbound {time_since_sent:.2f}s ago", flush=True)
+                        return PlainTextResponse("", status_code=200)  # Return 200 to Twilio but don't process
+        except Exception as loop_check_error:
+            print(f"[TWILIO_INBOUND] ⚠️ Error checking for bot loop (continuing anyway): {loop_check_error}", flush=True)
+        
         
         # 🔧 FIX C: Resolve card_id EARLY by looking up card by phone number
         # This ensures we have card_id available for rep hydration, even if conversation doesn't have it
