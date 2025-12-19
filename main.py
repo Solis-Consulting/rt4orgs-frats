@@ -1019,10 +1019,11 @@ async def twilio_inbound(request: Request):
         from backend.rep_messaging import add_message_to_history
         add_message_to_history(conn, normalized_phone, "inbound", Body, "contact")
         
-        # If routing mode is 'rep', don't auto-respond - rep will handle via UI
-        if routing_mode == 'rep':
-            print(f"[TWILIO_INBOUND] Conversation in rep mode - storing message, no auto-response")
-            return PlainTextResponse("OK", status_code=200)
+        # POLICY A: Whoever blasts LAST owns the automation
+        # Auto-responses work for the current owner (rep or owner)
+        # No special "rep mode" that disables automation - ownership determines responses
+        print(f"[TWILIO_INBOUND] 📋 Routing mode: {routing_mode}, Rep user ID: {rep_user_id}", flush=True)
+        print(f"[TWILIO_INBOUND] ✅ Policy A: Auto-responses enabled for current owner", flush=True)
         
         # Continue with AI processing for 'ai' mode
         # Classify intent from message text (simple keyword-based for now)

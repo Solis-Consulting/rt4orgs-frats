@@ -267,19 +267,27 @@ def run_blast_for_cards(
     print(f"[BLAST_RUN] Using System Twilio Credentials (from environment variables)", flush=True)
     print("=" * 80, flush=True)
     
-    # 🔧 Blast-claim logic: If rep_user_id is set, ensure card is assigned to that rep
-    # This implements "blast claims ownership" - when someone blasts, they own the card
-    if rep_user_id:
-        from backend.handoffs import resolve_current_rep
-        from backend.assignments import assign_card_to_rep
+    # 🔧 POLICY A: Blast-claim logic - whoever blasts LAST owns the automation
+    # If rep_user_id is set, ensure card is assigned to that rep
+    # If rep_user_id is NULL (owner blast), clear rep assignment to claim ownership
+    from backend.handoffs import resolve_current_rep
+    from backend.assignments import assign_card_to_rep, unassign_card
+    
+    for card_id in card_ids:
+        current_rep = resolve_current_rep(conn, card_id)
         
-        for card_id in card_ids:
-            current_rep = resolve_current_rep(conn, card_id)
+        if rep_user_id:
+            # Rep is blasting - claim ownership
             if current_rep != rep_user_id:
-                # Rep changed - claim ownership via blast
-                print(f"[BLAST_RUN] 🔄 Blast claim: card {card_id} currently assigned to {current_rep}, claiming for {rep_user_id}", flush=True)
+                print(f"[BLAST_RUN] 🔄 Blast claim (rep): card {card_id} currently assigned to {current_rep}, claiming for {rep_user_id}", flush=True)
                 assign_card_to_rep(conn, card_id, rep_user_id, rep_user_id, notes="Blast claim - ownership transferred via blast")
                 print(f"[BLAST_RUN] ✅ Card {card_id} reassigned to {rep_user_id} via blast claim", flush=True)
+        else:
+            # Owner is blasting - claim ownership by clearing rep assignment
+            if current_rep:
+                print(f"[BLAST_RUN] 🔄 Blast claim (owner): card {card_id} currently assigned to {current_rep}, claiming for owner", flush=True)
+                unassign_card(conn, card_id, current_rep)
+                print(f"[BLAST_RUN] ✅ Card {card_id} unassigned from {current_rep} - owner now owns via blast claim", flush=True)
 
     if not card_ids:
         return {
@@ -608,10 +616,13 @@ def run_blast_for_cards(
                 }
                 updated_history = existing_history + [outbound_msg]
                 
-                # Determine routing mode
-                routing_mode = 'rep' if rep_user_id else 'ai'
+                # POLICY A: Whoever blasts LAST owns the automation
+                # routing_mode is now 'ai' for all (auto-responses enabled)
+                # Ownership is determined by rep_user_id (NULL = owner, set = rep)
+                routing_mode = 'ai'  # Always enable auto-responses (Policy A)
                 
                 print(f"[BLAST] 📝 Recording conversation: phone={phone}, rep_user_id={rep_user_id}, routing_mode={routing_mode}", flush=True)
+                print(f"[BLAST] ✅ Policy A: Blast claims ownership - auto-responses enabled", flush=True)
                 
                 # 🔧 Blast-time epoch claim: Check if conversation exists with different rep
                 # If rep changed via blast, claim ownership and reset state
@@ -648,8 +659,9 @@ def run_blast_for_cards(
                           source_batch_id = EXCLUDED.source_batch_id,
                           card_id = COALESCE(EXCLUDED.card_id, conversations.card_id),
                           history = EXCLUDED.history,
-                          routing_mode = EXCLUDED.routing_mode,
-                          -- Use the new rep_user_id (last one to message wins)
+                          -- POLICY A: Always enable auto-responses (routing_mode = 'ai')
+                          routing_mode = 'ai',
+                          -- Use the new rep_user_id (last one to blast wins - Policy A)
                           rep_user_id = EXCLUDED.rep_user_id;
                         """,
                         (
