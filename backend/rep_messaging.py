@@ -73,12 +73,21 @@ def send_rep_message(
         client = Client(account_sid, auth_token)
         print(f"[REP_MESSAGE] ✅ Twilio Client created")
         
-        # Send directly from phone number (not Messaging Service) to avoid filtering
-        phone_number = os.getenv("TWILIO_PHONE_NUMBER")
-        if not phone_number:
-            error_msg = "TWILIO_PHONE_NUMBER must be set in environment variables"
-            print(f"[REP_MESSAGE] ❌ {error_msg}")
-            raise ValueError(error_msg)
+        # 🔒 ENFORCE: Messaging Service takes precedence if set
+        messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
+        phone_number = os.getenv("TWILIO_PHONE_NUMBER")  # Fallback if Messaging Service not set
+        
+        use_messaging_service = bool(messaging_service_sid)
+        
+        if use_messaging_service:
+            print(f"[REP_MESSAGE] ✅ TWILIO_MESSAGING_SERVICE_SID is set - using Messaging Service mode")
+            if not phone_number:
+                print(f"[REP_MESSAGE] ⚠️ TWILIO_PHONE_NUMBER not set (not required for Messaging Service)")
+        else:
+            if not phone_number:
+                error_msg = "TWILIO_PHONE_NUMBER must be set in environment variables (required when Messaging Service not set)"
+                print(f"[REP_MESSAGE] ❌ {error_msg}")
+                raise ValueError(error_msg)
         
         # ENHANCED LOGGING: Log all parameters being sent to Twilio
         print("=" * 80)
