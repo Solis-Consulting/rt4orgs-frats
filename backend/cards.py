@@ -181,6 +181,12 @@ def store_card(
     """
     Store card in database.
     Returns (success, error_message, stored_card).
+    
+    Args:
+        conn: Database connection
+        card: Card dictionary to store
+        allow_missing_references: If True, allow cards with missing references (for initial upload)
+        upload_batch_id: Optional batch ID to track which upload this card came from
     """
     # Normalize card
     normalized = normalize_card(card)
