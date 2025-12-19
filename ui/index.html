@@ -101,7 +101,7 @@
             <option value="won">Won</option>
             <option value="lost">Lost</option>
           </select>
-          <button id="assignSelectedBtn" disabled style="background: #0ea5e9; margin-left: 8px;" onclick="if(window.assignSelectedCards) window.assignSelectedCards(); else alert('Assign function not loaded. Please refresh the page.'); return false;">Assign Selected</button>
+          <button id="assignSelectedBtn" disabled style="background: #0ea5e9; margin-left: 8px;">Assign Selected</button>
           <button id="deleteSelectedBtn" disabled style="background: #ef4444; margin-left: 8px;">Delete Selected Cards</button>
           <div style="margin-left: auto; color: #9ca3af; font-size: 12px;">Card view - use Admin Dashboard → Blast for blasting</div>
         </div>
@@ -978,39 +978,55 @@
       }
     }
     
-    // Make function globally accessible and attach event listener
+    // Make function globally accessible
     window.assignSelectedCards = assignSelectedCards;
     
-    // Attach event listener when DOM is ready
+    // Use event delegation on document body - this always works
+    document.body.addEventListener('click', function(e) {
+      if (e.target && e.target.id === 'assignSelectedBtn') {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('[ASSIGN] Button clicked via event delegation');
+        if (window.assignSelectedCards) {
+          window.assignSelectedCards();
+        } else {
+          alert('Assign function not loaded. Please refresh the page.');
+        }
+        return false;
+      }
+    });
+    
+    // Also try direct attachment as backup
     function attachAssignListener() {
       const assignBtn = document.getElementById("assignSelectedBtn");
       if (assignBtn) {
-        // Remove any existing listeners by cloning
+        // Remove old listeners and add new one
         const newBtn = assignBtn.cloneNode(true);
         assignBtn.parentNode.replaceChild(newBtn, assignBtn);
-        newBtn.addEventListener("click", assignSelectedCards);
-        console.log('[ASSIGN] ✅ Event listener attached to button');
+        newBtn.addEventListener("click", function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          console.log('[ASSIGN] Button clicked via direct listener');
+          if (window.assignSelectedCards) {
+            window.assignSelectedCards();
+          }
+          return false;
+        });
+        console.log('[ASSIGN] ✅ Direct event listener attached to button');
         return true;
-      } else {
-        console.warn('[ASSIGN] ⚠️ Button not found yet, will retry...');
-        return false;
       }
+      return false;
     }
     
-    // Try to attach immediately
-    if (!attachAssignListener()) {
-      // If button doesn't exist yet, wait for DOMContentLoaded
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-          attachAssignListener();
-        });
-      } else {
-        // DOM already loaded, try again after a short delay
-        setTimeout(() => {
-          attachAssignListener();
-        }, 100);
-      }
+    // Try to attach immediately and on DOM ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', attachAssignListener);
+    } else {
+      attachAssignListener();
     }
+    
+    // Also try after a delay as fallback
+    setTimeout(attachAssignListener, 500);
 
     document.querySelectorAll(".pill").forEach(p => {
       p.addEventListener("click", () => {
