@@ -115,6 +115,12 @@
         });
         if (res.status === 401 || res.status === 403) {
           localStorage.removeItem('apiToken');
+          sessionStorage.removeItem('repApiToken');
+          if (res.status === 403) {
+            // Card not assigned to rep - show error
+            document.getElementById("content").innerHTML = "<div style='color: #fecaca;'>Access denied: This card is not assigned to you.</div>";
+            return;
+          }
           window.location.href = 'login.html';
           return;
         }
