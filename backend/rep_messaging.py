@@ -87,23 +87,44 @@ def send_rep_message(
         print(f"[REP_MESSAGE] Account SID: {account_sid[:10]}...{account_sid[-4:] if len(account_sid) > 14 else account_sid} (full length: {len(account_sid)})")
         print(f"[REP_MESSAGE] Auth Token: {auth_token[:10]}...{auth_token[-4:] if len(auth_token) > 14 else auth_token} (full length: {len(auth_token)})")
         print(f"[REP_MESSAGE] Phone Number: {phone_number}")
-        print(f"[REP_MESSAGE] Sending directly from phone number (not Messaging Service) to avoid filtering")
+        # 🔒 ENFORCE: Messaging Service takes precedence if set
+        messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
+        use_messaging_service = bool(messaging_service_sid)
+        send_mode = "MESSAGING_SERVICE" if use_messaging_service else "DIRECT_NUMBER"
+        
+        print(f"[REP_MESSAGE] 📡 Send Mode: {send_mode}")
+        if use_messaging_service:
+            print(f"[REP_MESSAGE] Using Messaging Service (TWILIO_MESSAGING_SERVICE_SID is set)")
+        else:
+            print(f"[REP_MESSAGE] Sending directly from phone number (Messaging Service not configured)")
         print(f"[REP_MESSAGE] Rep isolation maintained via card_assignments table")
         print("=" * 80)
         print(f"[REP_MESSAGE] 📋 EXACT PARAMETERS BEING SENT TO TWILIO:")
-        print(f"[REP_MESSAGE]   from_: {phone_number}")
+        if use_messaging_service:
+            print(f"[REP_MESSAGE]   messaging_service_sid: {messaging_service_sid[:10]}...{messaging_service_sid[-4:]}")
+            print(f"[REP_MESSAGE]   from_: NOT SET (using Messaging Service)")
+        else:
+            print(f"[REP_MESSAGE]   from_: {phone_number}")
+            print(f"[REP_MESSAGE]   messaging_service_sid: NOT SET (using direct phone number)")
         print(f"[REP_MESSAGE]   to: {phone}")
         print(f"[REP_MESSAGE]   body: {message[:100]}{'...' if len(message) > 100 else ''}")
         print(f"[REP_MESSAGE]   body length: {len(message)} chars")
-        print(f"[REP_MESSAGE]   messaging_service_sid: NOT SET (using direct phone number)")
         print("=" * 80)
         
-        # Send directly from phone number using from_ parameter
+        # 🔒 PREPARE MESSAGE PARAMETERS: Use Messaging Service if available
         message_params = {
-            "from_": phone_number,
             "to": phone,
             "body": message
         }
+        
+        if use_messaging_service:
+            message_params["messaging_service_sid"] = messaging_service_sid
+            # CRITICAL: Do NOT set from_ when using Messaging Service
+            assert "from_" not in message_params, "Cannot use from_ with Messaging Service"
+        else:
+            message_params["from_"] = phone_number
+            # CRITICAL: Do NOT set messaging_service_sid when using direct phone
+            assert "messaging_service_sid" not in message_params, "Cannot use messaging_service_sid with direct phone"
         
         print(f"[REP_MESSAGE] 🚀 Calling client.messages.create() NOW...")
         msg = client.messages.create(**message_params)
@@ -118,7 +139,13 @@ def send_rep_message(
         print(f"[REP_MESSAGE] To: {msg.to}")
         print(f"[REP_MESSAGE] From (actual sender): {msg.from_}")
         print(f"[REP_MESSAGE] Account SID Used: {msg.account_sid}")
-        print(f"[REP_MESSAGE] Messaging Service SID: {getattr(msg, 'messaging_service_sid', 'N/A')}")
+        actual_messaging_service = getattr(msg, 'messaging_service_sid', None)
+        print(f"[REP_MESSAGE] Messaging Service SID: {actual_messaging_service or 'N/A'}")
+        print(f"[REP_MESSAGE] 🔒 Send Mode Used: {send_mode}")
+        if use_messaging_service and not actual_messaging_service:
+            print(f"[REP_MESSAGE] ⚠️⚠️⚠️ WARNING: Expected Messaging Service but response shows N/A - check Twilio configuration!")
+        elif not use_messaging_service and actual_messaging_service:
+            print(f"[REP_MESSAGE] ⚠️⚠️⚠️ WARNING: Used direct phone but response shows Messaging Service - unexpected!")
         print(f"[REP_MESSAGE] Date Created: {msg.date_created}")
         print(f"[REP_MESSAGE] Date Sent: {msg.date_sent or 'Not sent yet'}")
         print(f"[REP_MESSAGE] Error Code: {msg.error_code or 'None (no error)'}")
