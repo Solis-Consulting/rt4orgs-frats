@@ -566,6 +566,8 @@
             console.log('[CHECKBOX] CHANGE EVENT:', target, 'checked=' + target.checked);
             if (window.updateAssignButtonState) {
               window.updateAssignButtonState();
+            } else {
+              console.error('[CHECKBOX] updateAssignButtonState not found!');
             }
             // Also update other UI elements
             if (typeof updateBlastButtonState === 'function') updateBlastButtonState();
