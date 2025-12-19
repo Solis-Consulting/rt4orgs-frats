@@ -1067,6 +1067,7 @@ async def twilio_inbound(request: Request):
         
         # Generate reply message using configured Markov responses
         reply_text = None
+        next_state = None  # Define at higher scope for campaign suppression check
         if result.get("next_state"):
             next_state = result["next_state"]
             previous_state = result.get("previous_state", "initial_outreach")
@@ -1181,6 +1182,101 @@ async def twilio_inbound(request: Request):
             else:
                 print(f"[TWILIO_INBOUND] ✅ Reply text is valid (not 'OK')", flush=True)
         
+        # 🔧 FIX: Campaign scoping and test overrides
+        # Extract campaign_id from card metadata (if present)
+        # Campaign ID can be inferred from vertical (frat vs faith) or explicitly set
+        campaign_id = None
+        force_send = False
+        is_test_number = False
+        
+        if card and card.get("card_data"):
+            card_data = card["card_data"]
+            metadata = card_data.get("metadata") or {}
+            
+            # Try explicit campaign_id first
+            campaign_id = metadata.get("campaign_id") or card_data.get("campaign_id")
+            
+            # If no explicit campaign_id, infer from vertical/role
+            if not campaign_id:
+                # Infer campaign from card data
+                if card_data.get("fraternity"):
+                    campaign_id = "frat_rt4orgs"
+                elif card_data.get("faith_group"):
+                    campaign_id = "faith_rt4orgs"
+                elif card_data.get("role") == "Office":
+                    # Office role suggests faith vertical
+                    campaign_id = "faith_rt4orgs"
+                else:
+                    # Default campaign for unknown verticals
+                    campaign_id = "default_rt4orgs"
+            
+            force_send = metadata.get("force_send", False) or card_data.get("force_send", False)
+            
+            # Auto-detect test numbers (founder/test numbers)
+            # Check if this is a known test number
+            test_numbers = [
+                os.getenv("TWILIO_PHONE_NUMBER", ""),  # System phone
+                "+19843695080",  # Alan's test number (from logs)
+                "+19194436288",  # System phone from logs
+            ]
+            # Also check if card name contains "test" or "Test"
+            card_name = card_data.get("name", "").lower()
+            is_test_number = (
+                normalized_phone in test_numbers or
+                "test" in card_name or
+                force_send
+            )
+            
+            print(f"[TWILIO_INBOUND] 🔍 Campaign & Test Detection:", flush=True)
+            print(f"[TWILIO_INBOUND]   campaign_id: {campaign_id} (inferred from card data)", flush=True)
+            print(f"[TWILIO_INBOUND]   force_send: {force_send}", flush=True)
+            print(f"[TWILIO_INBOUND]   is_test_number: {is_test_number}", flush=True)
+            if is_test_number:
+                print(f"[TWILIO_INBOUND]   ✅ TEST NUMBER DETECTED - bypassing all guards", flush=True)
+        
+        # 🔧 FIX: Check for duplicate outbound suppression (campaign-scoped)
+        # Only suppress if same campaign_id and same state, and not a test number
+        # This prevents sending duplicate messages for the same campaign/state combination
+        should_suppress = False
+        suppression_reason = None
+        
+        if reply_text and next_state and not is_test_number and not force_send:
+            # Check conversation history for recent outbound in same campaign and state
+            with conn.cursor() as check_cur:
+                check_cur.execute("""
+                    SELECT history FROM conversations WHERE phone = %s LIMIT 1
+                """, (normalized_phone,))
+                history_row = check_cur.fetchone()
+                
+                if history_row and history_row[0]:
+                    try:
+                        history = json.loads(history_row[0]) if isinstance(history_row[0], str) else history_row[0]
+                        if isinstance(history, list):
+                            # Check last outbound message
+                            for msg in reversed(history):
+                                if isinstance(msg, dict) and msg.get("direction") == "outbound":
+                                    last_campaign = msg.get("campaign_id")
+                                    last_state = msg.get("state")
+                                    
+                                    # Suppress if same campaign and same state (prevent duplicate sends)
+                                    # This prevents the system from sending the same message twice in the same campaign
+                                    if campaign_id and last_campaign == campaign_id and last_state == next_state:
+                                        should_suppress = True
+                                        suppression_reason = f"Duplicate outbound detected: campaign_id={campaign_id}, state={next_state}"
+                                        print(f"[TWILIO_INBOUND] ⚠️ BLAST GUARD: {suppression_reason}", flush=True)
+                                        print(f"[TWILIO_INBOUND]   Last outbound was for campaign '{last_campaign}' in state '{last_state}'", flush=True)
+                                        print(f"[TWILIO_INBOUND]   Current attempt is for campaign '{campaign_id}' in state '{next_state}'", flush=True)
+                                        print(f"[TWILIO_INBOUND]   Suppressing to prevent duplicate send", flush=True)
+                                        break
+                    except Exception as e:
+                        print(f"[TWILIO_INBOUND] ⚠️ Error checking history for suppression: {e}", flush=True)
+        
+        if should_suppress and not force_send:
+            print(f"[TWILIO_INBOUND] 🚫 SUPPRESSING SEND: {suppression_reason}", flush=True)
+            print(f"[TWILIO_INBOUND]   Use force_send=true in card metadata to override", flush=True)
+            print(f"[TWILIO_INBOUND]   Or use different campaign_id to send to same number in different vertical", flush=True)
+            reply_text = None
+        
         if reply_text:
             print("=" * 80, flush=True)
             print(f"[TWILIO_INBOUND] 🚀 SENDING REPLY VIA TWILIO", flush=True)
@@ -1232,10 +1328,54 @@ async def twilio_inbound(request: Request):
                     print(f"[TWILIO_INBOUND]   Date Created: {msg.date_created}", flush=True)
                     print("=" * 80, flush=True)
                     
-                    # Store outbound reply in conversation history
+                    # Store outbound reply in conversation history with campaign_id and state
                     try:
                         from backend.rep_messaging import add_message_to_history
+                        # Add campaign_id and state to message metadata for proper scoping
                         add_message_to_history(conn, normalized_phone, "outbound", reply_text, "ai", msg.sid)
+                        
+                        # 🔧 FIX: Update conversation state to next_state (not always initial_outreach)
+                        # This ensures proper state tracking and prevents reusing initial_outreach for all messages
+                        if next_state:
+                            with conn.cursor() as update_cur:
+                                # Update conversation state to the actual next_state
+                                update_cur.execute("""
+                                    UPDATE conversations 
+                                    SET state = %s, updated_at = NOW()
+                                    WHERE phone = %s
+                                """, (next_state, normalized_phone))
+                                print(f"[TWILIO_INBOUND] ✅ Updated conversation state to: {next_state} (was: {conversation_state})", flush=True)
+                        
+                        # Update history entry with campaign_id and state if available
+                        if campaign_id or next_state:
+                            with conn.cursor() as update_cur:
+                                update_cur.execute("""
+                                    SELECT history FROM conversations WHERE phone = %s LIMIT 1
+                                """, (normalized_phone,))
+                                hist_row = update_cur.fetchone()
+                                if hist_row and hist_row[0]:
+                                    try:
+                                        history = json.loads(hist_row[0]) if isinstance(hist_row[0], str) else hist_row[0]
+                                        if isinstance(history, list) and history:
+                                            # Update last message with campaign_id and state
+                                            last_msg = history[-1]
+                                            if isinstance(last_msg, dict) and last_msg.get("direction") == "outbound":
+                                                if campaign_id:
+                                                    last_msg["campaign_id"] = campaign_id
+                                                if next_state:
+                                                    last_msg["state"] = next_state
+                                                if is_test_number:
+                                                    last_msg["is_test"] = True
+                                                
+                                                # Save updated history
+                                                update_cur.execute("""
+                                                    UPDATE conversations 
+                                                    SET history = %s::jsonb 
+                                                    WHERE phone = %s
+                                                """, (json.dumps(history), normalized_phone))
+                                                print(f"[TWILIO_INBOUND] ✅ Updated history with campaign_id={campaign_id}, state={next_state}", flush=True)
+                                    except Exception as e:
+                                        print(f"[TWILIO_INBOUND] ⚠️ Could not update history metadata: {e}", flush=True)
                     except Exception as history_error:
                         print(f"[TWILIO_INBOUND] WARNING: Could not store outbound message in history: {history_error}", flush=True)
                     
