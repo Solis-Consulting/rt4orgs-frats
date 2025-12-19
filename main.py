@@ -1318,17 +1318,17 @@ async def twilio_inbound(request: Request):
             if is_test_number:
                 print(f"[TWILIO_INBOUND]   ✅ TEST NUMBER DETECTED - bypassing all guards", flush=True)
         
-        # 🔧 FIX: Check for duplicate outbound suppression (campaign-scoped)
-        # Only suppress if same campaign_id and same state, and not a test number
-        # This prevents sending duplicate messages for the same campaign/state combination
+        # 🔧 FIX: Check for duplicate outbound suppression (environment-scoped)
+        # Only suppress if same environment_id and same state, and not a test number
+        # CRITICAL: Only check messages with message_sid (actually sent, not just generated)
         should_suppress = False
         suppression_reason = None
         
         if reply_text and next_state and not is_test_number and not force_send:
-            # Check message_events for recent outbound in same environment and state
-            # CRITICAL: Only check messages with message_sid (actually sent)
             with conn.cursor() as check_cur:
                 try:
+                    # Check message_events for recent outbound in same environment and state
+                    # CRITICAL: Only messages with message_sid count as "sent"
                     check_cur.execute("""
                         SELECT COUNT(*) FROM message_events
                         WHERE phone_number = %s
@@ -1336,45 +1336,52 @@ async def twilio_inbound(request: Request):
                           AND direction = 'outbound'
                           AND message_sid IS NOT NULL
                           AND state = %s
-                        ORDER BY sent_at DESC
-                        LIMIT 1
                     """, (normalized_phone, environment_id, next_state))
                     duplicate_count = check_cur.fetchone()[0]
                     if duplicate_count > 0:
                         should_suppress = True
                         suppression_reason = f"Duplicate outbound detected: environment_id={environment_id}, state={next_state}"
                         print(f"[TWILIO_INBOUND] ⚠️ BLAST GUARD: {suppression_reason}", flush=True)
-                except psycopg2.ProgrammingError:
+                        print(f"[TWILIO_INBOUND]   Found {duplicate_count} prior outbound(s) in same environment/state", flush=True)
+                        print(f"[TWILIO_INBOUND]   Suppressing to prevent duplicate send", flush=True)
+                except psycopg2.ProgrammingError as e:
                     # message_events table doesn't exist - fallback to history check
-                    check_cur.execute("""
-                        SELECT history FROM conversations 
-                        WHERE phone = %s AND environment_id = %s
-                        LIMIT 1
-                    """, (normalized_phone, environment_id))
-                history_row = check_cur.fetchone()
-                
-                if history_row and history_row[0]:
-                    try:
-                        history = json.loads(history_row[0]) if isinstance(history_row[0], str) else history_row[0]
-                        if isinstance(history, list):
-                            # Check last outbound message
-                            for msg in reversed(history):
-                                if isinstance(msg, dict) and msg.get("direction") == "outbound":
-                                    last_campaign = msg.get("campaign_id")
-                                    last_state = msg.get("state")
-                                    
-                                    # Suppress if same campaign and same state (prevent duplicate sends)
-                                    # This prevents the system from sending the same message twice in the same campaign
-                                    if campaign_id and last_campaign == campaign_id and last_state == next_state:
-                                        should_suppress = True
-                                        suppression_reason = f"Duplicate outbound detected: campaign_id={campaign_id}, state={next_state}"
-                                        print(f"[TWILIO_INBOUND] ⚠️ BLAST GUARD: {suppression_reason}", flush=True)
-                                        print(f"[TWILIO_INBOUND]   Last outbound was for campaign '{last_campaign}' in state '{last_state}'", flush=True)
-                                        print(f"[TWILIO_INBOUND]   Current attempt is for campaign '{campaign_id}' in state '{next_state}'", flush=True)
-                                        print(f"[TWILIO_INBOUND]   Suppressing to prevent duplicate send", flush=True)
-                                        break
-                    except Exception as e:
-                        print(f"[TWILIO_INBOUND] ⚠️ Error checking history for suppression: {e}", flush=True)
+                    if 'message_events' in str(e):
+                        print(f"[TWILIO_INBOUND] ⚠️ message_events table not found - using history fallback", flush=True)
+                        try:
+                            check_cur.execute("""
+                                SELECT history FROM conversations 
+                                WHERE phone = %s AND environment_id = %s
+                                LIMIT 1
+                            """, (normalized_phone, environment_id))
+                        except psycopg2.ProgrammingError:
+                            # environment_id column doesn't exist either
+                            check_cur.execute("""
+                                SELECT history FROM conversations 
+                                WHERE phone = %s
+                                LIMIT 1
+                            """, (normalized_phone,))
+                        history_row = check_cur.fetchone()
+                        
+                        if history_row and history_row[0]:
+                            try:
+                                history = json.loads(history_row[0]) if isinstance(history_row[0], str) else history_row[0]
+                                if isinstance(history, list):
+                                    # Check last outbound message
+                                    for msg in reversed(history):
+                                        if isinstance(msg, dict) and msg.get("direction") == "outbound":
+                                            last_state = msg.get("state")
+                                            
+                                            # Suppress if same state (prevent duplicate sends)
+                                            if last_state == next_state:
+                                                should_suppress = True
+                                                suppression_reason = f"Duplicate outbound detected: state={next_state}"
+                                                print(f"[TWILIO_INBOUND] ⚠️ BLAST GUARD (fallback): {suppression_reason}", flush=True)
+                                                break
+                            except Exception as e:
+                                print(f"[TWILIO_INBOUND] ⚠️ Error checking history for suppression: {e}", flush=True)
+                    else:
+                        raise
         
         if should_suppress and not force_send:
             print(f"[TWILIO_INBOUND] 🚫 SUPPRESSING SEND: {suppression_reason}", flush=True)
