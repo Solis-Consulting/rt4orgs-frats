@@ -44,30 +44,45 @@ END $$;
 
 -- Step 3: Generate environment_id for existing conversations
 -- Use hash of (rep_user_id + campaign_id) or default to phone-based for legacy
+-- CRITICAL: Each existing conversation gets a unique environment_id to avoid primary key conflicts
+-- We use phone + rep_user_id to ensure uniqueness (legacy conversations are isolated)
 DO $$
 DECLARE
     conv_record RECORD;
     env_id TEXT;
+    counter INTEGER := 0;
 BEGIN
     FOR conv_record IN SELECT phone, rep_user_id, card_id FROM conversations WHERE environment_id IS NULL
     LOOP
         -- Generate environment_id from existing data
-        -- If rep_user_id exists, use it; otherwise use 'owner'
-        -- Campaign is inferred from card or defaults to 'default'
+        -- Use phone as part of hash to ensure uniqueness for legacy conversations
+        -- This prevents primary key conflicts when multiple conversations exist for same phone
         IF conv_record.rep_user_id IS NOT NULL THEN
-            env_id := 'env_' || MD5(COALESCE(conv_record.rep_user_id, 'owner') || '_default');
+            env_id := 'env_' || MD5(COALESCE(conv_record.rep_user_id, 'owner') || '_default_' || conv_record.phone);
         ELSE
-            env_id := 'env_' || MD5('owner_default');
+            env_id := 'env_' || MD5('owner_default_' || conv_record.phone);
         END IF;
         
         UPDATE conversations 
         SET environment_id = env_id 
-        WHERE phone = conv_record.phone;
+        WHERE phone = conv_record.phone 
+          AND (rep_user_id = conv_record.rep_user_id OR (rep_user_id IS NULL AND conv_record.rep_user_id IS NULL))
+          AND environment_id IS NULL
+        LIMIT 1;
+        
+        counter := counter + 1;
     END LOOP;
+    
+    RAISE NOTICE 'Generated environment_id for % existing conversations', counter;
 END $$;
 
 -- Step 4: Make environment_id NOT NULL and set default
-ALTER TABLE conversations ALTER COLUMN environment_id SET DEFAULT 'env_' || MD5('owner_default');
+-- First ensure all rows have environment_id (should be done in Step 3, but double-check)
+UPDATE conversations SET environment_id = 'env_' || MD5('owner_default_' || phone) WHERE environment_id IS NULL;
+
+-- Set default function (PostgreSQL doesn't support MD5 in DEFAULT directly, so we'll use a function)
+-- Actually, we can't use MD5 in DEFAULT easily, so we'll just set NOT NULL
+-- The application code will always provide environment_id
 ALTER TABLE conversations ALTER COLUMN environment_id SET NOT NULL;
 
 -- Step 5: Drop old primary key and create new composite key
