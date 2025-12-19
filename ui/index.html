@@ -564,7 +564,12 @@
           const target = e.target;
           if (target.type === 'checkbox' && target.classList.contains('card-select-checkbox')) {
             console.log('[CHECKBOX] CHANGE EVENT:', target, 'checked=' + target.checked);
-            updateAssignButtonState();
+            if (window.updateAssignButtonState) {
+              window.updateAssignButtonState();
+            }
+            // Also update other UI elements
+            if (typeof updateBlastButtonState === 'function') updateBlastButtonState();
+            if (typeof updateGroupCheckboxState === 'function') updateGroupCheckboxState(target);
           }
         }, true);
         
@@ -575,7 +580,12 @@
             // Use setTimeout to let browser update checked state first
             setTimeout(() => {
               console.log('[CHECKBOX] CLICK EVENT:', target, 'checked=' + target.checked);
-              updateAssignButtonState();
+              if (window.updateAssignButtonState) {
+                window.updateAssignButtonState();
+              }
+              // Also update other UI elements
+              if (typeof updateBlastButtonState === 'function') updateBlastButtonState();
+              if (typeof updateGroupCheckboxState === 'function') updateGroupCheckboxState(target);
             }, 0);
           }
         }, true);
