@@ -129,6 +129,131 @@ def _find_case_insensitive_key(d: Dict[str, Any], target_key: str) -> Optional[s
     return None
 
 
+def _extract_fraternity_from_card(card_data: Dict[str, Any]) -> str:
+    """
+    Extract fraternity information from multiple card fields.
+    
+    Checks fields in priority order:
+    1. 'fraternity' field (direct)
+    2. 'organization' field
+    3. 'chapter' field (may contain fraternity name)
+    4. 'name' field (may contain fraternity abbreviation)
+    5. 'notes' or 'description' fields (may mention fraternity)
+    6. 'tags' or 'labels' fields
+    
+    Returns the first non-empty fraternity value found, or empty string.
+    """
+    if not card_data:
+        return ""
+    
+    # Priority 1: Direct fraternity field
+    frat = card_data.get("fraternity") or card_data.get("Fraternity") or card_data.get("FRATERNITY")
+    if frat and str(frat).strip():
+        return str(frat).strip()
+    
+    # Priority 2: Organization field
+    org = card_data.get("organization") or card_data.get("Organization") or card_data.get("org")
+    if org and str(org).strip():
+        return str(org).strip()
+    
+    # Priority 3: Chapter field (may contain full fraternity name)
+    chapter = card_data.get("chapter") or card_data.get("Chapter")
+    if chapter and str(chapter).strip():
+        # Check if chapter contains a fraternity name (e.g., "Tau Kappa Epsilon - Colorado")
+        chapter_str = str(chapter).strip()
+        # Common fraternity patterns in chapter names
+        frat_patterns = [
+            "tau kappa epsilon", "tke",
+            "beta upsilon chi", "byx",
+            "sigma alpha epsilon", "sae",
+            "phi gamma delta", "fiji",
+            "sigma nu", "snu",
+            "alpha tau omega", "ato",
+            "delta chi", "dx",
+            "kappa sigma", "ks",
+            "pi kappa alpha", "pike",
+            "phi delta theta", "phidelt"
+        ]
+        chapter_lower = chapter_str.lower()
+        for pattern in frat_patterns:
+            if pattern in chapter_lower:
+                # Extract abbreviation if present, or return the pattern
+                if "tke" in chapter_lower or "tau kappa epsilon" in chapter_lower:
+                    return "TKE"
+                elif "byx" in chapter_lower or "beta upsilon chi" in chapter_lower:
+                    return "BYX"
+                elif "sae" in chapter_lower or "sigma alpha epsilon" in chapter_lower:
+                    return "SAE"
+                elif "fiji" in chapter_lower or "phi gamma delta" in chapter_lower:
+                    return "FIJI"
+                elif "snu" in chapter_lower or "sigma nu" in chapter_lower:
+                    return "SNU"
+                elif "ato" in chapter_lower or "alpha tau omega" in chapter_lower:
+                    return "ATO"
+                elif "dx" in chapter_lower or "delta chi" in chapter_lower:
+                    return "DX"
+                elif "ks" in chapter_lower or "kappa sigma" in chapter_lower:
+                    return "KS"
+                elif "pike" in chapter_lower or "pi kappa alpha" in chapter_lower:
+                    return "PIKE"
+                elif "phidelt" in chapter_lower or "phi delta theta" in chapter_lower:
+                    return "PhiDelt"
+        # If no pattern match, return chapter as-is (might be fraternity name)
+        return chapter_str
+    
+    # Priority 4: Name field (may contain fraternity abbreviation)
+    name = card_data.get("name") or card_data.get("Name")
+    if name:
+        name_str = str(name).strip()
+        # Check for common fraternity abbreviations in name
+        # Look for patterns like "John Doe - TKE" or "TKE Chapter"
+        name_upper = name_str.upper()
+        known_abbrevs = ["TKE", "BYX", "SAE", "FIJI", "SNU", "ATO", "DX", "KS", "PIKE", "PHIDELT"]
+        for abbrev in known_abbrevs:
+            if abbrev in name_upper:
+                return abbrev
+    
+    # Priority 5: Notes/Description fields (search for fraternity mentions)
+    notes = card_data.get("notes") or card_data.get("Notes") or card_data.get("description") or card_data.get("Description")
+    if notes:
+        notes_str = str(notes).strip()
+        notes_lower = notes_str.lower()
+        # Check for fraternity patterns in notes
+        frat_patterns = {
+            "tke": "TKE", "tau kappa epsilon": "TKE",
+            "byx": "BYX", "beta upsilon chi": "BYX",
+            "sae": "SAE", "sigma alpha epsilon": "SAE",
+            "fiji": "FIJI", "phi gamma delta": "FIJI",
+            "snu": "SNU", "sigma nu": "SNU",
+            "ato": "ATO", "alpha tau omega": "ATO",
+            "dx": "DX", "delta chi": "DX",
+            "ks": "KS", "kappa sigma": "KS",
+            "pike": "PIKE", "pi kappa alpha": "PIKE",
+            "phidelt": "PhiDelt", "phi delta theta": "PhiDelt"
+        }
+        for pattern, abbrev in frat_patterns.items():
+            if pattern in notes_lower:
+                return abbrev
+    
+    # Priority 6: Tags/Labels fields
+    tags = card_data.get("tags") or card_data.get("Tags") or card_data.get("labels") or card_data.get("Labels")
+    if tags:
+        if isinstance(tags, list):
+            for tag in tags:
+                tag_str = str(tag).strip().upper()
+                known_abbrevs = ["TKE", "BYX", "SAE", "FIJI", "SNU", "ATO", "DX", "KS", "PIKE", "PHIDELT"]
+                if tag_str in known_abbrevs:
+                    return tag_str
+        elif isinstance(tags, str):
+            tags_upper = str(tags).upper()
+            known_abbrevs = ["TKE", "BYX", "SAE", "FIJI", "SNU", "ATO", "DX", "KS", "PIKE", "PHIDELT"]
+            for abbrev in known_abbrevs:
+                if abbrev in tags_upper:
+                    return abbrev
+    
+    return ""
+
+
 def find_matching_fraternity(
     contact: Dict[str, Any],
     sales_history: Dict[str, List[Dict[str, Any]]],
@@ -142,10 +267,36 @@ def find_matching_fraternity(
     5. Final fallback: Highest names given deal
     
     Pure function: no side effects, returns matched deal or None.
+    
+    Now extracts fraternity from multiple card fields if 'fraternity' field is empty.
     """
-    target_frat = contact.get("fraternity", "").strip()
+    # Extract fraternity from multiple card fields (expanded scope)
+    target_frat = _extract_fraternity_from_card(contact)
     target_frat_normalized = _normalize_fraternity_key(target_frat)
-    target_inst_raw = (contact.get("institution") or contact.get("location") or "").strip()
+    
+    # Log extraction details for debugging
+    if target_frat:
+        print(f"[MATCH] ✅ Extracted fraternity from card: '{target_frat}' (normalized: '{target_frat_normalized}')", flush=True)
+    else:
+        print(f"[MATCH] ⚠️ No fraternity found in card fields - will use fallback matching", flush=True)
+        # Show what fields were checked for debugging
+        checked_fields = ['fraternity', 'organization', 'chapter', 'name', 'notes', 'description', 'tags', 'labels']
+        available_fields = [k for k in contact.keys() if k.lower() in [f.lower() for f in checked_fields]]
+        if available_fields:
+            print(f"[MATCH]   Card has these relevant fields: {available_fields}", flush=True)
+    
+    # Also extract institution from multiple fields
+    target_inst_raw = (
+        contact.get("institution") or 
+        contact.get("Institution") or
+        contact.get("location") or 
+        contact.get("Location") or
+        contact.get("university") or
+        contact.get("University") or
+        contact.get("school") or
+        contact.get("School") or
+        ""
+    ).strip()
     target_inst = _normalize_institution_name(target_inst_raw)
     
     # Debug logging

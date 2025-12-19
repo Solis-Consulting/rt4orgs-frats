@@ -632,21 +632,46 @@ def run_blast_for_cards(
                 print(f"[BLAST] 📝 Recording conversation: phone={phone}, rep_user_id={rep_user_id}, routing_mode={routing_mode}", flush=True)
                 print(f"[BLAST] ✅ Policy A: Blast claims ownership - auto-responses enabled", flush=True)
                 
-                # 🔧 Blast-time epoch claim: Check if conversation exists with different rep
-                # If rep changed via blast, claim ownership and reset state
+                # 🔧 CRITICAL: Check for existing conversation BEFORE INSERT/UPDATE
+                # This handles graceful transitions when different reps contact the same number
                 existing_rep = None
                 existing_state = None
-                if rep_user_id:
-                    # Check existing conversation before INSERT/UPDATE
-                    cur.execute("""
-                        SELECT rep_user_id, state FROM conversations
-                        WHERE phone = %s
-                        LIMIT 1
-                    """, (phone,))
-                    existing_row = cur.fetchone()
-                    if existing_row:
-                        existing_rep = existing_row[0]
-                        existing_state = existing_row[1]
+                existing_card_id = None
+                
+                # Always check for existing conversation (not just when rep_user_id is set)
+                cur.execute("""
+                    SELECT rep_user_id, state, card_id FROM conversations
+                    WHERE phone = %s
+                    LIMIT 1
+                """, (phone,))
+                existing_row = cur.fetchone()
+                if existing_row:
+                    existing_rep = existing_row[0]
+                    existing_state = existing_row[1]
+                    existing_card_id = existing_row[2]
+                    print(f"[BLAST] 🔍 Found existing conversation: rep={existing_rep}, state={existing_state}, card_id={existing_card_id}", flush=True)
+                
+                # Determine if ownership is changing
+                ownership_changing = False
+                if existing_rep is not None:
+                    # Existing conversation with a rep
+                    if rep_user_id is None:
+                        # Owner blast - clearing rep ownership
+                        ownership_changing = True
+                        print(f"[BLAST] 🔄 Ownership transition detected: {existing_rep} → NULL (owner blast)", flush=True)
+                    elif existing_rep != rep_user_id:
+                        # Different rep is blasting
+                        ownership_changing = True
+                        print(f"[BLAST] 🔄 Ownership transition detected: {existing_rep} → {rep_user_id}", flush=True)
+                elif existing_rep is None and rep_user_id:
+                    # First time rep is claiming (no previous conversation or was owner-owned)
+                    ownership_changing = True
+                    print(f"[BLAST] 🔄 First rep claim: NULL → {rep_user_id}", flush=True)
+                
+                # If ownership is changing, reset state to initial_outreach for clean transition
+                new_state = 'initial_outreach' if ownership_changing else 'awaiting_response'
+                if ownership_changing:
+                    print(f"[BLAST] 🔄 Resetting state to '{new_state}' for clean ownership transition", flush=True)
                 
                 # Insert or update conversation with history
                 # CRITICAL: Conflict resolution - if multiple reps message the same contact,
@@ -658,12 +683,12 @@ def run_blast_for_cards(
                         """
                         INSERT INTO conversations
                         (phone, contact_id, card_id, owner, state, source_batch_id, last_outbound_at, history, routing_mode, rep_user_id)
-                        VALUES (%s, %s, %s, %s, 'awaiting_response', %s, %s, %s::jsonb, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
                         ON CONFLICT (phone)
                         DO UPDATE SET
                           last_outbound_at = EXCLUDED.last_outbound_at,
                           owner = EXCLUDED.owner,
-                          state = 'awaiting_response',
+                          state = EXCLUDED.state,
                           source_batch_id = EXCLUDED.source_batch_id,
                           card_id = COALESCE(EXCLUDED.card_id, conversations.card_id),
                           history = EXCLUDED.history,
@@ -678,6 +703,7 @@ def run_blast_for_cards(
                             card_id,  # contact_id
                             card_id,
                             owner,
+                            new_state,  # Use new_state (initial_outreach if ownership changing)
                             blast_id,
                             datetime.utcnow(),
                             json.dumps(updated_history),
@@ -685,16 +711,15 @@ def run_blast_for_cards(
                             rep_user_id,
                         ),
                     )
-                    print(f"[BLAST] ✅ Conversation recorded/updated: phone={phone}, rep_user_id={rep_user_id}", flush=True)
+                    print(f"[BLAST] ✅ Conversation recorded/updated: phone={phone}, rep_user_id={rep_user_id}, state={new_state}", flush=True)
                     
-                    # If ownership changed via blast, claim ownership and log handoff
-                    # Note: This is a secondary check - the main blast-claim happens at the start of run_blast_for_cards
-                    # This handles the case where conversation exists but assignment hasn't been updated yet
-                    if existing_rep is not None and existing_rep != rep_user_id:
+                    # Handle ownership transition with proper handoff logging
+                    if ownership_changing:
                         from backend.handoffs import reset_markov_for_card, log_handoff
+                        
                         if rep_user_id:
-                            # Rep is claiming ownership from another rep
-                            print(f"[BLAST] 🔄 Ownership changed via blast (rep): {existing_rep} → {rep_user_id}", flush=True)
+                            # Rep is claiming ownership (from another rep or from owner)
+                            print(f"[BLAST] 🔄 Processing ownership transition: {existing_rep} → {rep_user_id}", flush=True)
                             reset_markov_for_card(conn, card_id, rep_user_id, 'blast_claim', rep_user_id)
                             log_handoff(
                                 conn=conn,
@@ -706,9 +731,10 @@ def run_blast_for_cards(
                                 state_after='initial_outreach',
                                 assigned_by=rep_user_id
                             )
+                            print(f"[BLAST] ✅ Ownership transition complete: rep {rep_user_id} now owns conversation", flush=True)
                         else:
                             # Owner is claiming ownership (clearing rep)
-                            print(f"[BLAST] 🔄 Ownership changed via blast (owner): {existing_rep} → NULL (owner)", flush=True)
+                            print(f"[BLAST] 🔄 Processing ownership transition: {existing_rep} → NULL (owner)", flush=True)
                             reset_markov_for_card(conn, card_id, None, 'blast_claim', owner)
                             log_handoff(
                                 conn=conn,
@@ -720,21 +746,7 @@ def run_blast_for_cards(
                                 state_after='initial_outreach',
                                 assigned_by=owner
                             )
-                    elif existing_rep is None and rep_user_id:
-                        # First time rep is claiming (no previous owner)
-                        from backend.handoffs import reset_markov_for_card, log_handoff
-                        print(f"[BLAST] 🔄 First blast claim (rep): NULL → {rep_user_id}", flush=True)
-                        reset_markov_for_card(conn, card_id, rep_user_id, 'blast_claim', rep_user_id)
-                        log_handoff(
-                            conn=conn,
-                            card_id=card_id,
-                            from_rep=None,
-                            to_rep=rep_user_id,
-                            reason='blast_claim',
-                            state_before=existing_state,
-                            state_after='initial_outreach',
-                            assigned_by=rep_user_id
-                        )
+                            print(f"[BLAST] ✅ Ownership transition complete: owner now owns conversation", flush=True)
                     
                     # Verify the rep_user_id was actually saved
                     cur.execute("""
