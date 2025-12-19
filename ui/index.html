@@ -45,8 +45,12 @@
     .tab.active { color: #38bdf8; border-bottom-color: #38bdf8; }
     button { background: #0ea5e9; color: #0f172a; border: none; border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer; }
     button:hover { background: #38bdf8; }
-    button:disabled { background: #4b5563; cursor: not-allowed; opacity: 0.6; }
+    button:disabled { background: #4b5563; cursor: not-allowed; opacity: 0.6; pointer-events: none; }
     button:disabled:hover { background: #4b5563; }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
   </style>
 </head>
 <body>
@@ -629,18 +633,52 @@
         const deleteBtn = document.getElementById('deleteSelectedBtn');
         if (assignBtn) {
           const wasDisabled = assignBtn.disabled;
-          assignBtn.disabled = finalCount === 0;
-          console.log(`[ASSIGN] Button state: disabled=${assignBtn.disabled} (was ${wasDisabled}), selected=${finalCount}`);
+          const shouldDisable = finalCount === 0;
+          
+          // Force update - remove and re-add disabled attribute to ensure DOM updates
+          if (shouldDisable) {
+            assignBtn.setAttribute('disabled', 'disabled');
+            assignBtn.disabled = true;
+          } else {
+            assignBtn.removeAttribute('disabled');
+            assignBtn.disabled = false;
+          }
+          
+          // Also update visual styles directly
+          if (shouldDisable) {
+            assignBtn.style.opacity = '0.6';
+            assignBtn.style.cursor = 'not-allowed';
+            assignBtn.style.pointerEvents = 'none';
+          } else {
+            assignBtn.style.opacity = '1';
+            assignBtn.style.cursor = 'pointer';
+            assignBtn.style.pointerEvents = 'auto';
+          }
+          
+          console.log(`[ASSIGN] Button state: disabled=${assignBtn.disabled}, hasAttribute=${assignBtn.hasAttribute('disabled')}, selected=${finalCount}`);
+          console.log(`[ASSIGN] Button computed style: opacity=${getComputedStyle(assignBtn).opacity}, pointerEvents=${getComputedStyle(assignBtn).pointerEvents}`);
           
           // Visual feedback
           if (finalCount > 0 && wasDisabled) {
-            console.log(`[ASSIGN] ✅ Button enabled! ${finalCount} card(s) selected`);
+            console.log(`[ASSIGN] ✅ Button ENABLED! ${finalCount} card(s) selected`);
+            // Flash visual feedback
+            assignBtn.style.animation = 'none';
+            setTimeout(() => {
+              assignBtn.style.animation = 'pulse 0.5s ease-in-out';
+            }, 10);
           } else if (finalCount === 0 && !wasDisabled) {
-            console.log(`[ASSIGN] ⚠️ Button disabled! No cards selected`);
+            console.log(`[ASSIGN] ⚠️ Button DISABLED! No cards selected`);
           }
         }
         if (deleteBtn) {
-          deleteBtn.disabled = finalCount === 0;
+          const shouldDisable = finalCount === 0;
+          if (shouldDisable) {
+            deleteBtn.setAttribute('disabled', 'disabled');
+            deleteBtn.disabled = true;
+          } else {
+            deleteBtn.removeAttribute('disabled');
+            deleteBtn.disabled = false;
+          }
         }
       };
 
