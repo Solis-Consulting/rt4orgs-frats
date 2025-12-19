@@ -125,6 +125,11 @@ def get_rep_assigned_cards(
                 except:
                     pass
             
+            # Handle both old schema (no upload_batch_id) and new schema (with upload_batch_id)
+            # Old: id, type, card_data, sales_state, owner, created_at, updated_at, assigned_at, status, notes, assigned_by (11 columns)
+            # New: id, type, card_data, sales_state, owner, created_at, updated_at, upload_batch_id, assigned_at, status, notes, assigned_by (12 columns)
+            has_upload_batch_id = len(row) >= 12
+            
             cards.append({
                 "id": row[0],
                 "type": row[1],
@@ -133,12 +138,12 @@ def get_rep_assigned_cards(
                 "owner": row[4],
                 "created_at": row[5],
                 "updated_at": row[6],
-                "upload_batch_id": row[7] if len(row) > 7 else None,  # upload_batch_id (may not exist in old schema)
+                "upload_batch_id": row[7] if has_upload_batch_id else None,
                 "assignment": {
-                    "assigned_at": row[8] if len(row) > 8 else row[7],  # Adjust index if upload_batch_id exists
-                    "status": row[9] if len(row) > 9 else row[8],
-                    "notes": row[10] if len(row) > 10 else row[9],
-                    "assigned_by": row[11] if len(row) > 11 else row[10],
+                    "assigned_at": row[8] if has_upload_batch_id else row[7],
+                    "status": row[9] if has_upload_batch_id else row[8],
+                    "notes": row[10] if has_upload_batch_id else row[9],
+                    "assigned_by": row[11] if has_upload_batch_id else row[10],
                 }
             })
         
