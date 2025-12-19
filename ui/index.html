@@ -983,10 +983,19 @@
     
     // Use event delegation on document body - this always works
     document.body.addEventListener('click', function(e) {
-      if (e.target && e.target.id === 'assignSelectedBtn') {
+      if (e.target && (e.target.id === 'assignSelectedBtn' || e.target.closest('#assignSelectedBtn'))) {
         e.preventDefault();
         e.stopPropagation();
-        console.log('[ASSIGN] Button clicked via event delegation');
+        const btn = e.target.id === 'assignSelectedBtn' ? e.target : e.target.closest('#assignSelectedBtn');
+        console.log('[ASSIGN] Button clicked via event delegation', btn.disabled);
+        
+        // Check if button is disabled
+        if (btn.disabled) {
+          console.log('[ASSIGN] Button is disabled, cannot assign');
+          alert('Please select at least one card to assign.');
+          return false;
+        }
+        
         if (window.assignSelectedCards) {
           window.assignSelectedCards();
         } else {
