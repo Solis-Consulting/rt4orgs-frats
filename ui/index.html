@@ -556,37 +556,32 @@
         });
       });
 
-      // Use event delegation on document.body for checkboxes (works with dynamic content)
-      // Only attach once using a flag
+      // BULLETPROOF: Use multiple event listeners to ensure we catch all checkbox changes
+      // Listen for both 'change' and 'click' events on checkboxes
       if (!window.cardCheckboxDelegateAttached) {
-        document.body.addEventListener('change', function(e) {
+        // Method 1: Change event delegation (primary)
+        document.addEventListener('change', function(e) {
           const target = e.target;
-          if (target.classList.contains('card-select-checkbox')) {
-            const isChecked = target.checked;
-            const cardId = target.getAttribute('data-id');
-            const groupId = target.getAttribute('data-group-id');
-            
-            console.log(`[CHECKBOX] Individual checkbox changed: checked=${isChecked}, id=${cardId}, groupId=${groupId}`);
-            
-            // Immediately verify the state
-            const verifyChecked = document.querySelector(`.card-select-checkbox[data-id="${cardId}"]`)?.checked;
-            console.log(`[CHECKBOX] Verification: checkbox with id ${cardId} is ${verifyChecked ? 'checked' : 'NOT checked'}`);
-            
-            // Count checked boxes right now
-            const allCheckedNow = document.querySelectorAll('.card-select-checkbox:checked');
-            console.log(`[CHECKBOX] Total checked boxes right now: ${allCheckedNow.length}`);
-            
-            updateBlastButtonState();
-            if (window.updateSelectAllState) {
-              window.updateSelectAllState();
-            } else {
-              console.error('[CHECKBOX] updateSelectAllState not found!');
-            }
-            updateGroupCheckboxState(target);
+          if (target.type === 'checkbox' && target.classList.contains('card-select-checkbox')) {
+            console.log('[CHECKBOX] CHANGE EVENT:', target, 'checked=' + target.checked);
+            updateAssignButtonState();
           }
-        }, true); // Use capture phase for earlier interception
+        }, true);
+        
+        // Method 2: Click event delegation (backup - catches if change doesn't fire)
+        document.addEventListener('click', function(e) {
+          const target = e.target;
+          if (target.type === 'checkbox' && target.classList.contains('card-select-checkbox')) {
+            // Use setTimeout to let browser update checked state first
+            setTimeout(() => {
+              console.log('[CHECKBOX] CLICK EVENT:', target, 'checked=' + target.checked);
+              updateAssignButtonState();
+            }, 0);
+          }
+        }, true);
+        
         window.cardCheckboxDelegateAttached = true;
-        console.log(`[CHECKBOX] Event delegation attached to document.body (capture phase)`);
+        console.log('[CHECKBOX] Event listeners attached (change + click)');
       }
       
       console.log(`[CHECKBOX] Found ${cardCheckboxes.length} checkboxes in table`);
@@ -604,88 +599,57 @@
         }
       }
 
-      // Update select all checkbox state - make it globally accessible
-      window.updateSelectAllState = function() {
-        // Query fresh - don't use cached cardCheckboxes
-        const allCheckboxes = document.querySelectorAll('.card-select-checkbox');
-        const checkedCheckboxes = document.querySelectorAll('.card-select-checkbox:checked');
-        
-        // Also manually check each checkbox to verify state
-        const manuallyChecked = Array.from(allCheckboxes).filter(cb => cb.checked === true);
-        
-        const selectedCount = checkedCheckboxes.length;
-        const manualCount = manuallyChecked.length;
-        
-        console.log(`[ASSIGN] Checkbox state: total=${allCheckboxes.length}, checked (querySelector)=${selectedCount}, checked (manual)=${manualCount}`);
-        
-        if (selectedCount !== manualCount) {
-          console.warn(`[ASSIGN] ⚠️ Mismatch! QuerySelector found ${selectedCount} but manual check found ${manualCount}`);
-          // Use manual count as it's more reliable
+      // BULLETPROOF: Minimal enable logic that cannot silently fail
+      window.updateAssignButtonState = function() {
+        const btn = document.getElementById('assignSelectedBtn');
+        if (!btn) {
+          console.error('[ASSIGN] Button not found!');
+          return;
         }
         
-        const finalCount = manualCount > selectedCount ? manualCount : selectedCount;
+        // Use multiple selectors to find checked checkboxes (bulletproof)
+        const selector1 = document.querySelectorAll('input[type="checkbox"].card-select-checkbox:checked').length;
+        const selector2 = document.querySelectorAll('.card-select-checkbox:checked').length;
+        const selector3 = Array.from(document.querySelectorAll('.card-select-checkbox')).filter(cb => cb.checked === true).length;
         
-        const selectAllCheckbox = document.getElementById('selectAllCheckbox');
-        if (selectAllCheckbox && allCheckboxes.length > 0) {
-          const allChecked = Array.from(allCheckboxes).every(cb => cb.checked);
-          const someChecked = Array.from(allCheckboxes).some(cb => cb.checked);
-          selectAllCheckbox.checked = allChecked;
-          selectAllCheckbox.indeterminate = someChecked && !allChecked;
+        const selected = Math.max(selector1, selector2, selector3);
+        
+        console.log('[ASSIGN] Selected count:', { selector1, selector2, selector3, final: selected });
+        console.log('[ASSIGN] Button before:', { 
+          disabled: btn.disabled, 
+          hasAttr: btn.hasAttribute('disabled'),
+          pointerEvents: getComputedStyle(btn).pointerEvents,
+          opacity: getComputedStyle(btn).opacity
+        });
+        
+        if (selected > 0) {
+          // ENABLE: Remove ALL ways it can be disabled
+          btn.disabled = false;
+          btn.removeAttribute('disabled');
+          btn.style.pointerEvents = 'auto';
+          btn.style.opacity = '1';
+          btn.style.cursor = 'pointer';
+          console.log('[ASSIGN] ✅ BUTTON ENABLED');
+        } else {
+          // DISABLE
+          btn.disabled = true;
+          btn.setAttribute('disabled', 'disabled');
+          btn.style.pointerEvents = 'none';
+          btn.style.opacity = '0.6';
+          btn.style.cursor = 'not-allowed';
+          console.log('[ASSIGN] ⚠️ BUTTON DISABLED');
         }
         
-        // Update assign and delete button states
-        const assignBtn = document.getElementById('assignSelectedBtn');
-        const deleteBtn = document.getElementById('deleteSelectedBtn');
-        if (assignBtn) {
-          const wasDisabled = assignBtn.disabled;
-          const shouldDisable = finalCount === 0;
-          
-          // Force update - remove and re-add disabled attribute to ensure DOM updates
-          if (shouldDisable) {
-            assignBtn.setAttribute('disabled', 'disabled');
-            assignBtn.disabled = true;
-          } else {
-            assignBtn.removeAttribute('disabled');
-            assignBtn.disabled = false;
-          }
-          
-          // Also update visual styles directly
-          if (shouldDisable) {
-            assignBtn.style.opacity = '0.6';
-            assignBtn.style.cursor = 'not-allowed';
-            assignBtn.style.pointerEvents = 'none';
-          } else {
-            assignBtn.style.opacity = '1';
-            assignBtn.style.cursor = 'pointer';
-            assignBtn.style.pointerEvents = 'auto';
-          }
-          
-          console.log(`[ASSIGN] Button state: disabled=${assignBtn.disabled}, hasAttribute=${assignBtn.hasAttribute('disabled')}, selected=${finalCount}`);
-          console.log(`[ASSIGN] Button computed style: opacity=${getComputedStyle(assignBtn).opacity}, pointerEvents=${getComputedStyle(assignBtn).pointerEvents}`);
-          
-          // Visual feedback
-          if (finalCount > 0 && wasDisabled) {
-            console.log(`[ASSIGN] ✅ Button ENABLED! ${finalCount} card(s) selected`);
-            // Flash visual feedback
-            assignBtn.style.animation = 'none';
-            setTimeout(() => {
-              assignBtn.style.animation = 'pulse 0.5s ease-in-out';
-            }, 10);
-          } else if (finalCount === 0 && !wasDisabled) {
-            console.log(`[ASSIGN] ⚠️ Button DISABLED! No cards selected`);
-          }
-        }
-        if (deleteBtn) {
-          const shouldDisable = finalCount === 0;
-          if (shouldDisable) {
-            deleteBtn.setAttribute('disabled', 'disabled');
-            deleteBtn.disabled = true;
-          } else {
-            deleteBtn.removeAttribute('disabled');
-            deleteBtn.disabled = false;
-          }
-        }
+        console.log('[ASSIGN] Button after:', { 
+          disabled: btn.disabled, 
+          hasAttr: btn.hasAttribute('disabled'),
+          pointerEvents: getComputedStyle(btn).pointerEvents,
+          opacity: getComputedStyle(btn).opacity
+        });
       };
+      
+      // Legacy function name for compatibility
+      window.updateSelectAllState = window.updateAssignButtonState;
 
       // Initial button state
       if (window.updateSelectAllState) window.updateSelectAllState();
