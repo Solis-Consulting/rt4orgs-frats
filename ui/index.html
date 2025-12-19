@@ -579,19 +579,19 @@
 
       // Update select all checkbox state
       function updateSelectAllState() {
-        if (selectAllCheckbox && cardCheckboxes.length > 0) {
-          const allChecked = Array.from(cardCheckboxes).every(cb => cb.checked);
-          const someChecked = Array.from(cardCheckboxes).some(cb => cb.checked);
+        // Query fresh - don't use cached cardCheckboxes
+        const allCheckboxes = document.querySelectorAll('.card-select-checkbox');
+        const checkedCheckboxes = document.querySelectorAll('.card-select-checkbox:checked');
+        const selectedCount = checkedCheckboxes.length;
+        
+        if (selectAllCheckbox && allCheckboxes.length > 0) {
+          const allChecked = Array.from(allCheckboxes).every(cb => cb.checked);
+          const someChecked = Array.from(allCheckboxes).some(cb => cb.checked);
           selectAllCheckbox.checked = allChecked;
           selectAllCheckbox.indeterminate = someChecked && !allChecked;
         }
         
         // Update assign and delete button states
-        // Query all checkboxes (including those in collapsed groups)
-        const allCheckboxes = document.querySelectorAll('.card-select-checkbox');
-        const checkedCheckboxes = document.querySelectorAll('.card-select-checkbox:checked');
-        const selectedCount = checkedCheckboxes.length;
-        
         console.log(`[ASSIGN] Checkbox state: total=${allCheckboxes.length}, checked=${selectedCount}`);
         
         const assignBtn = document.getElementById('assignSelectedBtn');
