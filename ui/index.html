@@ -101,6 +101,7 @@
             <option value="won">Won</option>
             <option value="lost">Lost</option>
           </select>
+          <button id="assignSelectedBtn" disabled style="background: #0ea5e9; margin-left: 8px;">Assign Selected</button>
           <button id="deleteSelectedBtn" disabled style="background: #ef4444; margin-left: 8px;">Delete Selected Cards</button>
           <div style="margin-left: auto; color: #9ca3af; font-size: 12px;">Card view - use Admin Dashboard → Blast for blasting</div>
         </div>
@@ -542,6 +543,7 @@
           updateBlastButtonState();
           updateSelectAllState();
           updateGroupCheckboxState(cb);
+          updateDeleteButtonState();
         });
       });
 
@@ -566,15 +568,26 @@
           selectAllCheckbox.checked = allChecked;
           selectAllCheckbox.indeterminate = someChecked && !allChecked;
         }
+        
+        // Update assign and delete button states
+        const selectedCount = document.querySelectorAll('.card-select-checkbox:checked').length;
+        const assignBtn = document.getElementById('assignSelectedBtn');
+        const deleteBtn = document.getElementById('deleteSelectedBtn');
+        if (assignBtn) assignBtn.disabled = selectedCount === 0;
+        if (deleteBtn) deleteBtn.disabled = selectedCount === 0;
       };
 
       // Enable/disable buttons based on selection
       const blastBtn = document.getElementById("blastSelectedBtn");
+      const assignBtn = document.getElementById("assignSelectedBtn");
       const deleteBtn = document.getElementById("deleteSelectedBtn");
       const updateDeleteButtonState = () => {
         const anySelected = getSelectedCardIds().length > 0;
         if (deleteBtn) {
           deleteBtn.disabled = !anySelected;
+        }
+        if (assignBtn) {
+          assignBtn.disabled = !anySelected;
         }
         updateSelectAllState();
       };
@@ -807,6 +820,112 @@
     }
 
     document.getElementById("deleteSelectedBtn").addEventListener("click", deleteSelectedCards);
+    
+    // Assign selected cards
+    document.getElementById("assignSelectedBtn").addEventListener("click", async function assignSelectedCards() {
+      const selected = getSelectedCardIds();
+      if (selected.length === 0) {
+        alert('No cards selected');
+        return;
+      }
+      
+      const apiToken = localStorage.getItem('apiToken');
+      if (!apiToken) {
+        alert('Please login as admin to assign cards');
+        window.location.href = 'login.html';
+        return;
+      }
+      
+      try {
+        // Get list of users for assignment
+        const res = await fetch(`${BACKEND}/admin/users`, {
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (res.status === 401 || res.status === 403) {
+          alert('Admin access required');
+          return;
+        }
+        
+        const data = await res.json();
+        const users = data.users || [];
+        
+        if (users.length === 0) {
+          alert('No users found. Create a user first in the admin dashboard.');
+          return;
+        }
+        
+        const userOptions = users.map((u, i) => `${i + 1}. ${u.username} (${u.id})`).join('\n');
+        const selection = prompt(`Assign ${selected.length} card(s) to user:\n\n${userOptions}\n\nEnter username or ID:`);
+        
+        if (!selection) return;
+        
+        // Find user by username or ID
+        const user = users.find(u => u.username.toLowerCase() === selection.toLowerCase() || u.id.toLowerCase() === selection.toLowerCase());
+        if (!user) {
+          alert('User not found');
+          return;
+        }
+        
+        const notes = prompt('Assignment notes (optional):') || null;
+        
+        const assignBtn = document.getElementById("assignSelectedBtn");
+        assignBtn.disabled = true;
+        assignBtn.textContent = `Assigning ${selected.length} card(s)...`;
+        
+        let successCount = 0;
+        let failCount = 0;
+        const errors = [];
+        
+        // Assign each card
+        for (const cardId of selected) {
+          try {
+            const assignRes = await fetch(`${BACKEND}/admin/assignments`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${apiToken}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                card_id: cardId,
+                user_id: user.id,
+                notes: notes
+              })
+            });
+            
+            const assignData = await assignRes.json();
+            if (assignData.ok) {
+              successCount++;
+            } else {
+              failCount++;
+              errors.push(`${cardId}: ${assignData.detail || 'Unknown error'}`);
+            }
+          } catch (error) {
+            failCount++;
+            errors.push(`${cardId}: ${error.message}`);
+          }
+        }
+        
+        assignBtn.disabled = false;
+        assignBtn.textContent = "Assign Selected";
+        
+        if (failCount === 0) {
+          alert(`Successfully assigned ${successCount} card(s) to ${user.username}`);
+        } else {
+          alert(`Assigned ${successCount} card(s), failed ${failCount}:\n\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...' : ''}`);
+        }
+        
+        loadCards();
+      } catch (error) {
+        const assignBtn = document.getElementById("assignSelectedBtn");
+        assignBtn.disabled = false;
+        assignBtn.textContent = "Assign Selected";
+        alert(`Error: ${error.message}`);
+      }
+    });
 
     document.querySelectorAll(".pill").forEach(p => {
       p.addEventListener("click", () => {
