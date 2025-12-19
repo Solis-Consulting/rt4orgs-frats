@@ -344,6 +344,21 @@ async def log_requests(request: Request, call_next):
         print(f"[MIDDLEWARE] Client: {request.client}", flush=True)
         print("=" * 80, flush=True)
     
+    # 🔥 CRITICAL: Extra logging for /rep/blast specifically
+    if request.method == "POST" and "/rep/blast" in str(request.url.path):
+        print("=" * 80, flush=True)
+        print(f"[MIDDLEWARE] 🔥🔥🔥 /rep/blast REQUEST IN MIDDLEWARE 🔥🔥🔥", flush=True)
+        print("=" * 80, flush=True)
+        print(f"[MIDDLEWARE] Full URL: {request.url}", flush=True)
+        print(f"[MIDDLEWARE] Path: {request.url.path}", flush=True)
+        print(f"[MIDDLEWARE] Query: {request.url.query}", flush=True)
+        print(f"[MIDDLEWARE] Authorization header present: {'Authorization' in request.headers}", flush=True)
+        if 'Authorization' in request.headers:
+            auth_header = request.headers.get('Authorization', '')
+            print(f"[MIDDLEWARE] Authorization header length: {len(auth_header)}", flush=True)
+            print(f"[MIDDLEWARE] Authorization header starts with Bearer: {auth_header.startswith('Bearer ')}", flush=True)
+        print("=" * 80, flush=True)
+    
     # CRITICAL: Log OPTIONS requests (CORS preflight) to see if they're being blocked
     if request.method == "OPTIONS":
         print("=" * 80, flush=True)
@@ -3799,23 +3814,54 @@ async def rep_get_conversations(request: Request):
     return {"ok": True, "conversations": conversations}
 
 
+# 🔥 TEST ENDPOINT: No auth required - just to verify requests reach the server
+@app.post("/test/blast-ping")
+async def test_blast_ping(request: Request):
+    """Test endpoint to verify POST requests are reaching the server"""
+    print("=" * 80, flush=True)
+    print(f"[TEST_PING] 🔥 TEST ENDPOINT HIT", flush=True)
+    print("=" * 80, flush=True)
+    print(f"[TEST_PING] Method: {request.method}", flush=True)
+    print(f"[TEST_PING] Path: {request.url.path}", flush=True)
+    print(f"[TEST_PING] Headers: {dict(request.headers)}", flush=True)
+    try:
+        body = await request.json()
+        print(f"[TEST_PING] Body: {body}", flush=True)
+    except:
+        body_text = await request.body()
+        print(f"[TEST_PING] Body (text): {body_text}", flush=True)
+    print("=" * 80, flush=True)
+    return {"ok": True, "message": "Test endpoint reached successfully", "timestamp": datetime.utcnow().isoformat()}
+
+
 @app.post("/rep/blast")
 async def rep_blast(
     request: Request
 ):
-    # Authenticate user manually
-    try:
-        user = await get_current_owner_or_rep(request)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[REP_BLAST] Auth error: {e}")
-        raise HTTPException(status_code=401, detail="Authentication required")
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
-    # 🔥 CRITICAL: Log IMMEDIATELY - this proves the handler was entered
-    # This MUST be the first line - if this doesn't log, FastAPI is rejecting before handler
+    # 🔥 CRITICAL: Log IMMEDIATELY - BEFORE ANYTHING ELSE
+    # This MUST be the absolute first line - if this doesn't log, FastAPI is rejecting before handler
     logger.error("🔥🔥🔥 ENTERED /rep/blast HANDLER 🔥🔥🔥")
     print("🔥🔥🔥 ENTERED /rep/blast HANDLER 🔥🔥🔥", flush=True)
+    print(f"[REP_BLAST] Request method: {request.method}", flush=True)
+    print(f"[REP_BLAST] Request path: {request.url.path}", flush=True)
+    print(f"[REP_BLAST] Request headers: {dict(request.headers)}", flush=True)
+    
+    # Authenticate user manually
+    try:
+        print(f"[REP_BLAST] Attempting authentication...", flush=True)
+        user = await get_current_owner_or_rep(request)
+        print(f"[REP_BLAST] ✅ Authentication successful: {user.get('id')} (role: {user.get('role')})", flush=True)
+    except HTTPException as auth_exc:
+        print(f"[REP_BLAST] ❌ Auth HTTPException: {auth_exc.status_code} - {auth_exc.detail}", flush=True)
+        logger.error(f"[REP_BLAST] Auth HTTPException: {auth_exc.status_code} - {auth_exc.detail}")
+        raise
+    except Exception as e:
+        print(f"[REP_BLAST] ❌ Auth error: {type(e).__name__}: {str(e)}", flush=True)
+        logger.error(f"[REP_BLAST] Auth error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=401, detail="Authentication required")
     
     # Parse JSON directly - bypasses all FastAPI validation
     try:
