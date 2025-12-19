@@ -1094,19 +1094,29 @@
       const btn = target.id === 'assignSelectedBtn' ? target : target.closest('#assignSelectedBtn');
       
       if (btn) {
-        console.log('[ASSIGN] ✅ Click detected on assign button!', {
-          disabled: btn.disabled,
-          id: btn.id,
-          text: btn.textContent
-        });
+        console.log('[ASSIGN] 🔵 Button clicked via event delegation');
+        console.log('[ASSIGN] Button disabled state:', btn.disabled);
+        console.log('[ASSIGN] Button hasAttribute disabled:', btn.hasAttribute('disabled'));
+        console.log('[ASSIGN] Button computed style pointerEvents:', getComputedStyle(btn).pointerEvents);
         
-        e.preventDefault();
-        e.stopPropagation();
+        // Check current selection count
+        const currentSelected = document.querySelectorAll('.card-select-checkbox:checked').length;
+        console.log('[ASSIGN] Current selected count:', currentSelected);
         
-        // Check if button is disabled
-        if (btn.disabled) {
-          console.log('[ASSIGN] ⚠️ Button is disabled');
+        // If disabled, check if it should actually be enabled
+        if (btn.disabled && currentSelected > 0) {
+          console.log('[ASSIGN] ⚠️ Button is disabled but cards are selected - enabling and continuing');
+          btn.removeAttribute('disabled');
+          btn.disabled = false;
+          btn.style.opacity = '1';
+          btn.style.cursor = 'pointer';
+          btn.style.pointerEvents = 'auto';
+          // Don't return - continue to call the function
+        } else if (btn.disabled && currentSelected === 0) {
+          console.log('[ASSIGN] ⚠️ Button is disabled and no cards selected');
           alert('Please select at least one card to assign.');
+          e.preventDefault();
+          e.stopPropagation();
           return false;
         }
         
@@ -1120,9 +1130,12 @@
             alert(`Error: ${err.message}`);
           }
         } else {
-          console.error('[ASSIGN] Function not found on window!');
-          alert('Assign function not loaded. Please refresh the page.');
+          console.error('[ASSIGN] assignSelectedCards function not found!');
+          alert('Error: Assign function not available');
         }
+        
+        e.preventDefault();
+        e.stopPropagation();
         return false;
       }
     }, true); // Use capture phase for better reliability
