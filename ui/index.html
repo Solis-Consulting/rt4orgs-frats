@@ -362,11 +362,29 @@
       }
     }
 
+    // Global selection state (source of truth)
+    window.selectedCardIds = window.selectedCardIds || new Set();
+    
     function getSelectedCardIds() {
-      const checkboxes = document.querySelectorAll('.card-select-checkbox:checked');
-      const ids = Array.from(checkboxes).map(cb => cb.getAttribute('data-id'));
-      console.log(`[SELECT] getSelectedCardIds: found ${ids.length} selected cards:`, ids);
+      // Use state (Set) as source of truth, not DOM
+      const ids = Array.from(window.selectedCardIds);
+      console.log(`[SELECT] getSelectedCardIds: ${ids.length} selected cards from state:`, ids);
       return ids;
+    }
+    
+    // Update selection state when checkbox changes
+    function updateSelectionState(cardId, isChecked) {
+      if (!window.selectedCardIds) {
+        window.selectedCardIds = new Set();
+      }
+      
+      if (isChecked) {
+        window.selectedCardIds.add(cardId);
+      } else {
+        window.selectedCardIds.delete(cardId);
+      }
+      
+      console.log(`[SELECT] State updated: cardId=${cardId}, checked=${isChecked}, total=${window.selectedCardIds.size}`);
     }
 
     function renderCards() {
@@ -528,13 +546,17 @@
           const allCheckboxes = document.querySelectorAll(".card-select-checkbox");
           allCheckboxes.forEach(cb => {
             cb.checked = isChecked;
+            const cardId = cb.getAttribute('data-id');
+            if (cardId) {
+              updateSelectionState(cardId, isChecked);
+            }
           });
           // Update group checkboxes
           document.querySelectorAll('.group-checkbox').forEach(gcb => {
             gcb.checked = isChecked;
           });
           updateBlastButtonState();
-          if (window.updateSelectAllState) window.updateSelectAllState();
+          if (window.updateAssignButtonState) window.updateAssignButtonState();
         });
       }
 
@@ -550,25 +572,38 @@
           console.log(`[CHECKBOX] Found ${groupCheckboxes.length} checkboxes in group ${groupId}`);
           groupCheckboxes.forEach(cb => {
             cb.checked = checked;
+            const cardId = cb.getAttribute('data-id');
+            if (cardId) {
+              updateSelectionState(cardId, checked);
+            }
           });
           updateBlastButtonState();
-          if (window.updateSelectAllState) window.updateSelectAllState();
+          if (window.updateAssignButtonState) window.updateAssignButtonState();
         });
       });
 
       // BULLETPROOF: Use multiple event listeners to ensure we catch all checkbox changes
       // Listen for both 'change' and 'click' events on checkboxes
       if (!window.cardCheckboxDelegateAttached) {
-        // Method 1: Change event delegation (primary)
+        // Method 1: Change event delegation (primary) - updates state, then button
         document.addEventListener('change', function(e) {
           const target = e.target;
           if (target.type === 'checkbox' && target.classList.contains('card-select-checkbox')) {
-            console.log('[CHECKBOX] CHANGE EVENT:', target, 'checked=' + target.checked);
+            const cardId = target.getAttribute('data-id');
+            const isChecked = target.checked;
+            
+            console.log('[CHECKBOX] CHANGE EVENT:', target, 'checked=' + isChecked, 'cardId=' + cardId);
+            
+            // Update state (source of truth)
+            if (cardId) {
+              updateSelectionState(cardId, isChecked);
+            }
+            
+            // Update button based on state
             if (window.updateAssignButtonState) {
               window.updateAssignButtonState();
-            } else {
-              console.error('[CHECKBOX] updateAssignButtonState not found!');
             }
+            
             // Also update other UI elements
             if (typeof updateBlastButtonState === 'function') updateBlastButtonState();
             if (typeof updateGroupCheckboxState === 'function') updateGroupCheckboxState(target);
@@ -581,10 +616,21 @@
           if (target.type === 'checkbox' && target.classList.contains('card-select-checkbox')) {
             // Use setTimeout to let browser update checked state first
             setTimeout(() => {
-              console.log('[CHECKBOX] CLICK EVENT:', target, 'checked=' + target.checked);
+              const cardId = target.getAttribute('data-id');
+              const isChecked = target.checked;
+              
+              console.log('[CHECKBOX] CLICK EVENT:', target, 'checked=' + isChecked, 'cardId=' + cardId);
+              
+              // Update state (source of truth)
+              if (cardId) {
+                updateSelectionState(cardId, isChecked);
+              }
+              
+              // Update button based on state
               if (window.updateAssignButtonState) {
                 window.updateAssignButtonState();
               }
+              
               // Also update other UI elements
               if (typeof updateBlastButtonState === 'function') updateBlastButtonState();
               if (typeof updateGroupCheckboxState === 'function') updateGroupCheckboxState(target);
@@ -611,7 +657,7 @@
         }
       }
 
-      // BULLETPROOF: Minimal enable logic that cannot silently fail
+      // BULLETPROOF: State-driven button logic (uses Set, not DOM queries)
       window.updateAssignButtonState = function() {
         const btn = document.getElementById('assignSelectedBtn');
         if (!btn) {
@@ -619,22 +665,13 @@
           return;
         }
         
-        // Use multiple selectors to find checked checkboxes (bulletproof)
-        const selector1 = document.querySelectorAll('input[type="checkbox"].card-select-checkbox:checked').length;
-        const selector2 = document.querySelectorAll('.card-select-checkbox:checked').length;
-        const selector3 = Array.from(document.querySelectorAll('.card-select-checkbox')).filter(cb => cb.checked === true).length;
+        // Use state (Set) as source of truth, NOT DOM queries
+        const count = window.selectedCardIds?.size || 0;
         
-        const selected = Math.max(selector1, selector2, selector3);
+        console.log('[ASSIGN] selectedCardIds.size =', count);
+        console.log('[ASSIGN] selectedCardIds =', Array.from(window.selectedCardIds || []));
         
-        console.log('[ASSIGN] Selected count:', { selector1, selector2, selector3, final: selected });
-        console.log('[ASSIGN] Button before:', { 
-          disabled: btn.disabled, 
-          hasAttr: btn.hasAttribute('disabled'),
-          pointerEvents: getComputedStyle(btn).pointerEvents,
-          opacity: getComputedStyle(btn).opacity
-        });
-        
-        if (selected > 0) {
+        if (count > 0) {
           // ENABLE: Remove ALL ways it can be disabled
           btn.disabled = false;
           btn.removeAttribute('disabled');
@@ -649,22 +686,18 @@
           btn.style.pointerEvents = 'none';
           btn.style.opacity = '0.6';
           btn.style.cursor = 'not-allowed';
-          console.log('[ASSIGN] ⚠️ BUTTON DISABLED');
+          console.log('[ASSIGN] ❌ BUTTON DISABLED');
         }
-        
-        console.log('[ASSIGN] Button after:', { 
-          disabled: btn.disabled, 
-          hasAttr: btn.hasAttribute('disabled'),
-          pointerEvents: getComputedStyle(btn).pointerEvents,
-          opacity: getComputedStyle(btn).opacity
-        });
       };
       
       // Legacy function name for compatibility
       window.updateSelectAllState = window.updateAssignButtonState;
 
+      // Clear selection state when re-rendering (cards may have changed)
+      window.selectedCardIds = new Set();
+      
       // Initial button state
-      if (window.updateSelectAllState) window.updateSelectAllState();
+      if (window.updateAssignButtonState) window.updateAssignButtonState();
       
       // Re-attach assign button listener (button is in toolbar, shouldn't be recreated, but ensure it's attached)
       if (window.assignSelectedCards) {
@@ -825,18 +858,23 @@
       
       // Check if all are already checked
       const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+      const newCheckedState = !allChecked;
       
-      // Toggle all
+      // Toggle all and update state
       checkboxes.forEach(cb => {
-        cb.checked = !allChecked;
+        cb.checked = newCheckedState;
+        const cardId = cb.getAttribute('data-id');
+        if (cardId) {
+          updateSelectionState(cardId, newCheckedState);
+        }
       });
       
       if (groupCheckbox) {
-        groupCheckbox.checked = !allChecked;
+        groupCheckbox.checked = newCheckedState;
       }
       
       updateBlastButtonState();
-      if (window.updateSelectAllState) window.updateSelectAllState();
+      if (window.updateAssignButtonState) window.updateAssignButtonState();
     };
     document.getElementById("cardTypeFilter").addEventListener("change", loadCards);
     document.getElementById("cardStateFilter").addEventListener("change", loadCards);
