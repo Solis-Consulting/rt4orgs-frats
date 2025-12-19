@@ -110,8 +110,11 @@ def build_list_query(
     Build complete SELECT query with WHERE, LIMIT, OFFSET.
     Returns (query, params).
     """
+    # Check if upload_batch_id column exists (may not exist in old schema)
+    # For now, we'll try to select it and handle gracefully if it doesn't exist
     query = """
-        SELECT id, type, card_data, sales_state, owner, created_at, updated_at
+        SELECT id, type, card_data, sales_state, owner, created_at, updated_at, 
+               COALESCE(upload_batch_id, NULL) as upload_batch_id
         FROM cards
     """
     

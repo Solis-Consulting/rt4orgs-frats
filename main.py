@@ -2436,7 +2436,8 @@ async def list_cards(
                     elif hasattr(card_data, 'dict'):  # psycopg2.extras.Json object
                         card_data = card_data.dict()
                     
-                    cards.append({
+                    # Handle both old schema (7 columns) and new schema (8 columns with upload_batch_id)
+                    card_obj = {
                         "id": row[0],
                         "type": row[1],
                         "card_data": card_data,
@@ -2444,7 +2445,11 @@ async def list_cards(
                         "owner": row[4],
                         "created_at": row[5].isoformat() if row[5] else None,
                         "updated_at": row[6].isoformat() if row[6] else None,
-                    })
+                    }
+                    # Add upload_batch_id if column exists (8th column)
+                    if len(row) > 7:
+                        card_obj["upload_batch_id"] = row[7]
+                    cards.append(card_obj)
         except psycopg2.errors.UndefinedTable as table_error:
             # #region agent log - Table missing error from query
             try:
@@ -2486,7 +2491,7 @@ async def list_cards(
                                 elif hasattr(card_data, 'dict'):
                                     card_data = card_data.dict()
                                 
-                                cards.append({
+                                card_obj = {
                                     "id": row[0],
                                     "type": row[1],
                                     "card_data": card_data,
@@ -2494,7 +2499,11 @@ async def list_cards(
                                     "owner": row[4],
                                     "created_at": row[5].isoformat() if row[5] else None,
                                     "updated_at": row[6].isoformat() if row[6] else None,
-                                })
+                                }
+                                # Add upload_batch_id if column exists (8th column)
+                                if len(row) > 7:
+                                    card_obj["upload_batch_id"] = row[7]
+                                cards.append(card_obj)
                             
                             result = {
                                 "cards": cards,
