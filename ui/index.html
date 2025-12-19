@@ -577,23 +577,13 @@
         if (deleteBtn) deleteBtn.disabled = selectedCount === 0;
       };
 
-      // Enable/disable buttons based on selection
-      const blastBtn = document.getElementById("blastSelectedBtn");
-      const assignBtn = document.getElementById("assignSelectedBtn");
-      const deleteBtn = document.getElementById("deleteSelectedBtn");
-      const updateDeleteButtonState = () => {
-        const anySelected = getSelectedCardIds().length > 0;
-        if (deleteBtn) {
-          deleteBtn.disabled = !anySelected;
-        }
-        if (assignBtn) {
-          assignBtn.disabled = !anySelected;
-        }
-        updateSelectAllState();
-      };
+      // Button state is handled in updateSelectAllState() above
       
       cardCheckboxes.forEach(cb => {
-        cb.addEventListener("change", updateDeleteButtonState);
+        cb.addEventListener("change", () => {
+          updateSelectAllState();
+          updateBlastButtonState();
+        });
       });
       updateDeleteButtonState();
     }
