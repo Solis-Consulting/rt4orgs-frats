@@ -534,7 +534,7 @@
             gcb.checked = isChecked;
           });
           updateBlastButtonState();
-          updateSelectAllState();
+          if (window.updateSelectAllState) window.updateSelectAllState();
         });
       }
 
@@ -552,7 +552,7 @@
             cb.checked = checked;
           });
           updateBlastButtonState();
-          updateSelectAllState();
+          if (window.updateSelectAllState) window.updateSelectAllState();
         });
       });
 
@@ -577,7 +577,11 @@
             console.log(`[CHECKBOX] Total checked boxes right now: ${allCheckedNow.length}`);
             
             updateBlastButtonState();
-            updateSelectAllState();
+            if (window.updateSelectAllState) {
+              window.updateSelectAllState();
+            } else {
+              console.error('[CHECKBOX] updateSelectAllState not found!');
+            }
             updateGroupCheckboxState(target);
           }
         }, true); // Use capture phase for earlier interception
@@ -600,8 +604,8 @@
         }
       }
 
-      // Update select all checkbox state
-      function updateSelectAllState() {
+      // Update select all checkbox state - make it globally accessible
+      window.updateSelectAllState = function() {
         // Query fresh - don't use cached cardCheckboxes
         const allCheckboxes = document.querySelectorAll('.card-select-checkbox');
         const checkedCheckboxes = document.querySelectorAll('.card-select-checkbox:checked');
@@ -621,6 +625,7 @@
         
         const finalCount = manualCount > selectedCount ? manualCount : selectedCount;
         
+        const selectAllCheckbox = document.getElementById('selectAllCheckbox');
         if (selectAllCheckbox && allCheckboxes.length > 0) {
           const allChecked = Array.from(allCheckboxes).every(cb => cb.checked);
           const someChecked = Array.from(allCheckboxes).some(cb => cb.checked);
