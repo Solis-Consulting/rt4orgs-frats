@@ -605,15 +605,41 @@ def run_blast_for_cards(
             write_initial_state(folder, data, purchased_example or {})
             write_initial_message(folder, message)
 
+            # 🔥 ENVIRONMENT ISOLATION: Generate environment_id for this blast
+            from backend.environment import generate_environment_id, store_message_event
+            
+            # Infer campaign_id from card data
+            campaign_id = None
+            if data.get("fraternity"):
+                campaign_id = "frat_rt4orgs"
+            elif data.get("faith_group"):
+                campaign_id = "faith_rt4orgs"
+            elif data.get("role") == "Office":
+                campaign_id = "faith_rt4orgs"
+            else:
+                campaign_id = "default_rt4orgs"
+            
+            # Generate environment_id for this blast
+            environment_id = generate_environment_id(rep_user_id, campaign_id)
+            print(f"[BLAST] 🔥 Environment ID: {environment_id} (rep={rep_user_id}, campaign={campaign_id})", flush=True)
+            
             # Record conversation row directly into conversations table
             # Also store outbound message in history
             with conn.cursor() as cur:
-                # First, get existing history
-                cur.execute("""
-                    SELECT COALESCE(history::text, '[]') as history
-                    FROM conversations
-                    WHERE phone = %s;
-                """, (phone,))
+                # First, get existing history for this environment
+                try:
+                    cur.execute("""
+                        SELECT COALESCE(history::text, '[]') as history
+                        FROM conversations
+                        WHERE phone = %s AND environment_id = %s;
+                    """, (phone, environment_id))
+                except psycopg2.ProgrammingError:
+                    # Fallback if environment_id column doesn't exist
+                    cur.execute("""
+                        SELECT COALESCE(history::text, '[]') as history
+                        FROM conversations
+                        WHERE phone = %s;
+                    """, (phone,))
                 row = cur.fetchone()
                 existing_history = []
                 if row and row[0]:
@@ -648,18 +674,26 @@ def run_blast_for_cards(
                 existing_state = None
                 existing_card_id = None
                 
-                # Always check for existing conversation (not just when rep_user_id is set)
-                cur.execute("""
-                    SELECT rep_user_id, state, card_id FROM conversations
-                    WHERE phone = %s
-                    LIMIT 1
-                """, (phone,))
+                # Always check for existing conversation in this environment (not just when rep_user_id is set)
+                try:
+                    cur.execute("""
+                        SELECT rep_user_id, state, card_id FROM conversations
+                        WHERE phone = %s AND environment_id = %s
+                        LIMIT 1
+                    """, (phone, environment_id))
+                except psycopg2.ProgrammingError:
+                    # Fallback if environment_id column doesn't exist
+                    cur.execute("""
+                        SELECT rep_user_id, state, card_id FROM conversations
+                        WHERE phone = %s
+                        LIMIT 1
+                    """, (phone,))
                 existing_row = cur.fetchone()
                 if existing_row:
                     existing_rep = existing_row[0]
                     existing_state = existing_row[1]
                     existing_card_id = existing_row[2]
-                    print(f"[BLAST] 🔍 Found existing conversation: rep={existing_rep}, state={existing_state}, card_id={existing_card_id}", flush=True)
+                    print(f"[BLAST] 🔍 Found existing conversation in environment {environment_id}: rep={existing_rep}, state={existing_state}, card_id={existing_card_id}", flush=True)
                 
                 # Determine if ownership is changing
                 ownership_changing = False
@@ -683,18 +717,16 @@ def run_blast_for_cards(
                 if ownership_changing:
                     print(f"[BLAST] 🔄 Resetting state to '{new_state}' for clean ownership transition", flush=True)
                 
-                # Insert or update conversation with history
-                # CRITICAL: Conflict resolution - if multiple reps message the same contact,
-                # we use the LAST rep to message (most recent last_outbound_at).
-                # This ensures the conversation uses the most recent rep's Markov responses.
-                # Note: rep_phone_number column kept for backward compatibility but not used
+                # Insert or update conversation with history (scoped to environment_id)
+                # CRITICAL: Primary key is now (phone, environment_id) - each environment is isolated
                 try:
+                    # Try with environment_id (new schema)
                     cur.execute(
                         """
                         INSERT INTO conversations
-                        (phone, contact_id, card_id, owner, state, source_batch_id, last_outbound_at, history, routing_mode, rep_user_id)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
-                        ON CONFLICT (phone)
+                        (phone, environment_id, contact_id, card_id, owner, state, source_batch_id, last_outbound_at, history, routing_mode, rep_user_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+                        ON CONFLICT (phone, environment_id)
                         DO UPDATE SET
                           last_outbound_at = EXCLUDED.last_outbound_at,
                           owner = EXCLUDED.owner,
@@ -710,6 +742,7 @@ def run_blast_for_cards(
                         """,
                         (
                             phone,
+                            environment_id,
                             card_id,  # contact_id
                             card_id,
                             owner,
@@ -721,7 +754,42 @@ def run_blast_for_cards(
                             rep_user_id,
                         ),
                     )
-                    print(f"[BLAST] ✅ Conversation recorded/updated: phone={phone}, rep_user_id={rep_user_id}, state={new_state}", flush=True)
+                    print(f"[BLAST] ✅ Conversation recorded/updated: phone={phone}, env={environment_id}, rep_user_id={rep_user_id}, state={new_state}", flush=True)
+                except psycopg2.ProgrammingError as e:
+                    # Fallback if environment_id column or composite key doesn't exist yet
+                    if 'environment_id' in str(e) or 'conversations_pkey' in str(e):
+                        print(f"[BLAST] ⚠️ environment_id not available - using fallback schema", flush=True)
+                        cur.execute(
+                            """
+                            INSERT INTO conversations
+                            (phone, contact_id, card_id, owner, state, source_batch_id, last_outbound_at, history, routing_mode, rep_user_id)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+                            ON CONFLICT (phone)
+                            DO UPDATE SET
+                              last_outbound_at = EXCLUDED.last_outbound_at,
+                              owner = EXCLUDED.owner,
+                              state = EXCLUDED.state,
+                              source_batch_id = EXCLUDED.source_batch_id,
+                              card_id = COALESCE(EXCLUDED.card_id, conversations.card_id),
+                              history = EXCLUDED.history,
+                              routing_mode = 'ai',
+                              rep_user_id = EXCLUDED.rep_user_id;
+                            """,
+                            (
+                                phone,
+                                card_id,  # contact_id
+                                card_id,
+                                owner,
+                                new_state,
+                                blast_id,
+                                datetime.utcnow(),
+                                json.dumps(updated_history),
+                                routing_mode,
+                                rep_user_id,
+                            ),
+                        )
+                    else:
+                        raise
                     
                     # Handle ownership transition with proper handoff logging
                     if ownership_changing:
@@ -758,10 +826,36 @@ def run_blast_for_cards(
                             )
                             print(f"[BLAST] ✅ Ownership transition complete: owner now owns conversation", flush=True)
                     
+                    # Store outbound message event (CRITICAL: with message_sid to mark as "sent")
+                    message_sid = sms_result.get("sid")
+                    if message_sid:
+                        store_message_event(
+                            conn=conn,
+                            phone_number=phone,
+                            environment_id=environment_id,
+                            direction="outbound",
+                            message_text=message,
+                            message_sid=message_sid,  # REQUIRED: Only messages with message_sid count as "sent"
+                            rep_id=rep_user_id,
+                            campaign_id=campaign_id,
+                            state=new_state,
+                            twilio_status=sms_result.get("status")
+                        )
+                        print(f"[BLAST] ✅ Stored outbound message event: env={environment_id}, sid={message_sid}", flush=True)
+                    else:
+                        print(f"[BLAST] ⚠️ WARNING: No message_sid from Twilio - message event not stored!", flush=True)
+                    
                     # Verify the rep_user_id was actually saved
-                    cur.execute("""
-                        SELECT rep_user_id FROM conversations WHERE phone = %s
-                    """, (phone,))
+                    try:
+                        cur.execute("""
+                            SELECT rep_user_id FROM conversations 
+                            WHERE phone = %s AND environment_id = %s
+                        """, (phone, environment_id))
+                    except psycopg2.ProgrammingError:
+                        # Fallback if environment_id column doesn't exist
+                        cur.execute("""
+                            SELECT rep_user_id FROM conversations WHERE phone = %s
+                        """, (phone,))
                     verify_row = cur.fetchone()
                     if verify_row:
                         print(f"[BLAST] ✅ Verified rep_user_id in DB: {verify_row[0]} (expected: {rep_user_id})", flush=True)

@@ -895,34 +895,88 @@ async def twilio_inbound(request: Request):
             else:
                 print(f"[TWILIO_INBOUND] ⚠️ No card found by phone number: {normalized_phone}", flush=True)
         
-        # Get conversation to check routing mode and identify which rep owns this conversation
-        # CRITICAL: Each rep has their own Markov handler (response text), but NLP logic is shared.
-        # The rep_user_id determines which rep's configured responses to use.
-        # If multiple reps messaged the same contact, rep_user_id reflects the LAST rep to message.
-        print(f"[TWILIO_INBOUND] 🔍 Step 2: Loading conversation from DB...", flush=True)
+        # 🔥 ENVIRONMENT ISOLATION: Route inbound to environment that last sent outbound
+        # This is the critical fix - we must route to the correct environment, not just any conversation
+        print(f"[TWILIO_INBOUND] 🔍 Step 2: Routing to environment (last outbound wins)...", flush=True)
+        from backend.environment import route_inbound_to_environment, get_or_create_environment, store_message_event
+        
+        # Route to environment that last sent an outbound SMS
+        environment_id, routed_rep_id, routed_campaign_id = route_inbound_to_environment(conn, normalized_phone)
+        
+        # If no prior outbound, create new environment based on current context
+        if not environment_id:
+            print(f"[TWILIO_INBOUND] ⚠️ No prior outbound found - creating new environment", flush=True)
+            # Resolve rep_id from card_assignments if we have card_id
+            resolved_rep_user_id = None
+            if card_id:
+                from backend.handoffs import resolve_current_rep
+                resolved_rep_user_id = resolve_current_rep(conn, card_id)
+            
+            # Infer campaign_id from card if available
+            campaign_id = None
+            if card and card.get("card_data"):
+                card_data = card["card_data"]
+                if card_data.get("fraternity"):
+                    campaign_id = "frat_rt4orgs"
+                elif card_data.get("faith_group"):
+                    campaign_id = "faith_rt4orgs"
+                elif card_data.get("role") == "Office":
+                    campaign_id = "faith_rt4orgs"
+                else:
+                    campaign_id = "default_rt4orgs"
+            
+            environment_id = get_or_create_environment(conn, normalized_phone, resolved_rep_user_id, campaign_id, card_id)
+            routed_rep_id = resolved_rep_user_id
+            routed_campaign_id = campaign_id
+            print(f"[TWILIO_INBOUND] ✅ Created new environment: {environment_id} (rep={routed_rep_id}, campaign={routed_campaign_id})", flush=True)
+        else:
+            print(f"[TWILIO_INBOUND] ✅ Routed to existing environment: {environment_id} (rep={routed_rep_id}, campaign={routed_campaign_id})", flush=True)
+        
+        # Get conversation for this specific environment
         routing_mode = 'ai'  # Default to AI
-        rep_user_id = None
+        rep_user_id = routed_rep_id
         conversation_state = None
         conversation_card_id = None
         conversation_row = None
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT routing_mode, rep_user_id, state, card_id FROM conversations WHERE phone = %s LIMIT 1
-            """, (normalized_phone,))
-            row = cur.fetchone()
-            if row:
-                conversation_row = row
-                routing_mode = row[0] or 'ai'
-                rep_user_id = row[1]
-                conversation_state = row[2]
-                conversation_card_id = row[3]
-                print(f"[TWILIO_INBOUND] ✅ Conversation found in DB", flush=True)
-                print(f"[TWILIO_INBOUND]   routing_mode: {routing_mode}", flush=True)
-                print(f"[TWILIO_INBOUND]   rep_user_id (from conversations): {rep_user_id}", flush=True)
-                print(f"[TWILIO_INBOUND]   current_state: {conversation_state}", flush=True)
-                print(f"[TWILIO_INBOUND]   card_id (from conversations): {conversation_card_id}", flush=True)
-            else:
-                print(f"[TWILIO_INBOUND] ⚠️ No conversation found in DB for phone: {normalized_phone}", flush=True)
+            # Try to query with environment_id (new schema)
+            try:
+                cur.execute("""
+                    SELECT routing_mode, rep_user_id, state, card_id 
+                    FROM conversations 
+                    WHERE phone = %s AND environment_id = %s
+                    LIMIT 1
+                """, (normalized_phone, environment_id))
+                row = cur.fetchone()
+                if row:
+                    conversation_row = row
+                    routing_mode = row[0] or 'ai'
+                    rep_user_id = row[1] or routed_rep_id  # Use routed rep if conversation has NULL
+                    conversation_state = row[2]
+                    conversation_card_id = row[3]
+                    print(f"[TWILIO_INBOUND] ✅ Conversation found for environment {environment_id}", flush=True)
+                    print(f"[TWILIO_INBOUND]   routing_mode: {routing_mode}", flush=True)
+                    print(f"[TWILIO_INBOUND]   rep_user_id: {rep_user_id}", flush=True)
+                    print(f"[TWILIO_INBOUND]   current_state: {conversation_state}", flush=True)
+                    print(f"[TWILIO_INBOUND]   card_id: {conversation_card_id}", flush=True)
+                else:
+                    print(f"[TWILIO_INBOUND] ⚠️ No conversation found for environment {environment_id}", flush=True)
+            except psycopg2.ProgrammingError as e:
+                # environment_id column doesn't exist yet (pre-migration) - fallback to phone-only lookup
+                if 'environment_id' in str(e):
+                    print(f"[TWILIO_INBOUND] ⚠️ environment_id column not found - using fallback lookup", flush=True)
+                    cur.execute("""
+                        SELECT routing_mode, rep_user_id, state, card_id FROM conversations WHERE phone = %s LIMIT 1
+                    """, (normalized_phone,))
+                    row = cur.fetchone()
+                    if row:
+                        conversation_row = row
+                        routing_mode = row[0] or 'ai'
+                        rep_user_id = row[1] or routed_rep_id
+                        conversation_state = row[2]
+                        conversation_card_id = row[3]
+                else:
+                    raise
         
         # Define conversation_exists based on whether we found a row
         conversation_exists = conversation_row is not None
@@ -983,13 +1037,21 @@ async def twilio_inbound(request: Request):
                 conversation_id=None  # Will be set by reset_markov_for_card if available
             )
             
-            # Update conversation atomically with new ownership
+            # Update conversation atomically with new ownership (scoped to environment)
             with conn.cursor() as update_cur:
-                update_cur.execute("""
-                    UPDATE conversations
-                    SET rep_user_id = %s, state = 'initial_outreach', updated_at = NOW()
-                    WHERE phone = %s
-                """, (resolved_rep_user_id, normalized_phone))
+                try:
+                    update_cur.execute("""
+                        UPDATE conversations
+                        SET rep_user_id = %s, state = 'initial_outreach', updated_at = NOW()
+                        WHERE phone = %s AND environment_id = %s
+                    """, (resolved_rep_user_id, normalized_phone, environment_id))
+                except psycopg2.ProgrammingError:
+                    # Fallback if environment_id column doesn't exist
+                    update_cur.execute("""
+                        UPDATE conversations
+                        SET rep_user_id = %s, state = 'initial_outreach', updated_at = NOW()
+                        WHERE phone = %s
+                    """, (resolved_rep_user_id, normalized_phone))
             
             # Update local variable for rest of handler
             rep_user_id = resolved_rep_user_id
@@ -1024,9 +1086,22 @@ async def twilio_inbound(request: Request):
                 if debug_row:
                     print(f"[TWILIO_INBOUND] DEBUG: Conversation exists - rep_user_id={debug_row[0]}, last_outbound_at={debug_row[1]}, owner={debug_row[2]}", flush=True)
         
-        # Store inbound message in history regardless of routing mode
+        # Store inbound message in history and message_events
         from backend.rep_messaging import add_message_to_history
         add_message_to_history(conn, normalized_phone, "inbound", Body, "contact")
+        
+        # Store inbound message event (no message_sid for inbound - it's from Twilio)
+        store_message_event(
+            conn=conn,
+            phone_number=normalized_phone,
+            environment_id=environment_id,
+            direction="inbound",
+            message_text=Body,
+            message_sid=None,  # Inbound messages don't have our message_sid
+            rep_id=rep_user_id,
+            campaign_id=routed_campaign_id,
+            state=conversation_state
+        )
         
         # POLICY A: Whoever blasts LAST owns the automation
         # Auto-responses work for the current owner (rep or owner)
@@ -1089,11 +1164,20 @@ async def twilio_inbound(request: Request):
             # 🔥 CRITICAL: Re-read rep_user_id from database RIGHT BEFORE loading Markov responses
             # This ensures we use the absolute latest value after any ownership changes from blasts
             # This handles graceful transitions when different reps contact the same number
+            # CRITICAL: Must scope to environment_id
             print(f"[TWILIO_INBOUND] 🔄 Re-reading conversation rep_user_id from DB (for Markov lookup)...", flush=True)
             with conn.cursor() as verify_cur:
-                verify_cur.execute("""
-                    SELECT rep_user_id FROM conversations WHERE phone = %s LIMIT 1
-                """, (normalized_phone,))
+                try:
+                    verify_cur.execute("""
+                        SELECT rep_user_id FROM conversations 
+                        WHERE phone = %s AND environment_id = %s
+                        LIMIT 1
+                    """, (normalized_phone, environment_id))
+                except psycopg2.ProgrammingError:
+                    # Fallback if environment_id column doesn't exist
+                    verify_cur.execute("""
+                        SELECT rep_user_id FROM conversations WHERE phone = %s LIMIT 1
+                    """, (normalized_phone,))
                 verify_row = verify_cur.fetchone()
                 if verify_row:
                     latest_rep_user_id = verify_row[0]
@@ -1241,11 +1325,32 @@ async def twilio_inbound(request: Request):
         suppression_reason = None
         
         if reply_text and next_state and not is_test_number and not force_send:
-            # Check conversation history for recent outbound in same campaign and state
+            # Check message_events for recent outbound in same environment and state
+            # CRITICAL: Only check messages with message_sid (actually sent)
             with conn.cursor() as check_cur:
-                check_cur.execute("""
-                    SELECT history FROM conversations WHERE phone = %s LIMIT 1
-                """, (normalized_phone,))
+                try:
+                    check_cur.execute("""
+                        SELECT COUNT(*) FROM message_events
+                        WHERE phone_number = %s
+                          AND environment_id = %s
+                          AND direction = 'outbound'
+                          AND message_sid IS NOT NULL
+                          AND state = %s
+                        ORDER BY sent_at DESC
+                        LIMIT 1
+                    """, (normalized_phone, environment_id, next_state))
+                    duplicate_count = check_cur.fetchone()[0]
+                    if duplicate_count > 0:
+                        should_suppress = True
+                        suppression_reason = f"Duplicate outbound detected: environment_id={environment_id}, state={next_state}"
+                        print(f"[TWILIO_INBOUND] ⚠️ BLAST GUARD: {suppression_reason}", flush=True)
+                except psycopg2.ProgrammingError:
+                    # message_events table doesn't exist - fallback to history check
+                    check_cur.execute("""
+                        SELECT history FROM conversations 
+                        WHERE phone = %s AND environment_id = %s
+                        LIMIT 1
+                    """, (normalized_phone, environment_id))
                 history_row = check_cur.fetchone()
                 
                 if history_row and history_row[0]:
@@ -1334,24 +1439,56 @@ async def twilio_inbound(request: Request):
                         # Add campaign_id and state to message metadata for proper scoping
                         add_message_to_history(conn, normalized_phone, "outbound", reply_text, "ai", msg.sid)
                         
+                        # Store outbound message event (CRITICAL: with message_sid to mark as "sent")
+                        store_message_event(
+                            conn=conn,
+                            phone_number=normalized_phone,
+                            environment_id=environment_id,
+                            direction="outbound",
+                            message_text=reply_text,
+                            message_sid=msg.sid,  # REQUIRED: Only messages with message_sid count as "sent"
+                            rep_id=rep_user_id,
+                            campaign_id=routed_campaign_id,
+                            state=next_state,
+                            twilio_status=msg.status
+                        )
+                        
                         # 🔧 FIX: Update conversation state to next_state (not always initial_outreach)
                         # This ensures proper state tracking and prevents reusing initial_outreach for all messages
+                        # CRITICAL: Must scope to environment_id
                         if next_state:
                             with conn.cursor() as update_cur:
-                                # Update conversation state to the actual next_state
-                                update_cur.execute("""
-                                    UPDATE conversations 
-                                    SET state = %s, updated_at = NOW()
-                                    WHERE phone = %s
-                                """, (next_state, normalized_phone))
+                                try:
+                                    # Update conversation state scoped to environment
+                                    update_cur.execute("""
+                                        UPDATE conversations 
+                                        SET state = %s, updated_at = NOW()
+                                        WHERE phone = %s AND environment_id = %s
+                                    """, (next_state, normalized_phone, environment_id))
+                                except psycopg2.ProgrammingError:
+                                    # Fallback if environment_id column doesn't exist
+                                    update_cur.execute("""
+                                        UPDATE conversations 
+                                        SET state = %s, updated_at = NOW()
+                                        WHERE phone = %s
+                                    """, (next_state, normalized_phone))
                                 print(f"[TWILIO_INBOUND] ✅ Updated conversation state to: {next_state} (was: {conversation_state})", flush=True)
                         
                         # Update history entry with campaign_id and state if available
                         if campaign_id or next_state:
                             with conn.cursor() as update_cur:
-                                update_cur.execute("""
-                                    SELECT history FROM conversations WHERE phone = %s LIMIT 1
-                                """, (normalized_phone,))
+                                # Query scoped to environment
+                                try:
+                                    update_cur.execute("""
+                                        SELECT history FROM conversations 
+                                        WHERE phone = %s AND environment_id = %s
+                                        LIMIT 1
+                                    """, (normalized_phone, environment_id))
+                                except psycopg2.ProgrammingError:
+                                    # Fallback if environment_id column doesn't exist
+                                    update_cur.execute("""
+                                        SELECT history FROM conversations WHERE phone = %s LIMIT 1
+                                    """, (normalized_phone,))
                                 hist_row = update_cur.fetchone()
                                 if hist_row and hist_row[0]:
                                     try:
@@ -1367,12 +1504,20 @@ async def twilio_inbound(request: Request):
                                                 if is_test_number:
                                                     last_msg["is_test"] = True
                                                 
-                                                # Save updated history
-                                                update_cur.execute("""
-                                                    UPDATE conversations 
-                                                    SET history = %s::jsonb 
-                                                    WHERE phone = %s
-                                                """, (json.dumps(history), normalized_phone))
+                                                # Save updated history (scoped to environment)
+                                                try:
+                                                    update_cur.execute("""
+                                                        UPDATE conversations 
+                                                        SET history = %s::jsonb 
+                                                        WHERE phone = %s AND environment_id = %s
+                                                    """, (json.dumps(history), normalized_phone, environment_id))
+                                                except psycopg2.ProgrammingError:
+                                                    # Fallback if environment_id column doesn't exist
+                                                    update_cur.execute("""
+                                                        UPDATE conversations 
+                                                        SET history = %s::jsonb 
+                                                        WHERE phone = %s
+                                                    """, (json.dumps(history), normalized_phone))
                                                 print(f"[TWILIO_INBOUND] ✅ Updated history with campaign_id={campaign_id}, state={next_state}", flush=True)
                                     except Exception as e:
                                         print(f"[TWILIO_INBOUND] ⚠️ Could not update history metadata: {e}", flush=True)
