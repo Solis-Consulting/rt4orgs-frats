@@ -366,9 +366,12 @@
     window.selectedCardIds = window.selectedCardIds || new Set();
     
     function getSelectedCardIds() {
-      // Use state (Set) as source of truth, not DOM
-      const ids = Array.from(window.selectedCardIds);
-      console.log(`[SELECT] getSelectedCardIds: ${ids.length} selected cards from state:`, ids);
+      // Query checked checkboxes directly from DOM (they ARE the source of truth)
+      const checkedCheckboxes = document.querySelectorAll('.card-select-checkbox:checked');
+      const ids = Array.from(checkedCheckboxes)
+        .map(cb => cb.getAttribute('data-id') || cb.dataset.id || cb.dataset.cardId)
+        .filter(id => id); // Remove any null/undefined
+      console.log(`[SELECT] getSelectedCardIds: ${ids.length} selected cards from DOM checkboxes:`, ids);
       return ids;
     }
     
