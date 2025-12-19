@@ -1084,9 +1084,30 @@ async def twilio_inbound(request: Request):
             # - Response TEXT is REP-SPECIFIC (each rep can customize their pitch/responses)
             # - If rep_user_id is set, uses that rep's responses; otherwise uses global responses
             # - If multiple reps messaged, rep_user_id reflects the LAST rep to message (conflict resolution)
+            
+            # 🔥 CRITICAL: Re-read rep_user_id from database RIGHT BEFORE loading Markov responses
+            # This ensures we use the absolute latest value after any ownership changes from blasts
+            # This handles graceful transitions when different reps contact the same number
+            print(f"[TWILIO_INBOUND] 🔄 Re-reading conversation rep_user_id from DB (for Markov lookup)...", flush=True)
+            with conn.cursor() as verify_cur:
+                verify_cur.execute("""
+                    SELECT rep_user_id FROM conversations WHERE phone = %s LIMIT 1
+                """, (normalized_phone,))
+                verify_row = verify_cur.fetchone()
+                if verify_row:
+                    latest_rep_user_id = verify_row[0]
+                    if latest_rep_user_id != rep_user_id:
+                        print(f"[TWILIO_INBOUND] ⚠️ rep_user_id changed! Old: {rep_user_id}, New: {latest_rep_user_id}", flush=True)
+                        print(f"[TWILIO_INBOUND] ✅ Using latest rep_user_id from DB: {latest_rep_user_id}", flush=True)
+                        rep_user_id = latest_rep_user_id
+                    else:
+                        print(f"[TWILIO_INBOUND] ✅ rep_user_id unchanged: {rep_user_id}", flush=True)
+                else:
+                    print(f"[TWILIO_INBOUND] ⚠️ No conversation found in DB for re-read, using current rep_user_id: {rep_user_id}", flush=True)
+            
             print(f"[TWILIO_INBOUND] 🔍 Looking up Markov response:", flush=True)
             print(f"[TWILIO_INBOUND]   state_key: '{next_state}'", flush=True)
-            print(f"[TWILIO_INBOUND]   rep_user_id: {rep_user_id}", flush=True)
+            print(f"[TWILIO_INBOUND]   rep_user_id (final): {rep_user_id}", flush=True)
             print(f"[TWILIO_INBOUND]   phone: {normalized_phone}", flush=True)
             print(f"[TWILIO_INBOUND]   routing_mode: {routing_mode}", flush=True)
             configured_response = get_markov_response(conn, next_state, rep_user_id)
