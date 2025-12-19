@@ -552,14 +552,10 @@
         });
       });
 
-      // Use event delegation for checkboxes (more reliable, works with dynamic content)
-      const tableWrap = document.getElementById('cardTableWrap');
-      if (tableWrap) {
-        // Remove any existing listener to avoid duplicates
-        const newTableWrap = tableWrap.cloneNode(true);
-        tableWrap.parentNode.replaceChild(newTableWrap, tableWrap);
-        
-        newTableWrap.addEventListener('change', function(e) {
+      // Use event delegation on document.body for checkboxes (works with dynamic content)
+      // Only attach once using a flag
+      if (!window.cardCheckboxDelegateAttached) {
+        document.body.addEventListener('change', function(e) {
           const target = e.target;
           if (target.classList.contains('card-select-checkbox')) {
             const isChecked = target.checked;
@@ -580,27 +576,12 @@
             updateSelectAllState();
             updateGroupCheckboxState(target);
           }
-        });
-        
-        console.log(`[CHECKBOX] Event delegation attached to table container for ${cardCheckboxes.length} checkboxes`);
-      } else {
-        // Fallback: attach to individual checkboxes
-        cardCheckboxes.forEach((cb, index) => {
-          cb.addEventListener('change', function(e) {
-            const isChecked = this.checked;
-            const cardId = this.getAttribute('data-id');
-            const groupId = this.getAttribute('data-group-id');
-            
-            console.log(`[CHECKBOX] Individual checkbox ${index} changed: checked=${isChecked}, id=${cardId}, groupId=${groupId}`);
-            
-            updateBlastButtonState();
-            updateSelectAllState();
-            updateGroupCheckboxState(this);
-          });
-        });
-        
-        console.log(`[CHECKBOX] Attached listeners to ${cardCheckboxes.length} checkboxes (fallback)`);
+        }, true); // Use capture phase for earlier interception
+        window.cardCheckboxDelegateAttached = true;
+        console.log(`[CHECKBOX] Event delegation attached to document.body (capture phase)`);
       }
+      
+      console.log(`[CHECKBOX] Found ${cardCheckboxes.length} checkboxes in table`);
 
       // Update group checkbox state when individual checkboxes change
       function updateGroupCheckboxState(cardCheckbox) {
