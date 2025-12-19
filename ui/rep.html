@@ -41,10 +41,14 @@
     .message.outbound { background: #1e3a3a; margin-left: 20%; }
     .message-time { font-size: 11px; color: #9ca3af; margin-top: 4px; }
     .header-actions { display: flex; gap: 12px; align-items: center; margin-left: auto; }
-    .group-header { background: #1e293b !important; font-weight: 600; }
-    .group-header:hover { background: #1e293b !important; }
+    .group-header { background: #1e293b !important; font-weight: 600; cursor: pointer; }
+    .group-header:hover { background: #2d3748 !important; }
     .group-row { background: #020617; }
     .group-row:hover { background: #1e293b; }
+    .group-toggle { display: inline-block; width: 20px; text-align: center; font-weight: bold; color: #38bdf8; user-select: none; }
+    .group-collapsed .group-rows { display: none; }
+    .group-select-all { margin-left: auto; padding: 4px 8px; font-size: 11px; }
+    .group-info { display: flex; align-items: center; gap: 8px; flex: 1; }
   </style>
 </head>
 <body>
@@ -297,39 +301,58 @@
         return name.toLowerCase().includes(search) || id.toLowerCase().includes(search);
       });
 
-      // Group cards by day + hour of upload (created_at)
+      // Group cards by upload instance (same created_at timestamp, rounded to second)
       const groups = {};
       rows.forEach(card => {
         const created_at = card.created_at || card.updated_at || new Date().toISOString();
         const date = new Date(created_at);
-        const dayHour = `${date.toLocaleDateString()} ${date.getHours()}:00`;
+        // Round to second for grouping (cards uploaded in same batch will have same timestamp)
+        const timestamp = Math.floor(date.getTime() / 1000) * 1000;
+        const instanceKey = timestamp.toString();
         
-        if (!groups[dayHour]) {
-          groups[dayHour] = [];
+        if (!groups[instanceKey]) {
+          groups[instanceKey] = {
+            timestamp: timestamp,
+            date: date,
+            cards: []
+          };
         }
-        groups[dayHour].push(card);
+        groups[instanceKey].cards.push(card);
       });
 
-      // Sort groups by date (newest first)
+      // Sort groups by timestamp (newest first)
       const sortedGroups = Object.keys(groups).sort((a, b) => {
-        return new Date(b) - new Date(a);
+        return groups[b].timestamp - groups[a].timestamp;
       });
 
       let html = '<table><thead><tr>';
       html += '<th><input type="checkbox" id="selectAll"></th><th>Name</th><th>Type</th><th>Sales State</th><th>Assignment Status</th><th>Date Assigned</th><th>Notes</th><th>Updated</th><th>Actions</th>';
       html += '</tr></thead><tbody>';
 
-      sortedGroups.forEach(dayHour => {
-        const groupCards = groups[dayHour];
-        const groupId = `group-${dayHour.replace(/[^a-zA-Z0-9]/g, '-')}`;
+      sortedGroups.forEach(instanceKey => {
+        const group = groups[instanceKey];
+        const groupCards = group.cards;
+        const groupId = `group-${instanceKey}`;
+        const dateStr = group.date.toLocaleString();
         
-        // Group header row with checkbox
-        html += `<tr class="group-header" style="background: #1e293b; font-weight: 600;">`;
-        html += `<td><input type="checkbox" class="group-checkbox" data-group-id="${groupId}" data-day-hour="${dayHour}"></td>`;
-        html += `<td colspan="8" style="padding: 12px 6px;">📅 ${dayHour} (${groupCards.length} card${groupCards.length !== 1 ? 's' : ''})</td>`;
+        // Group header row - collapsible
+        html += `<tr class="group-header" data-group-id="${groupId}" onclick="toggleGroup('${groupId}')">`;
+        html += `<td style="position: relative;" onclick="event.stopPropagation();">`;
+        html += `<input type="checkbox" class="group-checkbox" data-group-id="${groupId}" onclick="event.stopPropagation();">`;
+        html += `</td>`;
+        html += `<td colspan="7" style="padding: 12px 6px;">`;
+        html += `<div class="group-info">`;
+        html += `<span class="group-toggle" id="toggle-${groupId}">▼</span>`;
+        html += `<span>📦 Upload Instance: ${dateStr} (${groupCards.length} card${groupCards.length !== 1 ? 's' : ''})</span>`;
+        html += `</div>`;
+        html += `</td>`;
+        html += `<td style="text-align: right; padding: 12px 6px;" onclick="event.stopPropagation();">`;
+        html += `<button class="group-select-all" onclick="event.stopPropagation(); selectGroup('${groupId}'); return false;">Select All</button>`;
+        html += `</td>`;
         html += '</tr>';
 
-        // Cards in this group
+        // Cards in this group (wrapped in tbody for collapse functionality)
+        html += `<tbody class="group-rows" data-group-id="${groupId}">`;
         groupCards.forEach(card => {
           const name = card.card_data?.name || card.id;
           const type = card.type || 'person';
@@ -351,6 +374,7 @@
           html += `<td><a class='link' href='card.html?id=${encodeURIComponent(card.id)}' onclick="sessionStorage.setItem('repApiToken', '${apiToken}'); return true;">View</a></td>`;
           html += '</tr>';
         });
+        html += `</tbody>`;
       });
 
       html += '</tbody></table>';
@@ -371,6 +395,7 @@
       // Group checkbox functionality
       document.querySelectorAll('.group-checkbox').forEach(gcb => {
         gcb.addEventListener('change', (e) => {
+          e.stopPropagation();
           const groupId = e.target.getAttribute('data-group-id');
           const checked = e.target.checked;
           document.querySelectorAll(`.card-checkbox[data-group-id="${groupId}"]`).forEach(cb => {
@@ -415,6 +440,47 @@
         }
       }
 
+      updateBlastButton();
+      updateSelectAllState();
+    }
+
+    // Toggle group collapse/expand
+    function toggleGroup(groupId) {
+      const rows = document.querySelectorAll(`.group-rows[data-group-id="${groupId}"]`);
+      const toggle = document.getElementById(`toggle-${groupId}`);
+      const header = document.querySelector(`.group-header[data-group-id="${groupId}"]`);
+      
+      if (rows.length > 0) {
+        const isCollapsed = rows[0].style.display === 'none';
+        rows.forEach(row => {
+          row.style.display = isCollapsed ? '' : 'none';
+        });
+        if (toggle) {
+          toggle.textContent = isCollapsed ? '▼' : '▶';
+        }
+        if (header) {
+          header.classList.toggle('group-collapsed', !isCollapsed);
+        }
+      }
+    }
+
+    // Select all cards in a group
+    function selectGroup(groupId) {
+      const checkboxes = document.querySelectorAll(`.card-checkbox[data-group-id="${groupId}"]`);
+      const groupCheckbox = document.querySelector(`.group-checkbox[data-group-id="${groupId}"]`);
+      
+      // Check if all are already checked
+      const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+      
+      // Toggle all
+      checkboxes.forEach(cb => {
+        cb.checked = !allChecked;
+      });
+      
+      if (groupCheckbox) {
+        groupCheckbox.checked = !allChecked;
+      }
+      
       updateBlastButton();
       updateSelectAllState();
     }
