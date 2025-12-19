@@ -442,8 +442,8 @@
       updateSelectAllState();
     }
 
-    // Toggle group collapse/expand
-    function toggleGroup(groupId) {
+    // Toggle group collapse/expand (global for onclick)
+    window.toggleGroup = function(groupId) {
       const rows = document.querySelectorAll(`tr.group-row.group-rows[data-group-id="${groupId}"]`);
       const toggle = document.getElementById(`toggle-${groupId}`);
       const header = document.querySelector(`.group-header[data-group-id="${groupId}"]`);
@@ -462,8 +462,8 @@
       }
     }
 
-    // Select all cards in a group
-    function selectGroup(groupId) {
+    // Select all cards in a group (global for onclick)
+    window.selectGroup = function(groupId) {
       const checkboxes = document.querySelectorAll(`.card-checkbox[data-group-id="${groupId}"]`);
       const groupCheckbox = document.querySelector(`.group-checkbox[data-group-id="${groupId}"]`);
       
