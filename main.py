@@ -878,8 +878,9 @@ async def twilio_inbound(request: Request):
         twilio_phone = os.getenv("TWILIO_PHONE_NUMBER")
         
         # 🔥 CRITICAL: Prevent bot loop - check if we just sent a message to this number
-        # If we sent an outbound in the last 5 seconds, ignore this inbound (it's likely our own echo)
+        # We'll still process/store the inbound (so it appears in leads) but skip auto-reply
         conn = get_conn()
+        skip_auto_reply = False
         try:
             with conn.cursor() as loop_check_cur:
                 loop_check_cur.execute("""
@@ -904,8 +905,9 @@ async def twilio_inbound(request: Request):
                         sent_at_aware = sent_at
                     time_since_sent = (now_utc - sent_at_aware).total_seconds()
                     if time_since_sent < 5:  # Less than 5 seconds ago
-                        print(f"[TWILIO_INBOUND] 🛑 BOT LOOP PREVENTION: Ignoring inbound - we just sent outbound {time_since_sent:.2f}s ago", flush=True)
-                        return PlainTextResponse("", status_code=200)  # Return 200 to Twilio but don't process
+                        print(f"[TWILIO_INBOUND] 🛑 BOT LOOP PREVENTION: Detected recent outbound {time_since_sent:.2f}s ago", flush=True)
+                        print(f"[TWILIO_INBOUND]   Will still store inbound message (for leads) but skip auto-reply", flush=True)
+                        skip_auto_reply = True
         except Exception as loop_check_error:
             print(f"[TWILIO_INBOUND] ⚠️ Error checking for bot loop (continuing anyway): {loop_check_error}", flush=True)
         
