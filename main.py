@@ -3866,6 +3866,110 @@ async def rep_get_conversations(request: Request):
     return {"ok": True, "conversations": conversations}
 
 
+@app.get("/rep/leads")
+async def rep_get_leads(request: Request):
+    """
+    Get rep's leads - cards that have received inbound messages (responses) to the rep's webhook.
+    Owner sees all leads, reps see only leads that responded to their messages.
+    """
+    # Authenticate user manually
+    try:
+        current_user = await get_current_owner_or_rep(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[REP_LEADS] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    conn = get_conn()
+    leads = []
+    rep_user_id = current_user["id"] if current_user.get("role") != "admin" else None
+    
+    with conn.cursor() as cur:
+        # Get conversations with inbound messages
+        # For reps: filter by rep_user_id. For owner: show all.
+        if rep_user_id:
+            # Rep: only their conversations with inbound messages
+            try:
+                # Try with environment_id (new schema)
+                cur.execute("""
+                    SELECT DISTINCT c.card_id, c.phone, c.state, c.last_inbound_at, c.last_outbound_at,
+                           COALESCE(c.history::text, '[]') as history, c.environment_id
+                    FROM conversations c
+                    WHERE c.card_id IS NOT NULL
+                      AND c.last_inbound_at IS NOT NULL
+                      AND c.rep_user_id = %s
+                    ORDER BY c.last_inbound_at DESC;
+                """, (rep_user_id,))
+            except psycopg2.ProgrammingError:
+                # Fallback if environment_id column doesn't exist
+                cur.execute("""
+                    SELECT DISTINCT c.card_id, c.phone, c.state, c.last_inbound_at, c.last_outbound_at,
+                           COALESCE(c.history::text, '[]') as history
+                    FROM conversations c
+                    WHERE c.card_id IS NOT NULL
+                      AND c.last_inbound_at IS NOT NULL
+                      AND c.rep_user_id = %s
+                    ORDER BY c.last_inbound_at DESC;
+                """, (rep_user_id,))
+        else:
+            # Owner: all conversations with inbound messages
+            cur.execute("""
+                SELECT DISTINCT c.card_id, c.phone, c.state, c.last_inbound_at, c.last_outbound_at,
+                       COALESCE(c.history::text, '[]') as history
+                FROM conversations c
+                WHERE c.card_id IS NOT NULL
+                  AND c.last_inbound_at IS NOT NULL
+                ORDER BY c.last_inbound_at DESC;
+            """)
+        
+        rows = cur.fetchall()
+        
+        # Get card details for each lead
+        for row in rows:
+            card_id = row[0]
+            phone = row[1]
+            state = row[2]
+            last_inbound_at = row[3]
+            last_outbound_at = row[4]
+            history_raw = row[5] if len(row) > 5 else '[]'
+            
+            # Get card details
+            card = get_card(conn, card_id)
+            if not card:
+                continue
+            
+            # Parse history
+            try:
+                history = json.loads(history_raw) if isinstance(history_raw, str) else history_raw
+            except:
+                history = []
+            
+            # Count inbound messages
+            inbound_count = sum(1 for msg in history if (
+                isinstance(msg, dict) and msg.get("direction") == "inbound"
+            ) or isinstance(msg, str))
+            
+            card_data = card.get("card_data", {})
+            lead = {
+                "card_id": card_id,
+                "name": card_data.get("name", card_id),
+                "phone": phone,
+                "state": state,
+                "last_inbound_at": last_inbound_at.isoformat() if last_inbound_at else None,
+                "last_outbound_at": last_outbound_at.isoformat() if last_outbound_at else None,
+                "inbound_count": inbound_count,
+                "card_data": card_data,
+                "sales_state": card.get("sales_state", "cold"),
+            }
+            leads.append(lead)
+    
+    return {
+        "leads": leads,
+        "count": len(leads)
+    }
+
+
 # 🔥 TEST ENDPOINT: No auth required - just to verify requests reach the server
 @app.post("/test/blast-ping")
 async def test_blast_ping(request: Request):

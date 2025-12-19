@@ -79,6 +79,7 @@
 
       <div class="tabs">
         <div class="tab active" data-view="cards">My Cards</div>
+        <div class="tab" data-view="leads">Leads</div>
         <div class="tab" data-view="conversations">Conversations</div>
         <div class="tab" data-view="stats">Stats</div>
         <div class="tab" data-view="markov">Markov Editor</div>
@@ -99,6 +100,14 @@
           <button id="checkAllAssignBtn">Check All & Assign</button>
         </div>
         <div id="cardsTableWrap"></div>
+      </div>
+
+      <!-- Leads View -->
+      <div id="leadsView" style="display: none;">
+        <div class="toolbar">
+          <input id="leadsSearch" placeholder="Search leads by name or phone" oninput="renderLeads()">
+        </div>
+        <div id="leadsTableWrap"></div>
       </div>
 
       <!-- Conversations View -->
@@ -247,11 +256,13 @@
         }
         
         document.getElementById('cardsView').style.display = view === 'cards' ? 'block' : 'none';
+        document.getElementById('leadsView').style.display = view === 'leads' ? 'block' : 'none';
         document.getElementById('conversationsView').style.display = view === 'conversations' ? 'block' : 'none';
         document.getElementById('statsView').style.display = view === 'stats' ? 'block' : 'none';
         document.getElementById('markovView').style.display = view === 'markov' ? 'block' : 'none';
         
         if (view === 'cards') loadCards();
+        else if (view === 'leads') loadLeads();
         else if (view === 'conversations') loadConversations();
         else if (view === 'stats') loadStats();
         else if (view === 'markov') {
@@ -763,6 +774,84 @@
           alert(`Error loading conversations: ${error.message}`);
         }
       }
+    }
+
+    async function loadLeads() {
+      try {
+        const res = await fetch(`${BACKEND}/rep/leads`, { headers: getHeaders() });
+        if (res.status === 401 || res.status === 403) {
+          apiToken = null;
+          tokenPrompt.style.display = 'block';
+          mainContent.style.display = 'none';
+          tokenInput.value = '';
+          userInfo.textContent = 'Enter your API token to continue';
+          showTokenError('Session expired. Please enter your API token again.');
+          return;
+        }
+        
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`HTTP ${res.status}: ${text}`);
+        }
+        
+        const data = await res.json();
+        allLeads = data.leads || [];
+        renderLeads();
+      } catch (error) {
+        console.error('Error loading leads:', error);
+        if (error.message.includes('No API token')) {
+          tokenPrompt.style.display = 'block';
+          mainContent.style.display = 'none';
+        } else {
+          document.getElementById('leadsTableWrap').innerHTML = `<div style='color: #fecaca; padding: 20px;'>Error loading leads: ${error.message}</div>`;
+        }
+      }
+    }
+
+    function renderLeads() {
+      const search = document.getElementById('leadsSearch')?.value.toLowerCase() || '';
+      let html = '<table><thead><tr>';
+      html += '<th>Name</th>';
+      html += '<th>Phone</th>';
+      html += '<th>State</th>';
+      html += '<th>Last Inbound</th>';
+      html += '<th>Last Outbound</th>';
+      html += '<th>Inbound Count</th>';
+      html += '<th>Sales State</th>';
+      html += '<th>Actions</th>';
+      html += '</tr></thead><tbody>';
+
+      const filteredLeads = allLeads.filter(lead => {
+        if (!search) return true;
+        const name = lead.name?.toLowerCase() || '';
+        const phone = lead.phone?.toLowerCase() || '';
+        return name.includes(search) || phone.includes(search);
+      });
+
+      if (filteredLeads.length === 0) {
+        html += '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #9ca3af;">No leads found</td></tr>';
+      } else {
+        filteredLeads.forEach(lead => {
+          const lastInbound = lead.last_inbound_at ? new Date(lead.last_inbound_at).toLocaleString() : '-';
+          const lastOutbound = lead.last_outbound_at ? new Date(lead.last_outbound_at).toLocaleString() : '-';
+          const stateBadge = lead.state ? `<span class="badge gray">${lead.state}</span>` : '-';
+          const salesStateBadge = lead.sales_state ? `<span class="badge ${lead.sales_state === 'hot' ? 'red' : lead.sales_state === 'warm' ? 'amber' : 'gray'}">${lead.sales_state}</span>` : '-';
+          
+          html += '<tr>';
+          html += `<td>${lead.name || lead.card_id || '-'}</td>`;
+          html += `<td>${lead.phone || '-'}</td>`;
+          html += `<td>${stateBadge}</td>`;
+          html += `<td>${lastInbound}</td>`;
+          html += `<td>${lastOutbound}</td>`;
+          html += `<td>${lead.inbound_count || 0}</td>`;
+          html += `<td>${salesStateBadge}</td>`;
+          html += `<td><a class='link' href='card.html?id=${encodeURIComponent(lead.card_id)}' onclick="sessionStorage.setItem('repApiToken', '${apiToken}'); return true;">View</a></td>`;
+          html += '</tr>';
+        });
+      }
+
+      html += '</tbody></table>';
+      document.getElementById('leadsTableWrap').innerHTML = html;
     }
 
     function renderConversations() {
