@@ -688,7 +688,7 @@
       };
 
       // Initial button state
-      updateSelectAllState();
+      if (window.updateSelectAllState) window.updateSelectAllState();
       
       // Re-attach assign button listener (button is in toolbar, shouldn't be recreated, but ensure it's attached)
       if (window.assignSelectedCards) {
@@ -860,7 +860,7 @@
       }
       
       updateBlastButtonState();
-      updateSelectAllState();
+      if (window.updateSelectAllState) window.updateSelectAllState();
     };
     document.getElementById("cardTypeFilter").addEventListener("change", loadCards);
     document.getElementById("cardStateFilter").addEventListener("change", loadCards);
