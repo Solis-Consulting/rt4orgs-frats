@@ -45,6 +45,8 @@
     .tab.active { color: #38bdf8; border-bottom-color: #38bdf8; }
     button { background: #0ea5e9; color: #0f172a; border: none; border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer; }
     button:hover { background: #38bdf8; }
+    button:disabled { background: #4b5563; cursor: not-allowed; opacity: 0.6; }
+    button:disabled:hover { background: #4b5563; }
   </style>
 </head>
 <body>
@@ -572,8 +574,13 @@
         const selectedCount = document.querySelectorAll('.card-select-checkbox:checked').length;
         const assignBtn = document.getElementById('assignSelectedBtn');
         const deleteBtn = document.getElementById('deleteSelectedBtn');
-        if (assignBtn) assignBtn.disabled = selectedCount === 0;
-        if (deleteBtn) deleteBtn.disabled = selectedCount === 0;
+        if (assignBtn) {
+          assignBtn.disabled = selectedCount === 0;
+          console.log(`[ASSIGN] Button state updated: disabled=${assignBtn.disabled}, selected=${selectedCount}`);
+        }
+        if (deleteBtn) {
+          deleteBtn.disabled = selectedCount === 0;
+        }
       };
 
       // Initial button state
@@ -982,28 +989,44 @@
     window.assignSelectedCards = assignSelectedCards;
     
     // Use event delegation on document body - this always works
+    // This catches clicks even if button is recreated or listeners fail
     document.body.addEventListener('click', function(e) {
-      if (e.target && (e.target.id === 'assignSelectedBtn' || e.target.closest('#assignSelectedBtn'))) {
+      const target = e.target;
+      const btn = target.id === 'assignSelectedBtn' ? target : target.closest('#assignSelectedBtn');
+      
+      if (btn) {
+        console.log('[ASSIGN] ✅ Click detected on assign button!', {
+          disabled: btn.disabled,
+          id: btn.id,
+          text: btn.textContent
+        });
+        
         e.preventDefault();
         e.stopPropagation();
-        const btn = e.target.id === 'assignSelectedBtn' ? e.target : e.target.closest('#assignSelectedBtn');
-        console.log('[ASSIGN] Button clicked via event delegation', btn.disabled);
         
         // Check if button is disabled
         if (btn.disabled) {
-          console.log('[ASSIGN] Button is disabled, cannot assign');
+          console.log('[ASSIGN] ⚠️ Button is disabled');
           alert('Please select at least one card to assign.');
           return false;
         }
         
+        // Call the function
+        console.log('[ASSIGN] Calling assignSelectedCards function...');
         if (window.assignSelectedCards) {
-          window.assignSelectedCards();
+          try {
+            window.assignSelectedCards();
+          } catch (err) {
+            console.error('[ASSIGN] Error calling function:', err);
+            alert(`Error: ${err.message}`);
+          }
         } else {
+          console.error('[ASSIGN] Function not found on window!');
           alert('Assign function not loaded. Please refresh the page.');
         }
         return false;
       }
-    });
+    }, true); // Use capture phase for better reliability
     
     // Also try direct attachment as backup
     function attachAssignListener() {
