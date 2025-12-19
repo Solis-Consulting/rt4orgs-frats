@@ -649,17 +649,6 @@ def run_blast_for_cards(
                     except:
                         existing_history = []
                 
-                # Add outbound message to history with correct state
-                # Use new_state (which is 'initial_outreach' if ownership changing, 'awaiting_response' otherwise)
-                # This ensures history reflects the actual conversation state, not always initial_outreach
-                outbound_msg = {
-                    "direction": "outbound",
-                    "text": message,
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "state": new_state  # Use actual state, not hardcoded "initial_outreach"
-                }
-                updated_history = existing_history + [outbound_msg]
-                
                 # POLICY A: Whoever blasts LAST owns the automation
                 # routing_mode is now 'ai' for all (auto-responses enabled)
                 # Ownership is determined by rep_user_id (NULL = owner, set = rep)
@@ -712,8 +701,24 @@ def run_blast_for_cards(
                     ownership_changing = True
                     print(f"[BLAST] 🔄 First rep claim: NULL → {rep_user_id}", flush=True)
                 
-                # If ownership is changing, reset state to initial_outreach for clean transition
-                new_state = 'initial_outreach' if ownership_changing else 'awaiting_response'
+                # ✅ CRITICAL FIX: Initialize new_state BEFORE it's used
+                # Default to existing_state if available, otherwise 'awaiting_response'
+                # Only change to 'initial_outreach' if ownership is changing
+                new_state = existing_state if existing_state else 'awaiting_response'
+                if ownership_changing:
+                    new_state = 'initial_outreach'
+                    print(f"[BLAST] 🔄 Resetting state to '{new_state}' for clean ownership transition", flush=True)
+                
+                # Add outbound message to history with correct state
+                # Use new_state (which is 'initial_outreach' if ownership changing, 'awaiting_response' otherwise)
+                # This ensures history reflects the actual conversation state, not always initial_outreach
+                outbound_msg = {
+                    "direction": "outbound",
+                    "text": message,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "state": new_state  # Use actual state, not hardcoded "initial_outreach"
+                }
+                updated_history = existing_history + [outbound_msg]
                 if ownership_changing:
                     print(f"[BLAST] 🔄 Resetting state to '{new_state}' for clean ownership transition", flush=True)
                 

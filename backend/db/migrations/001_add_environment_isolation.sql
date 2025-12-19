@@ -63,12 +63,18 @@ BEGIN
             env_id := 'env_' || MD5('owner_default_' || conv_record.phone);
         END IF;
         
+        -- Update this specific row (using ctid for row-level targeting)
+        -- PostgreSQL doesn't allow LIMIT in UPDATE directly, so we use a subquery with ctid
         UPDATE conversations 
         SET environment_id = env_id 
-        WHERE phone = conv_record.phone 
-          AND (rep_user_id = conv_record.rep_user_id OR (rep_user_id IS NULL AND conv_record.rep_user_id IS NULL))
-          AND environment_id IS NULL
-        LIMIT 1;
+        WHERE ctid = (
+            SELECT ctid FROM conversations
+            WHERE phone = conv_record.phone 
+              AND (rep_user_id = conv_record.rep_user_id OR (rep_user_id IS NULL AND conv_record.rep_user_id IS NULL))
+              AND (card_id = conv_record.card_id OR (card_id IS NULL AND conv_record.card_id IS NULL))
+              AND environment_id IS NULL
+            LIMIT 1
+        );
         
         counter := counter + 1;
     END LOOP;
