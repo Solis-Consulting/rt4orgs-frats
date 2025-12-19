@@ -682,10 +682,10 @@ def run_blast_for_cards(
                     # If ownership changed via blast, claim ownership and log handoff
                     # Note: This is a secondary check - the main blast-claim happens at the start of run_blast_for_cards
                     # This handles the case where conversation exists but assignment hasn't been updated yet
-                    if existing_rep != rep_user_id:
+                    if existing_rep is not None and existing_rep != rep_user_id:
                         from backend.handoffs import reset_markov_for_card, log_handoff
                         if rep_user_id:
-                            # Rep is claiming ownership
+                            # Rep is claiming ownership from another rep
                             print(f"[BLAST] 🔄 Ownership changed via blast (rep): {existing_rep} → {rep_user_id}", flush=True)
                             reset_markov_for_card(conn, card_id, rep_user_id, 'blast_claim', rep_user_id)
                             log_handoff(
@@ -712,6 +712,21 @@ def run_blast_for_cards(
                                 state_after='initial_outreach',
                                 assigned_by=owner
                             )
+                    elif existing_rep is None and rep_user_id:
+                        # First time rep is claiming (no previous owner)
+                        from backend.handoffs import reset_markov_for_card, log_handoff
+                        print(f"[BLAST] 🔄 First blast claim (rep): NULL → {rep_user_id}", flush=True)
+                        reset_markov_for_card(conn, card_id, rep_user_id, 'blast_claim', rep_user_id)
+                        log_handoff(
+                            conn=conn,
+                            card_id=card_id,
+                            from_rep=None,
+                            to_rep=rep_user_id,
+                            reason='blast_claim',
+                            state_before=existing_state,
+                            state_after='initial_outreach',
+                            assigned_by=rep_user_id
+                        )
                     
                     # Verify the rep_user_id was actually saved
                     cur.execute("""

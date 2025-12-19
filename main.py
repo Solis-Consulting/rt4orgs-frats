@@ -940,62 +940,71 @@ async def twilio_inbound(request: Request):
         
         print(f"[TWILIO_INBOUND] 📋 Final card_id for rep resolution: {card_id}", flush=True)
         
-        # 🔧 FIX A: If rep_user_id is NULL, try to resolve it from card_assignments
-        # This ensures rep-specific responses work even if the conversation was created before rep assignment
-        print(f"[TWILIO_INBOUND] 🔍 Step 3: Rep hydration check...", flush=True)
-        print(f"[TWILIO_INBOUND]   DEBUG: card_id={card_id}, rep_user_id={rep_user_id}", flush=True)
+        # 🔧 POLICY A: Inbound ownership reconciliation - ALWAYS recompute from card_assignments
+        # Source of truth: card_assignments determines ownership (last blaster wins)
+        # This ensures inbound sees blast-claim changes immediately
+        print(f"[TWILIO_INBOUND] 🔍 POLICY A: Resolving current owner from card_assignments...", flush=True)
+        print(f"[TWILIO_INBOUND]   DEBUG: card_id={card_id}, conversation.rep_user_id={rep_user_id}", flush=True)
         
-        # Resolve current rep from card_assignments (source of truth)
+        # Resolve current owner from card_assignments (source of truth for Policy A)
         resolved_rep_user_id = None
         if card_id:
             from backend.handoffs import resolve_current_rep
             resolved_rep_user_id = resolve_current_rep(conn, card_id)
-            print(f"[TWILIO_INBOUND]   Resolved rep from card_assignments: {resolved_rep_user_id}", flush=True)
+            print(f"[TWILIO_INBOUND]   ✅ Resolved owner from card_assignments: {resolved_rep_user_id} (NULL = owner, set = rep)", flush=True)
         
-        # 🔧 Runtime safety check: idempotent mismatch detection
-        # Only reset if conversation.rep_user_id is not null AND differs from resolved
-        # Must be idempotent - log only once per inbound, don't loop
-        if conversation_exists and card_id:
-            if rep_user_id is not None and rep_user_id != resolved_rep_user_id:
-                # Mismatch detected - reset state (idempotent: only if different)
-                print(f"[TWILIO_INBOUND] ⚠️ Runtime mismatch detected: conversation.rep_user_id={rep_user_id}, resolved={resolved_rep_user_id}", flush=True)
-                from backend.handoffs import reset_markov_for_card, log_handoff, get_conversation_state
-                state_before = get_conversation_state(conn, card_id) or conversation_state
-                reset_markov_for_card(conn, card_id, resolved_rep_user_id, 'runtime_mismatch', 'system')
-                log_handoff(
-                    conn=conn,
-                    card_id=card_id,
-                    from_rep=rep_user_id,
-                    to_rep=resolved_rep_user_id,
-                    reason='runtime_mismatch',
-                    state_before=state_before,
-                    state_after='initial_outreach',
-                    assigned_by='system'
-                )
-                # Update conversation with new rep_user_id atomically
-                with conn.cursor() as update_cur:
-                    update_cur.execute("""
-                        UPDATE conversations
-                        SET rep_user_id = %s, state = 'initial_outreach', updated_at = NOW()
-                        WHERE phone = %s
-                    """, (resolved_rep_user_id, normalized_phone))
-                rep_user_id = resolved_rep_user_id  # Update local variable
-                print(f"[TWILIO_INBOUND] ✅ Fixed mismatch: updated rep_user_id to {rep_user_id}", flush=True)
-            elif rep_user_id is None and resolved_rep_user_id:
-                # First inbound - set rep_user_id without reset (or reset if needed)
-                print(f"[TWILIO_INBOUND] ✅ First inbound for this conversation, setting rep_user_id: {resolved_rep_user_id}", flush=True)
-                with conn.cursor() as update_cur:
-                    update_cur.execute("""
-                        UPDATE conversations
-                        SET rep_user_id = %s, updated_at = NOW()
-                        WHERE phone = %s
-                    """, (resolved_rep_user_id, normalized_phone))
-                rep_user_id = resolved_rep_user_id  # Update local variable
+        # 🔥 CRITICAL: Reconcile stale conversation ownership (Policy A invariant)
+        # Must handle ALL cases:
+        # 1. rep_user_id != resolved_rep_user_id (ownership changed via blast)
+        # 2. rep_user_id is None but resolved_rep_user_id exists (rep assigned)
+        # 3. rep_user_id exists but resolved_rep_user_id is None (owner reclaimed)
+        if conversation_exists and card_id and rep_user_id != resolved_rep_user_id:
+            from backend.handoffs import reset_markov_for_card, log_handoff, get_conversation_state
+            state_before = get_conversation_state(conn, card_id) or conversation_state
+            
+            print(f"[TWILIO_INBOUND] ⚠️ [HANDOFF] Inbound ownership mismatch — correcting", flush=True)
+            print(f"[TWILIO_INBOUND]   conversation.rep_user_id: {rep_user_id}", flush=True)
+            print(f"[TWILIO_INBOUND]   resolved_rep_user_id (from card_assignments): {resolved_rep_user_id}", flush=True)
+            print(f"[TWILIO_INBOUND]   state_before: {state_before}", flush=True)
+            
+            # Reset Markov state to initial_outreach (Policy A: ownership change = reset)
+            reset_markov_for_card(conn, card_id, resolved_rep_user_id, 'inbound_reconciliation', 'system')
+            
+            # Log handoff event
+            log_handoff(
+                conn=conn,
+                card_id=card_id,
+                from_rep=rep_user_id,
+                to_rep=resolved_rep_user_id,
+                reason='inbound_reconciliation',
+                state_before=state_before,
+                state_after='initial_outreach',
+                assigned_by='system',
+                conversation_id=None  # Will be set by reset_markov_for_card if available
+            )
+            
+            # Update conversation atomically with new ownership
+            with conn.cursor() as update_cur:
+                update_cur.execute("""
+                    UPDATE conversations
+                    SET rep_user_id = %s, state = 'initial_outreach', updated_at = NOW()
+                    WHERE phone = %s
+                """, (resolved_rep_user_id, normalized_phone))
+            
+            # Update local variable for rest of handler
+            rep_user_id = resolved_rep_user_id
+            conversation_state = 'initial_outreach'
+            
+            print(f"[TWILIO_INBOUND] ✅ [HANDOFF] Fixed ownership mismatch: rep_user_id={rep_user_id}, state reset to initial_outreach", flush=True)
         
         # If no conversation exists yet but we have resolved_rep, use it
         if not conversation_exists and resolved_rep_user_id:
             rep_user_id = resolved_rep_user_id
             print(f"[TWILIO_INBOUND] ✅ Using resolved rep_user_id for new conversation: {rep_user_id}", flush=True)
+        
+        # Final ownership determination for logging
+        final_owner = "OWNER" if not rep_user_id else f"REP({rep_user_id})"
+        print(f"[TWILIO_INBOUND] 📋 POLICY A: Final resolved owner: {final_owner}", flush=True)
         
         print(f"[TWILIO_INBOUND] 📋 Conversation Summary:", flush=True)
         print(f"[TWILIO_INBOUND]   Phone: {normalized_phone} (original: {From})", flush=True)
