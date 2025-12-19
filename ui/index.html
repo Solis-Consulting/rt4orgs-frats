@@ -552,34 +552,55 @@
         });
       });
 
-      // Individual card checkbox functionality - attach to all checkboxes
-      cardCheckboxes.forEach((cb, index) => {
-        // Remove any existing listeners by cloning the node (clean slate)
-        const newCb = cb.cloneNode(true);
-        cb.parentNode.replaceChild(newCb, cb);
+      // Use event delegation for checkboxes (more reliable, works with dynamic content)
+      const tableWrap = document.getElementById('cardTableWrap');
+      if (tableWrap) {
+        // Remove any existing listener to avoid duplicates
+        const newTableWrap = tableWrap.cloneNode(true);
+        tableWrap.parentNode.replaceChild(newTableWrap, tableWrap);
         
-        newCb.addEventListener('change', function(e) {
-          const isChecked = this.checked;
-          const cardId = this.getAttribute('data-id');
-          const groupId = this.getAttribute('data-group-id');
-          
-          console.log(`[CHECKBOX] Individual checkbox ${index} changed: checked=${isChecked}, id=${cardId}, groupId=${groupId}`);
-          
-          // Immediately verify the state
-          const verifyChecked = document.querySelector(`.card-select-checkbox[data-id="${cardId}"]`)?.checked;
-          console.log(`[CHECKBOX] Verification: checkbox with id ${cardId} is ${verifyChecked ? 'checked' : 'NOT checked'}`);
-          
-          // Count checked boxes right now
-          const allCheckedNow = document.querySelectorAll('.card-select-checkbox:checked');
-          console.log(`[CHECKBOX] Total checked boxes right now: ${allCheckedNow.length}`);
-          
-          updateBlastButtonState();
-          updateSelectAllState();
-          updateGroupCheckboxState(this);
+        newTableWrap.addEventListener('change', function(e) {
+          const target = e.target;
+          if (target.classList.contains('card-select-checkbox')) {
+            const isChecked = target.checked;
+            const cardId = target.getAttribute('data-id');
+            const groupId = target.getAttribute('data-group-id');
+            
+            console.log(`[CHECKBOX] Individual checkbox changed: checked=${isChecked}, id=${cardId}, groupId=${groupId}`);
+            
+            // Immediately verify the state
+            const verifyChecked = document.querySelector(`.card-select-checkbox[data-id="${cardId}"]`)?.checked;
+            console.log(`[CHECKBOX] Verification: checkbox with id ${cardId} is ${verifyChecked ? 'checked' : 'NOT checked'}`);
+            
+            // Count checked boxes right now
+            const allCheckedNow = document.querySelectorAll('.card-select-checkbox:checked');
+            console.log(`[CHECKBOX] Total checked boxes right now: ${allCheckedNow.length}`);
+            
+            updateBlastButtonState();
+            updateSelectAllState();
+            updateGroupCheckboxState(target);
+          }
         });
-      });
-      
-      console.log(`[CHECKBOX] Attached listeners to ${cardCheckboxes.length} checkboxes`);
+        
+        console.log(`[CHECKBOX] Event delegation attached to table container for ${cardCheckboxes.length} checkboxes`);
+      } else {
+        // Fallback: attach to individual checkboxes
+        cardCheckboxes.forEach((cb, index) => {
+          cb.addEventListener('change', function(e) {
+            const isChecked = this.checked;
+            const cardId = this.getAttribute('data-id');
+            const groupId = this.getAttribute('data-group-id');
+            
+            console.log(`[CHECKBOX] Individual checkbox ${index} changed: checked=${isChecked}, id=${cardId}, groupId=${groupId}`);
+            
+            updateBlastButtonState();
+            updateSelectAllState();
+            updateGroupCheckboxState(this);
+          });
+        });
+        
+        console.log(`[CHECKBOX] Attached listeners to ${cardCheckboxes.length} checkboxes (fallback)`);
+      }
 
       // Update group checkbox state when individual checkboxes change
       function updateGroupCheckboxState(cardCheckbox) {
