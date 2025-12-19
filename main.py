@@ -1191,7 +1191,12 @@ async def twilio_inbound(request: Request):
         # Generate reply message using configured Markov responses
         reply_text = None
         next_state = None  # Define at higher scope for campaign suppression check
-        if result.get("next_state"):
+        
+        # Skip reply generation if bot loop detected (but still process/store inbound for leads)
+        if skip_auto_reply:
+            print(f"[TWILIO_INBOUND] 🛑 Skipping reply generation due to bot loop prevention (inbound will still be stored)", flush=True)
+            reply_text = None
+        elif result.get("next_state"):
             next_state = result["next_state"]
             previous_state = result.get("previous_state", "initial_outreach")
             
