@@ -372,7 +372,8 @@
       return ids;
     }
     
-    // Update selection state when checkbox changes
+    // DEPRECATED: Use direct Set operations in event handlers instead
+    // Keeping for backward compatibility but event handlers now do this directly
     function updateSelectionState(cardId, isChecked) {
       if (!window.selectedCardIds) {
         window.selectedCardIds = new Set();
@@ -546,9 +547,20 @@
           const allCheckboxes = document.querySelectorAll(".card-select-checkbox");
           allCheckboxes.forEach(cb => {
             cb.checked = isChecked;
-            const cardId = cb.getAttribute('data-id');
+            const cardId = cb.getAttribute('data-id') || cb.dataset.id || cb.dataset.cardId;
             if (cardId) {
-              updateSelectionState(cardId, isChecked);
+              // Directly update state (don't rely on change event for programmatic changes)
+              if (!window.selectedCardIds) {
+                window.selectedCardIds = new Set();
+              }
+              if (isChecked) {
+                window.selectedCardIds.add(cardId);
+              } else {
+                window.selectedCardIds.delete(cardId);
+              }
+              console.log('[SELECT] Select All: Updated cardId', cardId, 'checked=', isChecked, 'Set size:', window.selectedCardIds.size);
+            } else {
+              console.error('[SELECT] Select All: Checkbox missing data-id!', cb);
             }
           });
           // Update group checkboxes
@@ -572,9 +584,20 @@
           console.log(`[CHECKBOX] Found ${groupCheckboxes.length} checkboxes in group ${groupId}`);
           groupCheckboxes.forEach(cb => {
             cb.checked = checked;
-            const cardId = cb.getAttribute('data-id');
+            const cardId = cb.getAttribute('data-id') || cb.dataset.id || cb.dataset.cardId;
             if (cardId) {
-              updateSelectionState(cardId, checked);
+              // Directly update state (don't rely on change event for programmatic changes)
+              if (!window.selectedCardIds) {
+                window.selectedCardIds = new Set();
+              }
+              if (checked) {
+                window.selectedCardIds.add(cardId);
+              } else {
+                window.selectedCardIds.delete(cardId);
+              }
+              console.log('[SELECT] Group Select: Updated cardId', cardId, 'checked=', checked, 'Set size:', window.selectedCardIds.size);
+            } else {
+              console.error('[SELECT] Group Select: Checkbox missing data-id!', cb);
             }
           });
           updateBlastButtonState();
@@ -585,57 +608,102 @@
       // BULLETPROOF: Use multiple event listeners to ensure we catch all checkbox changes
       // Listen for both 'change' and 'click' events on checkboxes
       if (!window.cardCheckboxDelegateAttached) {
-        // Method 1: Change event delegation (primary) - updates state, then button
+        // CRITICAL: Global checkbox handler - THE BRIDGE THAT CONNECTS DOM TO STATE
+        // This is the ONLY place that mutates window.selectedCardIds
         document.addEventListener('change', function(e) {
-          const target = e.target;
-          if (target.type === 'checkbox' && target.classList.contains('card-select-checkbox')) {
-            const cardId = target.getAttribute('data-id');
-            const isChecked = target.checked;
+          const cb = e.target;
+          
+          // Only handle card checkboxes
+          if (cb.type !== 'checkbox' || !cb.classList.contains('card-select-checkbox')) {
+            return;
+          }
+          
+          // Get card ID - CRITICAL: must exist or nothing works
+          const cardId = cb.getAttribute('data-id') || cb.dataset.id || cb.dataset.cardId;
+          
+          if (!cardId) {
+            console.error('[SELECT] ❌ CRITICAL: Checkbox missing data-id attribute!', cb);
+            console.error('[SELECT] Checkbox attributes:', {
+              id: cb.id,
+              className: cb.className,
+              dataset: cb.dataset,
+              attributes: Array.from(cb.attributes).map(a => `${a.name}="${a.value}"`).join(', ')
+            });
+            return;
+          }
+          
+          const isChecked = cb.checked;
+          
+          console.log('[SELECT] ✅ Checkbox changed:', { cardId, isChecked, checkbox: cb });
+          
+          // CRITICAL: Update state (this is the missing bridge)
+          if (!window.selectedCardIds) {
+            window.selectedCardIds = new Set();
+          }
+          
+          if (isChecked) {
+            window.selectedCardIds.add(cardId);
+            console.log('[SELECT] ➕ Added cardId to Set:', cardId, 'Size now:', window.selectedCardIds.size);
+          } else {
+            window.selectedCardIds.delete(cardId);
+            console.log('[SELECT] ➖ Removed cardId from Set:', cardId, 'Size now:', window.selectedCardIds.size);
+          }
+          
+          console.log('[SELECT] 📊 Current Set:', Array.from(window.selectedCardIds));
+          
+          // Update button based on state
+          if (window.updateAssignButtonState) {
+            window.updateAssignButtonState();
+          } else {
+            console.error('[SELECT] ❌ updateAssignButtonState not found!');
+          }
+          
+          // Also update other UI elements
+          if (typeof updateBlastButtonState === 'function') updateBlastButtonState();
+          if (typeof updateGroupCheckboxState === 'function') updateGroupCheckboxState(cb);
+        }, true);
+        
+        // Backup click handler (in case change doesn't fire)
+        document.addEventListener('click', function(e) {
+          const cb = e.target;
+          
+          if (cb.type !== 'checkbox' || !cb.classList.contains('card-select-checkbox')) {
+            return;
+          }
+          
+          // Use setTimeout to let browser update checked state first
+          setTimeout(() => {
+            const cardId = cb.getAttribute('data-id') || cb.dataset.id || cb.dataset.cardId;
             
-            console.log('[CHECKBOX] CHANGE EVENT:', target, 'checked=' + isChecked, 'cardId=' + cardId);
-            
-            // Update state (source of truth)
-            if (cardId) {
-              updateSelectionState(cardId, isChecked);
+            if (!cardId) {
+              console.error('[SELECT] ❌ CLICK: Checkbox missing data-id!', cb);
+              return;
             }
             
-            // Update button based on state
+            const isChecked = cb.checked;
+            
+            console.log('[SELECT] ✅ CLICK EVENT (backup):', { cardId, isChecked });
+            
+            // Update state
+            if (!window.selectedCardIds) {
+              window.selectedCardIds = new Set();
+            }
+            
+            if (isChecked) {
+              window.selectedCardIds.add(cardId);
+            } else {
+              window.selectedCardIds.delete(cardId);
+            }
+            
+            console.log('[SELECT] 📊 CLICK: Set after update:', Array.from(window.selectedCardIds));
+            
             if (window.updateAssignButtonState) {
               window.updateAssignButtonState();
             }
             
-            // Also update other UI elements
             if (typeof updateBlastButtonState === 'function') updateBlastButtonState();
-            if (typeof updateGroupCheckboxState === 'function') updateGroupCheckboxState(target);
-          }
-        }, true);
-        
-        // Method 2: Click event delegation (backup - catches if change doesn't fire)
-        document.addEventListener('click', function(e) {
-          const target = e.target;
-          if (target.type === 'checkbox' && target.classList.contains('card-select-checkbox')) {
-            // Use setTimeout to let browser update checked state first
-            setTimeout(() => {
-              const cardId = target.getAttribute('data-id');
-              const isChecked = target.checked;
-              
-              console.log('[CHECKBOX] CLICK EVENT:', target, 'checked=' + isChecked, 'cardId=' + cardId);
-              
-              // Update state (source of truth)
-              if (cardId) {
-                updateSelectionState(cardId, isChecked);
-              }
-              
-              // Update button based on state
-              if (window.updateAssignButtonState) {
-                window.updateAssignButtonState();
-              }
-              
-              // Also update other UI elements
-              if (typeof updateBlastButtonState === 'function') updateBlastButtonState();
-              if (typeof updateGroupCheckboxState === 'function') updateGroupCheckboxState(target);
-            }, 0);
-          }
+            if (typeof updateGroupCheckboxState === 'function') updateGroupCheckboxState(cb);
+          }, 0);
         }, true);
         
         window.cardCheckboxDelegateAttached = true;
@@ -863,9 +931,20 @@
       // Toggle all and update state
       checkboxes.forEach(cb => {
         cb.checked = newCheckedState;
-        const cardId = cb.getAttribute('data-id');
+        const cardId = cb.getAttribute('data-id') || cb.dataset.id || cb.dataset.cardId;
         if (cardId) {
-          updateSelectionState(cardId, newCheckedState);
+          // Directly update state (don't rely on change event for programmatic changes)
+          if (!window.selectedCardIds) {
+            window.selectedCardIds = new Set();
+          }
+          if (newCheckedState) {
+            window.selectedCardIds.add(cardId);
+          } else {
+            window.selectedCardIds.delete(cardId);
+          }
+          console.log('[SELECT] selectGroup: Updated cardId', cardId, 'checked=', newCheckedState, 'Set size:', window.selectedCardIds.size);
+        } else {
+          console.error('[SELECT] selectGroup: Checkbox missing data-id!', cb);
         }
       });
       
