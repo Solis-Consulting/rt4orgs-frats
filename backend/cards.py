@@ -206,26 +206,58 @@ def store_card(
     
     try:
         with conn.cursor() as cur:
-            # Upsert card
+            # Check if upload_batch_id column exists
             cur.execute("""
-                INSERT INTO cards (id, type, card_data, sales_state, owner, updated_at)
-                VALUES (%s, %s, %s::jsonb, %s, %s, %s)
-                ON CONFLICT (id)
-                DO UPDATE SET
-                    type = EXCLUDED.type,
-                    card_data = EXCLUDED.card_data,
-                    sales_state = EXCLUDED.sales_state,
-                    owner = EXCLUDED.owner,
-                    updated_at = EXCLUDED.updated_at
-                RETURNING id, type, card_data, sales_state, owner, created_at, updated_at;
-            """, (
-                card_id,
-                card_type,
-                Json(card_data),
-                sales_state,
-                owner,
-                datetime.utcnow()
-            ))
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'cards' AND column_name = 'upload_batch_id'
+            """)
+            has_upload_batch_id = cur.fetchone() is not None
+            
+            if has_upload_batch_id:
+                # Upsert card with upload_batch_id
+                cur.execute("""
+                    INSERT INTO cards (id, type, card_data, sales_state, owner, updated_at, upload_batch_id)
+                    VALUES (%s, %s, %s::jsonb, %s, %s, %s, %s)
+                    ON CONFLICT (id)
+                    DO UPDATE SET
+                        type = EXCLUDED.type,
+                        card_data = EXCLUDED.card_data,
+                        sales_state = EXCLUDED.sales_state,
+                        owner = EXCLUDED.owner,
+                        updated_at = EXCLUDED.updated_at,
+                        upload_batch_id = COALESCE(EXCLUDED.upload_batch_id, cards.upload_batch_id)
+                    RETURNING id, type, card_data, sales_state, owner, created_at, updated_at, upload_batch_id;
+                """, (
+                    card_id,
+                    card_type,
+                    Json(card_data),
+                    sales_state,
+                    owner,
+                    datetime.utcnow(),
+                    upload_batch_id
+                ))
+            else:
+                # Fallback: upsert card without upload_batch_id (pre-migration)
+                cur.execute("""
+                    INSERT INTO cards (id, type, card_data, sales_state, owner, updated_at)
+                    VALUES (%s, %s, %s::jsonb, %s, %s, %s)
+                    ON CONFLICT (id)
+                    DO UPDATE SET
+                        type = EXCLUDED.type,
+                        card_data = EXCLUDED.card_data,
+                        sales_state = EXCLUDED.sales_state,
+                        owner = EXCLUDED.owner,
+                        updated_at = EXCLUDED.updated_at
+                    RETURNING id, type, card_data, sales_state, owner, created_at, updated_at;
+                """, (
+                    card_id,
+                    card_type,
+                    Json(card_data),
+                    sales_state,
+                    owner,
+                    datetime.utcnow()
+                ))
             
             row = cur.fetchone()
             if not row:
@@ -244,6 +276,10 @@ def store_card(
                 "created_at": row[5].isoformat() if row[5] else None,
                 "updated_at": row[6].isoformat() if row[6] else None,
             }
+            
+            # Add upload_batch_id if column exists
+            if has_upload_batch_id and len(row) > 7:
+                stored_card["upload_batch_id"] = row[7]
             
             return True, None, stored_card
             

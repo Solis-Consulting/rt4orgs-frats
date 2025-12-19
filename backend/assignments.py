@@ -93,6 +93,7 @@ def get_rep_assigned_cards(
     query = """
         SELECT 
             c.id, c.type, c.card_data, c.sales_state, c.owner, c.created_at, c.updated_at,
+            c.upload_batch_id,
             ca.assigned_at, ca.status as assignment_status, ca.notes, ca.assigned_by
         FROM card_assignments ca
         INNER JOIN cards c ON ca.card_id = c.id
@@ -132,11 +133,12 @@ def get_rep_assigned_cards(
                 "owner": row[4],
                 "created_at": row[5],
                 "updated_at": row[6],
+                "upload_batch_id": row[7] if len(row) > 7 else None,  # upload_batch_id (may not exist in old schema)
                 "assignment": {
-                    "assigned_at": row[7],
-                    "status": row[8],
-                    "notes": row[9],
-                    "assigned_by": row[10],
+                    "assigned_at": row[8] if len(row) > 8 else row[7],  # Adjust index if upload_batch_id exists
+                    "status": row[9] if len(row) > 9 else row[8],
+                    "notes": row[10] if len(row) > 10 else row[9],
+                    "assigned_by": row[11] if len(row) > 11 else row[10],
                 }
             })
         

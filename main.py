@@ -1942,6 +1942,14 @@ async def upload_cards(
     print("=" * 60)
     print(f"📤 Upload request: {len(cards)} card(s)")
     
+    # Generate upload batch ID for this upload session
+    from datetime import datetime
+    import hashlib
+    upload_timestamp = datetime.utcnow().isoformat()
+    batch_hash = hashlib.md5(f"{upload_timestamp}_{len(cards)}".encode()).hexdigest()[:8]
+    upload_batch_id = f"upload_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{batch_hash}"
+    print(f"📦 Upload batch ID: {upload_batch_id}")
+    
     try:
         conn = get_conn()
     except Exception as db_error:
@@ -1984,7 +1992,8 @@ async def upload_cards(
             continue
         
         # Store card (allow missing references for initial upload)
-        success, error_msg, stored_card = store_card(conn, normalized, allow_missing_references=True)
+        # Pass upload_batch_id to track which upload batch this card came from
+        success, error_msg, stored_card = store_card(conn, normalized, allow_missing_references=True, upload_batch_id=upload_batch_id)
         
         if success:
             print(f"  ✅ Card {idx + 1}/{len(cards)} stored: {card_id}")
