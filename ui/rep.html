@@ -293,7 +293,7 @@
       });
 
       let html = '<table><thead><tr>';
-      html += '<th><input type="checkbox" id="selectAll"></th><th>Name</th><th>Type</th><th>Sales State</th><th>Assignment Status</th><th>Updated</th><th>Actions</th>';
+      html += '<th><input type="checkbox" id="selectAll"></th><th>Name</th><th>Type</th><th>Sales State</th><th>Assignment Status</th><th>Date Assigned</th><th>Notes</th><th>Updated</th><th>Actions</th>';
       html += '</tr></thead><tbody>';
 
       rows.forEach(card => {
@@ -301,6 +301,8 @@
         const type = card.type || 'person';
         const salesState = card.sales_state || 'cold';
         const assignmentStatus = card.assignment?.status || 'assigned';
+        const assignedAt = card.assignment?.assigned_at ? new Date(card.assignment.assigned_at).toLocaleDateString() : '-';
+        const notes = card.assignment?.notes || '-';
         const updated = card.updated_at ? new Date(card.updated_at).toLocaleDateString() : '-';
         
         html += '<tr>';
@@ -309,6 +311,8 @@
         html += `<td><span class='badge ${type}'>${type}</span></td>`;
         html += `<td><span class='badge gray'>${salesState}</span></td>`;
         html += `<td><span class='badge ${assignmentStatus === 'active' ? 'green' : assignmentStatus === 'closed' ? 'green' : assignmentStatus === 'lost' ? 'red' : 'gray'}'>${assignmentStatus}</span></td>`;
+        html += `<td>${assignedAt}</td>`;
+        html += `<td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${notes !== '-' ? notes : ''}">${notes}</td>`;
         html += `<td>${updated}</td>`;
         html += `<td><a class='link' href='card.html?id=${encodeURIComponent(card.id)}'>View</a></td>`;
         html += '</tr>';
