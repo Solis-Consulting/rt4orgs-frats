@@ -360,7 +360,9 @@
 
     function getSelectedCardIds() {
       const checkboxes = document.querySelectorAll('.card-select-checkbox:checked');
-      return Array.from(checkboxes).map(cb => cb.getAttribute('data-id'));
+      const ids = Array.from(checkboxes).map(cb => cb.getAttribute('data-id'));
+      console.log(`[SELECT] getSelectedCardIds: found ${ids.length} selected cards:`, ids);
+      return ids;
     }
 
     function renderCards() {
@@ -571,12 +573,24 @@
         }
         
         // Update assign and delete button states
-        const selectedCount = document.querySelectorAll('.card-select-checkbox:checked').length;
+        // Query all checkboxes (including those in collapsed groups)
+        const allCheckboxes = document.querySelectorAll('.card-select-checkbox');
+        const checkedCheckboxes = document.querySelectorAll('.card-select-checkbox:checked');
+        const selectedCount = checkedCheckboxes.length;
+        
+        console.log(`[ASSIGN] Checkbox state: total=${allCheckboxes.length}, checked=${selectedCount}`);
+        
         const assignBtn = document.getElementById('assignSelectedBtn');
         const deleteBtn = document.getElementById('deleteSelectedBtn');
         if (assignBtn) {
+          const wasDisabled = assignBtn.disabled;
           assignBtn.disabled = selectedCount === 0;
-          console.log(`[ASSIGN] Button state updated: disabled=${assignBtn.disabled}, selected=${selectedCount}`);
+          console.log(`[ASSIGN] Button state: disabled=${assignBtn.disabled} (was ${wasDisabled}), selected=${selectedCount}`);
+          
+          // Visual feedback
+          if (selectedCount > 0 && wasDisabled) {
+            console.log(`[ASSIGN] ✅ Button enabled! ${selectedCount} card(s) selected`);
+          }
         }
         if (deleteBtn) {
           deleteBtn.disabled = selectedCount === 0;
