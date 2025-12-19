@@ -725,7 +725,8 @@
         }
       }
 
-      // BULLETPROOF: State-driven button logic (uses Set, not DOM queries)
+      // BULLETPROOF: Derive state from checked checkboxes (visual state, not internal model)
+      // Count checkboxes that are actually checked in the DOM
       window.updateAssignButtonState = function() {
         const btn = document.getElementById('assignSelectedBtn');
         if (!btn) {
@@ -733,11 +734,24 @@
           return;
         }
         
-        // Use state (Set) as source of truth, NOT DOM queries
-        const count = window.selectedCardIds?.size || 0;
+        // OPTION B: Count checked checkboxes directly from DOM (they ARE the source of truth)
+        // This works because checkboxes maintain their checked state even after re-renders
+        const checkedCheckboxes = document.querySelectorAll('.card-select-checkbox:checked');
+        const count = checkedCheckboxes.length;
         
-        console.log('[ASSIGN] selectedCardIds.size =', count);
-        console.log('[ASSIGN] selectedCardIds =', Array.from(window.selectedCardIds || []));
+        // Also sync to Set for getSelectedCardIds() compatibility
+        if (window.selectedCardIds) {
+          window.selectedCardIds.clear();
+          checkedCheckboxes.forEach(cb => {
+            const cardId = cb.getAttribute('data-id') || cb.dataset.id || cb.dataset.cardId;
+            if (cardId) {
+              window.selectedCardIds.add(cardId);
+            }
+          });
+        }
+        
+        console.log('[ASSIGN] Checked checkboxes count =', count);
+        console.log('[ASSIGN] Selected card IDs:', Array.from(window.selectedCardIds || []));
         
         if (count > 0) {
           // ENABLE: Remove ALL ways it can be disabled
@@ -746,7 +760,7 @@
           btn.style.pointerEvents = 'auto';
           btn.style.opacity = '1';
           btn.style.cursor = 'pointer';
-          console.log('[ASSIGN] ✅ BUTTON ENABLED');
+          console.log('[ASSIGN] ✅ BUTTON ENABLED (', count, 'cards selected)');
         } else {
           // DISABLE
           btn.disabled = true;
@@ -754,7 +768,7 @@
           btn.style.pointerEvents = 'none';
           btn.style.opacity = '0.6';
           btn.style.cursor = 'not-allowed';
-          console.log('[ASSIGN] ❌ BUTTON DISABLED');
+          console.log('[ASSIGN] ❌ BUTTON DISABLED (no cards selected)');
         }
       };
       
