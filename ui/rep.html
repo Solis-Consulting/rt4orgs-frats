@@ -88,6 +88,7 @@
             <option value="lost">Lost</option>
           </select>
           <button id="blastBtn" disabled>Blast Selected Assigned Leads</button>
+          <button id="checkAllAssignBtn">Check All & Assign</button>
         </div>
         <div id="cardsTableWrap"></div>
       </div>
@@ -292,30 +293,60 @@
         return name.toLowerCase().includes(search) || id.toLowerCase().includes(search);
       });
 
+      // Group cards by day + hour of upload (created_at)
+      const groups = {};
+      rows.forEach(card => {
+        const created_at = card.created_at || card.updated_at || new Date().toISOString();
+        const date = new Date(created_at);
+        const dayHour = `${date.toLocaleDateString()} ${date.getHours()}:00`;
+        
+        if (!groups[dayHour]) {
+          groups[dayHour] = [];
+        }
+        groups[dayHour].push(card);
+      });
+
+      // Sort groups by date (newest first)
+      const sortedGroups = Object.keys(groups).sort((a, b) => {
+        return new Date(b) - new Date(a);
+      });
+
       let html = '<table><thead><tr>';
       html += '<th><input type="checkbox" id="selectAll"></th><th>Name</th><th>Type</th><th>Sales State</th><th>Assignment Status</th><th>Date Assigned</th><th>Notes</th><th>Updated</th><th>Actions</th>';
       html += '</tr></thead><tbody>';
 
-      rows.forEach(card => {
-        const name = card.card_data?.name || card.id;
-        const type = card.type || 'person';
-        const salesState = card.sales_state || 'cold';
-        const assignmentStatus = card.assignment?.status || 'assigned';
-        const assignedAt = card.assignment?.assigned_at ? new Date(card.assignment.assigned_at).toLocaleDateString() : '-';
-        const notes = card.assignment?.notes || '-';
-        const updated = card.updated_at ? new Date(card.updated_at).toLocaleDateString() : '-';
+      sortedGroups.forEach(dayHour => {
+        const groupCards = groups[dayHour];
+        const groupId = `group-${dayHour.replace(/[^a-zA-Z0-9]/g, '-')}`;
         
-        html += '<tr>';
-        html += `<td><input type="checkbox" class="card-checkbox" data-id="${card.id}"></td>`;
-        html += `<td>${name}</td>`;
-        html += `<td><span class='badge ${type}'>${type}</span></td>`;
-        html += `<td><span class='badge gray'>${salesState}</span></td>`;
-        html += `<td><span class='badge ${assignmentStatus === 'active' ? 'green' : assignmentStatus === 'closed' ? 'green' : assignmentStatus === 'lost' ? 'red' : 'gray'}'>${assignmentStatus}</span></td>`;
-        html += `<td>${assignedAt}</td>`;
-        html += `<td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${notes !== '-' ? notes : ''}">${notes}</td>`;
-        html += `<td>${updated}</td>`;
-        html += `<td><a class='link' href='card.html?id=${encodeURIComponent(card.id)}' onclick="sessionStorage.setItem('repApiToken', '${apiToken}'); return true;">View</a></td>`;
+        // Group header row with checkbox
+        html += `<tr class="group-header" style="background: #1e293b; font-weight: 600;">`;
+        html += `<td><input type="checkbox" class="group-checkbox" data-group-id="${groupId}" data-day-hour="${dayHour}"></td>`;
+        html += `<td colspan="8" style="padding: 12px 6px;">📅 ${dayHour} (${groupCards.length} card${groupCards.length !== 1 ? 's' : ''})</td>`;
         html += '</tr>';
+
+        // Cards in this group
+        groupCards.forEach(card => {
+          const name = card.card_data?.name || card.id;
+          const type = card.type || 'person';
+          const salesState = card.sales_state || 'cold';
+          const assignmentStatus = card.assignment?.status || 'assigned';
+          const assignedAt = card.assignment?.assigned_at ? new Date(card.assignment.assigned_at).toLocaleDateString() : '-';
+          const notes = card.assignment?.notes || '-';
+          const updated = card.updated_at ? new Date(card.updated_at).toLocaleDateString() : '-';
+          
+          html += `<tr class="group-row" data-group-id="${groupId}">`;
+          html += `<td><input type="checkbox" class="card-checkbox" data-id="${card.id}" data-group-id="${groupId}"></td>`;
+          html += `<td>${name}</td>`;
+          html += `<td><span class='badge ${type}'>${type}</span></td>`;
+          html += `<td><span class='badge gray'>${salesState}</span></td>`;
+          html += `<td><span class='badge ${assignmentStatus === 'active' ? 'green' : assignmentStatus === 'closed' ? 'green' : assignmentStatus === 'lost' ? 'red' : 'gray'}'>${assignmentStatus}</span></td>`;
+          html += `<td>${assignedAt}</td>`;
+          html += `<td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${notes !== '-' ? notes : ''}">${notes}</td>`;
+          html += `<td>${updated}</td>`;
+          html += `<td><a class='link' href='card.html?id=${encodeURIComponent(card.id)}' onclick="sessionStorage.setItem('repApiToken', '${apiToken}'); return true;">View</a></td>`;
+          html += '</tr>';
+        });
       });
 
       html += '</tbody></table>';
@@ -326,13 +357,62 @@
         document.querySelectorAll('.card-checkbox').forEach(cb => {
           cb.checked = e.target.checked;
         });
+        // Update group checkboxes
+        document.querySelectorAll('.group-checkbox').forEach(gcb => {
+          gcb.checked = e.target.checked;
+        });
         updateBlastButton();
       });
 
-      document.querySelectorAll('.card-checkbox').forEach(cb => {
-        cb.addEventListener('change', updateBlastButton);
+      // Group checkbox functionality
+      document.querySelectorAll('.group-checkbox').forEach(gcb => {
+        gcb.addEventListener('change', (e) => {
+          const groupId = e.target.getAttribute('data-group-id');
+          const checked = e.target.checked;
+          document.querySelectorAll(`.card-checkbox[data-group-id="${groupId}"]`).forEach(cb => {
+            cb.checked = checked;
+          });
+          updateBlastButton();
+          updateSelectAllState();
+        });
       });
+
+      // Individual card checkbox functionality
+      document.querySelectorAll('.card-checkbox').forEach(cb => {
+        cb.addEventListener('change', () => {
+          updateBlastButton();
+          updateSelectAllState();
+          updateGroupCheckboxState(cb);
+        });
+      });
+
+      // Update group checkbox state when individual checkboxes change
+      function updateGroupCheckboxState(cardCheckbox) {
+        const groupId = cardCheckbox.getAttribute('data-group-id');
+        const groupCheckbox = document.querySelector(`.group-checkbox[data-group-id="${groupId}"]`);
+        if (groupCheckbox) {
+          const groupCards = document.querySelectorAll(`.card-checkbox[data-group-id="${groupId}"]`);
+          const allChecked = Array.from(groupCards).every(cb => cb.checked);
+          const someChecked = Array.from(groupCards).some(cb => cb.checked);
+          groupCheckbox.checked = allChecked;
+          groupCheckbox.indeterminate = someChecked && !allChecked;
+        }
+      }
+
+      // Update select all checkbox state
+      function updateSelectAllState() {
+        const selectAll = document.getElementById('selectAll');
+        const allCardCheckboxes = document.querySelectorAll('.card-checkbox');
+        if (selectAll && allCardCheckboxes.length > 0) {
+          const allChecked = Array.from(allCardCheckboxes).every(cb => cb.checked);
+          const someChecked = Array.from(allCardCheckboxes).some(cb => cb.checked);
+          selectAll.checked = allChecked;
+          selectAll.indeterminate = someChecked && !allChecked;
+        }
+      }
+
       updateBlastButton();
+      updateSelectAllState();
     }
 
     function updateBlastButton() {
@@ -342,6 +422,48 @@
 
     document.getElementById('cardSearch').addEventListener('input', renderCards);
     document.getElementById('statusFilter').addEventListener('change', loadCards);
+    
+    // Check All & Assign button
+    document.getElementById('checkAllAssignBtn')?.addEventListener('click', async () => {
+      // Check all checkboxes
+      document.querySelectorAll('.card-checkbox').forEach(cb => {
+        cb.checked = true;
+      });
+      document.querySelectorAll('.group-checkbox').forEach(gcb => {
+        gcb.checked = true;
+      });
+      const selectAll = document.getElementById('selectAll');
+      if (selectAll) {
+        selectAll.checked = true;
+        selectAll.indeterminate = false;
+      }
+      updateBlastButton();
+      
+      const selected = Array.from(document.querySelectorAll('.card-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
+      
+      if (selected.length === 0) {
+        alert('No cards to assign');
+        return;
+      }
+      
+      // Get current user info from /rep/cards endpoint response
+      // The user_id should be in the response or we can extract it from the token
+      try {
+        const res = await fetch(`${BACKEND}/rep/cards`, { headers: getHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          // Try to get user_id from response or make assignment call
+          // For now, show confirmation
+          if (confirm(`Check all ${selected.length} card(s)?\n\nAll cards are already assigned to you (rep view only shows assigned cards).`)) {
+            // Cards are already assigned, so this just checks all boxes
+            alert(`All ${selected.length} card(s) checked.`);
+          }
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        alert(`All ${selected.length} card(s) checked.`);
+      }
+    });
     
     // Blast selected cards
     document.getElementById('blastBtn').addEventListener('click', async () => {
