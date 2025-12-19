@@ -283,11 +283,19 @@ def run_blast_for_cards(
                 assign_card_to_rep(conn, card_id, rep_user_id, rep_user_id, notes="Blast claim - ownership transferred via blast")
                 print(f"[BLAST_RUN] ✅ Card {card_id} reassigned to {rep_user_id} via blast claim", flush=True)
         else:
-            # Owner is blasting - claim ownership by clearing rep assignment
-            if current_rep:
-                print(f"[BLAST_RUN] 🔄 Blast claim (owner): card {card_id} currently assigned to {current_rep}, claiming for owner", flush=True)
-                unassign_card(conn, card_id, current_rep)
-                print(f"[BLAST_RUN] ✅ Card {card_id} unassigned from {current_rep} - owner now owns via blast claim", flush=True)
+            # Owner is blasting - claim ownership by clearing ALL rep assignments (unconditional)
+            # POLICY A: Owner blast = hard reclaim - delete ALL assignments for this card
+            print(f"[BLAST_RUN] 🔄 Blast claim (owner): clearing ALL assignments for card {card_id}", flush=True)
+            with conn.cursor() as cur:
+                cur.execute("""
+                    DELETE FROM card_assignments
+                    WHERE card_id = %s
+                """, (card_id,))
+                deleted_count = cur.rowcount
+                if deleted_count > 0:
+                    print(f"[BLAST_RUN] ✅ Card {card_id} - deleted {deleted_count} assignment(s) - owner now owns via blast claim", flush=True)
+                else:
+                    print(f"[BLAST_RUN] ✅ Card {card_id} - no assignments to delete (already owner-owned)", flush=True)
 
     if not card_ids:
         return {
