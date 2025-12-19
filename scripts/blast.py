@@ -180,7 +180,8 @@ def send_sms(to_number: str, body: str) -> Dict[str, Any]:
     # ALWAYS use environment variables - no parameters
     token_to_use = os.getenv("TWILIO_AUTH_TOKEN")
     sid_to_use = os.getenv("TWILIO_ACCOUNT_SID")
-    phone_number = os.getenv("TWILIO_PHONE_NUMBER")  # Send directly from phone number (not Messaging Service)
+    messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
+    phone_number = os.getenv("TWILIO_PHONE_NUMBER")  # Fallback if Messaging Service not set
     
     # Validate immediately - fail fast with clear errors
     if not token_to_use:
@@ -193,10 +194,18 @@ def send_sms(to_number: str, body: str) -> Dict[str, Any]:
         print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
         raise ValueError(error_msg)
     
-    if not phone_number:
-        error_msg = "TWILIO_PHONE_NUMBER not set in environment variables"
-        print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
-        raise ValueError(error_msg)
+    # 🔒 ENFORCE: Messaging Service takes precedence if set
+    if messaging_service_sid:
+        print(f"[SEND_SMS] ✅ TWILIO_MESSAGING_SERVICE_SID is set - using Messaging Service mode", flush=True)
+        if not phone_number:
+            # Phone number not required when using Messaging Service, but log it
+            print(f"[SEND_SMS] ⚠️ TWILIO_PHONE_NUMBER not set (not required for Messaging Service)", flush=True)
+    else:
+        print(f"[SEND_SMS] ⚠️ TWILIO_MESSAGING_SERVICE_SID not set - falling back to direct phone number", flush=True)
+        if not phone_number:
+            error_msg = "TWILIO_PHONE_NUMBER not set in environment variables (required when Messaging Service not set)"
+            print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
+            raise ValueError(error_msg)
     
     # Validate Account SID format
     if not sid_to_use.startswith('AC'):
@@ -213,20 +222,38 @@ def send_sms(to_number: str, body: str) -> Dict[str, Any]:
     print(f"[SEND_SMS] ✅ Using system Twilio credentials from environment variables", flush=True)
     print(f"[SEND_SMS] Account SID: {sid_to_use[:10]}...{sid_to_use[-4:]} (length: {len(sid_to_use)})", flush=True)
     print(f"[SEND_SMS] Auth Token: {token_to_use[:10]}...{token_to_use[-4:]} (length: {len(token_to_use)})", flush=True)
-    print(f"[SEND_SMS] Phone Number: {phone_number}", flush=True)
-    print(f"[SEND_SMS] Note: Sending directly from phone number (not Messaging Service) to avoid filtering", flush=True)
+    
+    # 🔒 DETERMINE SEND MODE: Messaging Service takes precedence
+    use_messaging_service = bool(messaging_service_sid)
+    send_mode = "MESSAGING_SERVICE" if use_messaging_service else "DIRECT_NUMBER"
+    
+    print(f"[SEND_SMS] 📡 Send Mode: {send_mode}", flush=True)
+    if use_messaging_service:
+        print(f"[SEND_SMS] Messaging Service SID: {messaging_service_sid[:10]}...{messaging_service_sid[-4:]} (length: {len(messaging_service_sid)})", flush=True)
+    else:
+        print(f"[SEND_SMS] Phone Number: {phone_number}", flush=True)
+        print(f"[SEND_SMS] ⚠️ Using direct phone number (Messaging Service not configured)", flush=True)
     
     try:
         print(f"[SEND_SMS] Creating Twilio Client with Account SID: {sid_to_use[:10]}... and Token: {token_to_use[:15]}...", flush=True)
         client = Client(sid_to_use, token_to_use)
         print(f"[SEND_SMS] ✅ Twilio Client created")
         
-        # Prepare message parameters - send directly from phone number
+        # 🔒 PREPARE MESSAGE PARAMETERS: Use Messaging Service if available, otherwise direct phone
+        # CRITICAL: Never mix both - Twilio will reject if both are set
         message_params = {
-            "from_": phone_number,  # CRITICAL: Use from_ parameter, not Messaging Service
             "to": to_number,
             "body": body
         }
+        
+        if use_messaging_service:
+            message_params["messaging_service_sid"] = messaging_service_sid
+            # CRITICAL: Do NOT set from_ when using Messaging Service
+            assert "from_" not in message_params, "Cannot use from_ with Messaging Service"
+        else:
+            message_params["from_"] = phone_number
+            # CRITICAL: Do NOT set messaging_service_sid when using direct phone
+            assert "messaging_service_sid" not in message_params, "Cannot use messaging_service_sid with direct phone"
         
         # ENHANCED LOGGING: Log all parameters being sent to Twilio
         print("=" * 80, flush=True)
@@ -234,14 +261,18 @@ def send_sms(to_number: str, body: str) -> Dict[str, Any]:
         print("=" * 80, flush=True)
         print(f"[SEND_SMS] Account SID: {sid_to_use[:10]}...{sid_to_use[-4:]} (length: {len(sid_to_use)})", flush=True)
         print(f"[SEND_SMS] Auth Token: {token_to_use[:10]}...{token_to_use[-4:]} (length: {len(token_to_use)})", flush=True)
-        print(f"[SEND_SMS] Phone Number: {phone_number}", flush=True)
+        print(f"[SEND_SMS] Send Mode: {send_mode}", flush=True)
         print("=" * 80, flush=True)
         print(f"[SEND_SMS] 📋 EXACT PARAMETERS BEING SENT TO TWILIO:", flush=True)
-        print(f"[SEND_SMS]   from_: {message_params.get('from_')}", flush=True)
+        if use_messaging_service:
+            print(f"[SEND_SMS]   messaging_service_sid: {messaging_service_sid[:10]}...{messaging_service_sid[-4:]}", flush=True)
+            print(f"[SEND_SMS]   from_: NOT SET (using Messaging Service)", flush=True)
+        else:
+            print(f"[SEND_SMS]   from_: {phone_number}", flush=True)
+            print(f"[SEND_SMS]   messaging_service_sid: NOT SET (using direct phone number)", flush=True)
         print(f"[SEND_SMS]   to: {message_params.get('to')}", flush=True)
         print(f"[SEND_SMS]   body: {message_params.get('body', '')[:100]}{'...' if len(message_params.get('body', '')) > 100 else ''}", flush=True)
         print(f"[SEND_SMS]   body length: {len(message_params.get('body', ''))} chars", flush=True)
-        print(f"[SEND_SMS]   messaging_service_sid: NOT SET (using direct phone number)", flush=True)
         print("=" * 80, flush=True)
         
         # Make the API call
@@ -274,7 +305,13 @@ def send_sms(to_number: str, body: str) -> Dict[str, Any]:
         print(f"[SEND_SMS] To: {msg.to}", flush=True)
         print(f"[SEND_SMS] From (actual sender): {msg.from_}", flush=True)
         print(f"[SEND_SMS] Account SID Used: {msg.account_sid}", flush=True)
-        print(f"[SEND_SMS] Messaging Service SID: {getattr(msg, 'messaging_service_sid', 'N/A')}", flush=True)
+        actual_messaging_service = getattr(msg, 'messaging_service_sid', None)
+        print(f"[SEND_SMS] Messaging Service SID: {actual_messaging_service or 'N/A'}", flush=True)
+        print(f"[SEND_SMS] 🔒 Send Mode Used: {send_mode}", flush=True)
+        if use_messaging_service and not actual_messaging_service:
+            print(f"[SEND_SMS] ⚠️⚠️⚠️ WARNING: Expected Messaging Service but response shows N/A - check Twilio configuration!", flush=True)
+        elif not use_messaging_service and actual_messaging_service:
+            print(f"[SEND_SMS] ⚠️⚠️⚠️ WARNING: Used direct phone but response shows Messaging Service - unexpected!", flush=True)
         print(f"[SEND_SMS] Date Created: {msg.date_created}", flush=True)
         print(f"[SEND_SMS] Date Sent: {msg.date_sent or 'Not sent yet'}", flush=True)
         print(f"[SEND_SMS] Date Updated: {msg.date_updated}", flush=True)
