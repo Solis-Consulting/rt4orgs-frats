@@ -578,6 +578,17 @@
 
       // Initial button state
       updateSelectAllState();
+      
+      // Re-attach assign button listener (button may be recreated)
+      const assignBtn = document.getElementById("assignSelectedBtn");
+      if (assignBtn) {
+        // Remove old listener if any
+        const newAssignBtn = assignBtn.cloneNode(true);
+        assignBtn.parentNode.replaceChild(newAssignBtn, assignBtn);
+        // Attach fresh listener
+        newAssignBtn.addEventListener("click", assignSelectedCards);
+        console.log('[ASSIGN] Event listener re-attached after render');
+      }
     }
 
     // Legacy blast functionality removed - use Admin Dashboard → Blast instead
