@@ -314,7 +314,7 @@
         html += `<td>${assignedAt}</td>`;
         html += `<td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${notes !== '-' ? notes : ''}">${notes}</td>`;
         html += `<td>${updated}</td>`;
-        html += `<td><a class='link' href='card.html?id=${encodeURIComponent(card.id)}'>View</a></td>`;
+        html += `<td><a class='link' href='card.html?id=${encodeURIComponent(card.id)}' onclick="sessionStorage.setItem('repApiToken', '${apiToken}'); return true;">View</a></td>`;
         html += '</tr>';
       });
 

@@ -1660,13 +1660,36 @@ async def upload_cards(
 
 
 @app.get("/cards/{card_id}")
-async def get_card_endpoint(card_id: str):
-    """Get a single card by ID."""
+async def get_card_endpoint(card_id: str, request: Request):
+    """
+    Get a single card by ID.
+    
+    SECURITY: 
+    - Owner/admin can view any card
+    - Reps can ONLY view cards assigned to them
+    """
+    # Authenticate user
+    try:
+        current_user = await get_current_owner_or_rep(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[GET_CARD] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
     conn = get_conn()
     card = get_card(conn, card_id)
-    
+
     if not card:
         raise HTTPException(status_code=404, detail=f"Card not found: {card_id}")
+    
+    # Security check: Reps can only view cards assigned to them
+    if current_user.get("role") != "admin":
+        from backend.assignments import get_card_assignment
+        assignment = get_card_assignment(conn, card_id)
+        if not assignment or assignment["user_id"] != current_user["id"]:
+            logger.warning(f"[GET_CARD] Rep {current_user['id']} attempted to view unauthorized card: {card_id}")
+            raise HTTPException(status_code=403, detail="Card is not assigned to you")
     
     # Get relationships
     relationships = get_card_relationships(conn, card_id)

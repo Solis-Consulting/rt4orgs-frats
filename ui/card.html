@@ -45,17 +45,24 @@
     import { BACKEND_URL } from '/config.js';
     const BACKEND = BACKEND_URL;
 
-    // Owner-only authentication check
-    (async function checkOwnerAuth() {
+    // Authentication check (owner or rep)
+    (async function checkAuth() {
       const apiToken = localStorage.getItem('apiToken');
       if (!apiToken) {
-        window.location.href = 'login.html';
+        // Try rep token from session storage (reps don't use localStorage)
+        const repToken = sessionStorage.getItem('repApiToken');
+        if (!repToken) {
+          window.location.href = 'login.html';
+          return;
+        }
+        // Rep token found - continue (will be validated by API)
         return;
       }
 
-      // Verify token is owner/admin by calling admin endpoint
+      // Verify token is valid (owner or rep) by calling rep/cards endpoint
+      // This works for both owner and rep tokens
       try {
-        const res = await fetch(`${BACKEND}/admin/users`, {
+        const res = await fetch(`${BACKEND}/rep/cards`, {
           headers: {
             'Authorization': `Bearer ${apiToken}`,
             'Content-Type': 'application/json'
@@ -63,23 +70,18 @@
         });
 
         if (res.status === 401 || res.status === 403) {
-          // Not owner/admin - redirect to login
+          // Token invalid - redirect to login
           localStorage.removeItem('apiToken');
+          sessionStorage.removeItem('repApiToken');
           window.location.href = 'login.html';
           return;
         }
 
-        if (!res.ok) {
-          // Unexpected error - redirect to login
-          localStorage.removeItem('apiToken');
-          window.location.href = 'login.html';
-          return;
-        }
-
-        // Owner token validated - continue loading page
+        // Token validated (owner or rep) - continue loading page
       } catch (error) {
         console.error('Auth check failed:', error);
         localStorage.removeItem('apiToken');
+        sessionStorage.removeItem('repApiToken');
         window.location.href = 'login.html';
         return;
       }
@@ -89,7 +91,11 @@
     const cardId = params.get("id");
 
     async function loadCard() {
-      const apiToken = localStorage.getItem('apiToken');
+      // Try owner token first, then rep token
+      let apiToken = localStorage.getItem('apiToken');
+      if (!apiToken) {
+        apiToken = sessionStorage.getItem('repApiToken');
+      }
       if (!apiToken) {
         window.location.href = 'login.html';
         return;
