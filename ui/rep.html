@@ -351,8 +351,7 @@
         html += `</td>`;
         html += '</tr>';
 
-        // Cards in this group (wrapped in tbody for collapse functionality)
-        html += `<tbody class="group-rows" data-group-id="${groupId}">`;
+        // Cards in this group
         groupCards.forEach(card => {
           const name = card.card_data?.name || card.id;
           const type = card.type || 'person';
@@ -362,7 +361,7 @@
           const notes = card.assignment?.notes || '-';
           const updated = card.updated_at ? new Date(card.updated_at).toLocaleDateString() : '-';
           
-          html += `<tr class="group-row" data-group-id="${groupId}">`;
+          html += `<tr class="group-row group-rows" data-group-id="${groupId}">`;
           html += `<td><input type="checkbox" class="card-checkbox" data-id="${card.id}" data-group-id="${groupId}"></td>`;
           html += `<td>${name}</td>`;
           html += `<td><span class='badge ${type}'>${type}</span></td>`;
@@ -374,7 +373,6 @@
           html += `<td><a class='link' href='card.html?id=${encodeURIComponent(card.id)}' onclick="sessionStorage.setItem('repApiToken', '${apiToken}'); return true;">View</a></td>`;
           html += '</tr>';
         });
-        html += `</tbody>`;
       });
 
       html += '</tbody></table>';
@@ -446,7 +444,7 @@
 
     // Toggle group collapse/expand
     function toggleGroup(groupId) {
-      const rows = document.querySelectorAll(`.group-rows[data-group-id="${groupId}"]`);
+      const rows = document.querySelectorAll(`tr.group-row.group-rows[data-group-id="${groupId}"]`);
       const toggle = document.getElementById(`toggle-${groupId}`);
       const header = document.querySelector(`.group-header[data-group-id="${groupId}"]`);
       
