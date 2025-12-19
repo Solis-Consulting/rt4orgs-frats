@@ -175,7 +175,8 @@ def resolve_card_references(
 def store_card(
     conn: Any,
     card: Dict[str, Any],
-    allow_missing_references: bool = False
+    allow_missing_references: bool = False,
+    upload_batch_id: Optional[str] = None
 ) -> tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
     """
     Store card in database.
