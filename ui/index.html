@@ -583,8 +583,12 @@
         cb.addEventListener("change", () => {
           updateSelectAllState();
           updateBlastButtonState();
+          updateGroupCheckboxState(cb);
         });
       });
+      
+      // Initial button state
+      updateSelectAllState();
       updateDeleteButtonState();
     }
 
