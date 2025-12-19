@@ -661,7 +661,8 @@ def run_blast_for_cards(
                           history = EXCLUDED.history,
                           -- POLICY A: Always enable auto-responses (routing_mode = 'ai')
                           routing_mode = 'ai',
-                          -- Use the new rep_user_id (last one to blast wins - Policy A)
+                          -- POLICY A: Last one to blast wins - rep_user_id determines ownership
+                          -- If rep_user_id is NULL (owner blast), clears rep ownership
                           rep_user_id = EXCLUDED.rep_user_id;
                         """,
                         (
