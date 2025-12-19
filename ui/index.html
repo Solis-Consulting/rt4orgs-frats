@@ -373,7 +373,9 @@
       }
       window.selectedCardIds.add(cardId);
       console.log('[SELECT] selectCard:', cardId, 'Set size:', window.selectedCardIds.size);
-      window.updateAssignButtonState();
+      if (window.updateAssignButtonState) {
+        window.updateAssignButtonState();
+      }
       return cardId;
     };
     
@@ -383,7 +385,9 @@
       }
       window.selectedCardIds.delete(cardId);
       console.log('[SELECT] deselectCard:', cardId, 'Set size:', window.selectedCardIds.size);
-      window.updateAssignButtonState();
+      if (window.updateAssignButtonState) {
+        window.updateAssignButtonState();
+      }
       return cardId;
     };
     
