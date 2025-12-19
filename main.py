@@ -894,7 +894,15 @@ async def twilio_inbound(request: Request):
                 recent_outbound = loop_check_cur.fetchone()
                 if recent_outbound:
                     sent_at = recent_outbound[0]
-                    time_since_sent = (datetime.utcnow() - sent_at).total_seconds()
+                    # Handle timezone-aware and naive datetimes
+                    from datetime import datetime, timezone
+                    now_utc = datetime.now(timezone.utc) if hasattr(datetime, 'now') else datetime.utcnow()
+                    if sent_at.tzinfo is None:
+                        # If naive, assume UTC and make it timezone-aware
+                        sent_at_aware = sent_at.replace(tzinfo=timezone.utc)
+                    else:
+                        sent_at_aware = sent_at
+                    time_since_sent = (now_utc - sent_at_aware).total_seconds()
                     if time_since_sent < 5:  # Less than 5 seconds ago
                         print(f"[TWILIO_INBOUND] 🛑 BOT LOOP PREVENTION: Ignoring inbound - we just sent outbound {time_since_sent:.2f}s ago", flush=True)
                         return PlainTextResponse("", status_code=200)  # Return 200 to Twilio but don't process
