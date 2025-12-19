@@ -804,8 +804,11 @@
     document.getElementById("deleteSelectedBtn").addEventListener("click", deleteSelectedCards);
     
     // Assign selected cards
-    document.getElementById("assignSelectedBtn").addEventListener("click", async function assignSelectedCards() {
+    async function assignSelectedCards() {
+      console.log('[ASSIGN] assignSelectedCards called');
       const selected = getSelectedCardIds();
+      console.log('[ASSIGN] Selected cards:', selected);
+      
       if (selected.length === 0) {
         alert('No cards selected');
         return;
@@ -818,7 +821,15 @@
         return;
       }
       
+      const assignBtn = document.getElementById("assignSelectedBtn");
+      if (!assignBtn) {
+        console.error('[ASSIGN] Button not found!');
+        alert('Error: Assign button not found');
+        return;
+      }
+      
       try {
+        console.log('[ASSIGN] Fetching users...');
         // Get list of users for assignment
         const res = await fetch(`${BACKEND}/admin/users`, {
           headers: {
@@ -827,12 +838,22 @@
           }
         });
         
+        console.log('[ASSIGN] Users response status:', res.status);
+        
         if (res.status === 401 || res.status === 403) {
           alert('Admin access required');
           return;
         }
         
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error('[ASSIGN] Users fetch error:', errorText);
+          alert(`Error fetching users: ${res.status} - ${errorText}`);
+          return;
+        }
+        
         const data = await res.json();
+        console.log('[ASSIGN] Users data:', data);
         const users = data.users || [];
         
         if (users.length === 0) {
@@ -843,18 +864,22 @@
         const userOptions = users.map((u, i) => `${i + 1}. ${u.username} (${u.id})`).join('\n');
         const selection = prompt(`Assign ${selected.length} card(s) to user:\n\n${userOptions}\n\nEnter username or ID:`);
         
-        if (!selection) return;
+        if (!selection) {
+          console.log('[ASSIGN] User cancelled selection');
+          return;
+        }
         
         // Find user by username or ID
         const user = users.find(u => u.username.toLowerCase() === selection.toLowerCase() || u.id.toLowerCase() === selection.toLowerCase());
         if (!user) {
-          alert('User not found');
+          alert(`User not found: "${selection}"`);
           return;
         }
         
+        console.log('[ASSIGN] Selected user:', user);
+        
         const notes = prompt('Assignment notes (optional):') || null;
         
-        const assignBtn = document.getElementById("assignSelectedBtn");
         assignBtn.disabled = true;
         assignBtn.textContent = `Assigning ${selected.length} card(s)...`;
         
@@ -862,8 +887,13 @@
         let failCount = 0;
         const errors = [];
         
+        console.log('[ASSIGN] Starting assignment of', selected.length, 'cards');
+        
         // Assign each card
-        for (const cardId of selected) {
+        for (let i = 0; i < selected.length; i++) {
+          const cardId = selected[i];
+          console.log(`[ASSIGN] Assigning card ${i + 1}/${selected.length}: ${cardId}`);
+          
           try {
             const assignRes = await fetch(`${BACKEND}/admin/assignments`, {
               method: 'POST',
@@ -878,14 +908,36 @@
               })
             });
             
+            console.log(`[ASSIGN] Assignment response for ${cardId}:`, assignRes.status);
+            
+            if (!assignRes.ok) {
+              const errorText = await assignRes.text();
+              console.error(`[ASSIGN] Assignment failed for ${cardId}:`, errorText);
+              let errorDetail = 'Unknown error';
+              try {
+                const errorData = JSON.parse(errorText);
+                errorDetail = errorData.detail || errorText;
+              } catch {
+                errorDetail = errorText;
+              }
+              failCount++;
+              errors.push(`${cardId}: ${errorDetail}`);
+              continue;
+            }
+            
             const assignData = await assignRes.json();
+            console.log(`[ASSIGN] Assignment data for ${cardId}:`, assignData);
+            
             if (assignData.ok) {
               successCount++;
+              console.log(`[ASSIGN] ✅ Successfully assigned ${cardId}`);
             } else {
               failCount++;
-              errors.push(`${cardId}: ${assignData.detail || 'Unknown error'}`);
+              errors.push(`${cardId}: ${assignData.detail || 'Assignment failed'}`);
+              console.error(`[ASSIGN] ❌ Assignment failed for ${cardId}:`, assignData);
             }
           } catch (error) {
+            console.error(`[ASSIGN] Exception assigning ${cardId}:`, error);
             failCount++;
             errors.push(`${cardId}: ${error.message}`);
           }
@@ -894,20 +946,36 @@
         assignBtn.disabled = false;
         assignBtn.textContent = "Assign Selected";
         
-        if (failCount === 0) {
-          alert(`Successfully assigned ${successCount} card(s) to ${user.username}`);
+        console.log(`[ASSIGN] Complete: ${successCount} success, ${failCount} failed`);
+        
+        // Show detailed feedback
+        if (failCount === 0 && successCount > 0) {
+          alert(`✅ Successfully assigned ${successCount} card(s) to ${user.username}`);
+        } else if (successCount > 0 && failCount > 0) {
+          alert(`⚠️ Partially completed:\n\n✅ Assigned: ${successCount} card(s)\n❌ Failed: ${failCount} card(s)\n\nErrors:\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...' : ''}`);
+        } else if (failCount > 0) {
+          alert(`❌ Assignment failed for all ${failCount} card(s):\n\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...' : ''}`);
         } else {
-          alert(`Assigned ${successCount} card(s), failed ${failCount}:\n\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...' : ''}`);
+          alert('No cards were assigned. Please check the console for details.');
         }
         
         loadCards();
       } catch (error) {
-        const assignBtn = document.getElementById("assignSelectedBtn");
+        console.error('[ASSIGN] Exception:', error);
         assignBtn.disabled = false;
         assignBtn.textContent = "Assign Selected";
-        alert(`Error: ${error.message}`);
+        alert(`❌ Error: ${error.message}\n\nCheck console for details.`);
       }
-    });
+    }
+    
+    // Attach event listener
+    const assignBtn = document.getElementById("assignSelectedBtn");
+    if (assignBtn) {
+      assignBtn.addEventListener("click", assignSelectedCards);
+      console.log('[ASSIGN] Event listener attached to button');
+    } else {
+      console.error('[ASSIGN] Button not found when attaching listener!');
+    }
 
     document.querySelectorAll(".pill").forEach(p => {
       p.addEventListener("click", () => {
