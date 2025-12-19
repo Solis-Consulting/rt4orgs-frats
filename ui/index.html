@@ -511,12 +511,18 @@
 
       // Select all checkbox functionality
       const selectAllCheckbox = document.getElementById("selectAllCheckbox");
-      const cardCheckboxes = document.querySelectorAll(".card-select-checkbox");
+      // Query checkboxes fresh each time (they may be in collapsed groups)
+      let cardCheckboxes = document.querySelectorAll(".card-select-checkbox");
+      
+      console.log(`[CHECKBOX] Found ${cardCheckboxes.length} checkboxes after render`);
       
       if (selectAllCheckbox) {
         selectAllCheckbox.addEventListener("change", (e) => {
           const isChecked = e.target.checked;
-          cardCheckboxes.forEach(cb => {
+          console.log(`[CHECKBOX] Select all: ${isChecked}`);
+          // Query fresh - checkboxes might be in collapsed groups
+          const allCheckboxes = document.querySelectorAll(".card-select-checkbox");
+          allCheckboxes.forEach(cb => {
             cb.checked = isChecked;
           });
           // Update group checkboxes
@@ -524,6 +530,7 @@
             gcb.checked = isChecked;
           });
           updateBlastButtonState();
+          updateSelectAllState();
         });
       }
 
@@ -533,7 +540,11 @@
           e.stopPropagation();
           const groupId = e.target.getAttribute('data-group-id');
           const checked = e.target.checked;
-          document.querySelectorAll(`.card-select-checkbox[data-group-id="${groupId}"]`).forEach(cb => {
+          console.log(`[CHECKBOX] Group ${groupId}: ${checked}`);
+          // Query fresh for this group
+          const groupCheckboxes = document.querySelectorAll(`.card-select-checkbox[data-group-id="${groupId}"]`);
+          console.log(`[CHECKBOX] Found ${groupCheckboxes.length} checkboxes in group ${groupId}`);
+          groupCheckboxes.forEach(cb => {
             cb.checked = checked;
           });
           updateBlastButtonState();
@@ -541,14 +552,17 @@
         });
       });
 
-      // Individual card checkbox functionality
-      cardCheckboxes.forEach(cb => {
-        cb.addEventListener('change', () => {
+      // Individual card checkbox functionality - attach to all checkboxes
+      cardCheckboxes.forEach((cb, index) => {
+        cb.addEventListener('change', function() {
+          console.log(`[CHECKBOX] Individual checkbox ${index} changed: ${this.checked}, id=${this.getAttribute('data-id')}`);
           updateBlastButtonState();
           updateSelectAllState();
-          updateGroupCheckboxState(cb);
+          updateGroupCheckboxState(this);
         });
       });
+      
+      console.log(`[CHECKBOX] Attached listeners to ${cardCheckboxes.length} checkboxes`);
 
       // Update group checkbox state when individual checkboxes change
       function updateGroupCheckboxState(cardCheckbox) {
