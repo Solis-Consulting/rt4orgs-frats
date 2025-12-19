@@ -554,8 +554,25 @@
 
       // Individual card checkbox functionality - attach to all checkboxes
       cardCheckboxes.forEach((cb, index) => {
-        cb.addEventListener('change', function() {
-          console.log(`[CHECKBOX] Individual checkbox ${index} changed: ${this.checked}, id=${this.getAttribute('data-id')}`);
+        // Remove any existing listeners by cloning the node (clean slate)
+        const newCb = cb.cloneNode(true);
+        cb.parentNode.replaceChild(newCb, cb);
+        
+        newCb.addEventListener('change', function(e) {
+          const isChecked = this.checked;
+          const cardId = this.getAttribute('data-id');
+          const groupId = this.getAttribute('data-group-id');
+          
+          console.log(`[CHECKBOX] Individual checkbox ${index} changed: checked=${isChecked}, id=${cardId}, groupId=${groupId}`);
+          
+          // Immediately verify the state
+          const verifyChecked = document.querySelector(`.card-select-checkbox[data-id="${cardId}"]`)?.checked;
+          console.log(`[CHECKBOX] Verification: checkbox with id ${cardId} is ${verifyChecked ? 'checked' : 'NOT checked'}`);
+          
+          // Count checked boxes right now
+          const allCheckedNow = document.querySelectorAll('.card-select-checkbox:checked');
+          console.log(`[CHECKBOX] Total checked boxes right now: ${allCheckedNow.length}`);
+          
           updateBlastButtonState();
           updateSelectAllState();
           updateGroupCheckboxState(this);
@@ -582,7 +599,21 @@
         // Query fresh - don't use cached cardCheckboxes
         const allCheckboxes = document.querySelectorAll('.card-select-checkbox');
         const checkedCheckboxes = document.querySelectorAll('.card-select-checkbox:checked');
+        
+        // Also manually check each checkbox to verify state
+        const manuallyChecked = Array.from(allCheckboxes).filter(cb => cb.checked === true);
+        
         const selectedCount = checkedCheckboxes.length;
+        const manualCount = manuallyChecked.length;
+        
+        console.log(`[ASSIGN] Checkbox state: total=${allCheckboxes.length}, checked (querySelector)=${selectedCount}, checked (manual)=${manualCount}`);
+        
+        if (selectedCount !== manualCount) {
+          console.warn(`[ASSIGN] ⚠️ Mismatch! QuerySelector found ${selectedCount} but manual check found ${manualCount}`);
+          // Use manual count as it's more reliable
+        }
+        
+        const finalCount = manualCount > selectedCount ? manualCount : selectedCount;
         
         if (selectAllCheckbox && allCheckboxes.length > 0) {
           const allChecked = Array.from(allCheckboxes).every(cb => cb.checked);
@@ -592,22 +623,22 @@
         }
         
         // Update assign and delete button states
-        console.log(`[ASSIGN] Checkbox state: total=${allCheckboxes.length}, checked=${selectedCount}`);
-        
         const assignBtn = document.getElementById('assignSelectedBtn');
         const deleteBtn = document.getElementById('deleteSelectedBtn');
         if (assignBtn) {
           const wasDisabled = assignBtn.disabled;
-          assignBtn.disabled = selectedCount === 0;
-          console.log(`[ASSIGN] Button state: disabled=${assignBtn.disabled} (was ${wasDisabled}), selected=${selectedCount}`);
+          assignBtn.disabled = finalCount === 0;
+          console.log(`[ASSIGN] Button state: disabled=${assignBtn.disabled} (was ${wasDisabled}), selected=${finalCount}`);
           
           // Visual feedback
-          if (selectedCount > 0 && wasDisabled) {
-            console.log(`[ASSIGN] ✅ Button enabled! ${selectedCount} card(s) selected`);
+          if (finalCount > 0 && wasDisabled) {
+            console.log(`[ASSIGN] ✅ Button enabled! ${finalCount} card(s) selected`);
+          } else if (finalCount === 0 && !wasDisabled) {
+            console.log(`[ASSIGN] ⚠️ Button disabled! No cards selected`);
           }
         }
         if (deleteBtn) {
-          deleteBtn.disabled = selectedCount === 0;
+          deleteBtn.disabled = finalCount === 0;
         }
       };
 
