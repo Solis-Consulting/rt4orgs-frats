@@ -543,7 +543,6 @@
           updateBlastButtonState();
           updateSelectAllState();
           updateGroupCheckboxState(cb);
-          updateDeleteButtonState();
         });
       });
 
@@ -577,19 +576,8 @@
         if (deleteBtn) deleteBtn.disabled = selectedCount === 0;
       };
 
-      // Button state is handled in updateSelectAllState() above
-      
-      cardCheckboxes.forEach(cb => {
-        cb.addEventListener("change", () => {
-          updateSelectAllState();
-          updateBlastButtonState();
-          updateGroupCheckboxState(cb);
-        });
-      });
-      
       // Initial button state
       updateSelectAllState();
-      updateDeleteButtonState();
     }
 
     // Legacy blast functionality removed - use Admin Dashboard → Blast instead
