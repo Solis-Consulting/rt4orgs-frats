@@ -1185,6 +1185,67 @@ async def twilio_inbound(request: Request):
         print(f"[TWILIO_INBOUND] ✅ Intelligence result received:", flush=True)
         print(f"[TWILIO_INBOUND]   {json.dumps(result, indent=2, default=str)}", flush=True)
         
+        # 🔧 CRITICAL: Update last_inbound_at and card_id on the conversation scoped to environment_id
+        # The inbound_intelligent function updates by phone only, but we need to update
+        # the specific conversation for this environment to mark it as a lead
+        # Also ensure card_id is set (required for leads endpoint)
+        print(f"[TWILIO_INBOUND] 🔧 Updating last_inbound_at and card_id for environment {environment_id}...", flush=True)
+        with conn.cursor() as update_cur:
+            try:
+                # Update last_inbound_at and card_id scoped to environment
+                update_cur.execute("""
+                    UPDATE conversations 
+                    SET last_inbound_at = NOW(), 
+                        updated_at = NOW(),
+                        card_id = COALESCE(%s, card_id)
+                    WHERE phone = %s AND environment_id = %s
+                """, (card_id, normalized_phone, environment_id))
+                if update_cur.rowcount > 0:
+                    print(f"[TWILIO_INBOUND] ✅ Updated last_inbound_at and card_id for conversation (environment {environment_id}, card_id={card_id})", flush=True)
+                else:
+                    print(f"[TWILIO_INBOUND] ⚠️ No conversation found to update (phone={normalized_phone}, environment_id={environment_id})", flush=True)
+                    # Try to create conversation if it doesn't exist
+                    if not conversation_exists:
+                        print(f"[TWILIO_INBOUND] 🔧 Creating new conversation for lead...", flush=True)
+                        try:
+                            update_cur.execute("""
+                                INSERT INTO conversations (phone, card_id, state, last_inbound_at, environment_id, rep_user_id)
+                                VALUES (%s, %s, %s, NOW(), %s, %s)
+                                ON CONFLICT (phone, environment_id) DO UPDATE SET
+                                    last_inbound_at = NOW(),
+                                    card_id = COALESCE(EXCLUDED.card_id, conversations.card_id),
+                                    updated_at = NOW()
+                            """, (normalized_phone, card_id, result.get("next_state", "initial_outreach"), environment_id, rep_user_id))
+                            print(f"[TWILIO_INBOUND] ✅ Created/updated conversation for lead", flush=True)
+                        except psycopg2.ProgrammingError:
+                            # Fallback if environment_id column doesn't exist
+                            update_cur.execute("""
+                                INSERT INTO conversations (phone, card_id, state, last_inbound_at)
+                                VALUES (%s, %s, %s, NOW())
+                                ON CONFLICT (phone) DO UPDATE SET
+                                    last_inbound_at = NOW(),
+                                    card_id = COALESCE(EXCLUDED.card_id, conversations.card_id),
+                                    updated_at = NOW()
+                            """, (normalized_phone, card_id, result.get("next_state", "initial_outreach")))
+                            print(f"[TWILIO_INBOUND] ✅ Created/updated conversation for lead (legacy mode)", flush=True)
+            except psycopg2.ProgrammingError:
+                # Fallback if environment_id column doesn't exist
+                update_cur.execute("""
+                    UPDATE conversations 
+                    SET last_inbound_at = NOW(), 
+                        updated_at = NOW(),
+                        card_id = COALESCE(%s, card_id)
+                    WHERE phone = %s
+                """, (card_id, normalized_phone))
+                if update_cur.rowcount > 0:
+                    print(f"[TWILIO_INBOUND] ✅ Updated last_inbound_at and card_id for conversation (legacy mode, card_id={card_id})", flush=True)
+                else:
+                    print(f"[TWILIO_INBOUND] ⚠️ No conversation found to update (phone={normalized_phone})", flush=True)
+            except Exception as update_error:
+                print(f"[TWILIO_INBOUND] ⚠️ Error updating last_inbound_at: {update_error}", flush=True)
+                import traceback
+                print(f"[TWILIO_INBOUND] Traceback: {traceback.format_exc()}", flush=True)
+        
         # Get card by phone to generate contextual reply (use card we already resolved earlier)
         # Card should already be loaded from Step 1, but double-check if needed
         if not card and card_id:
