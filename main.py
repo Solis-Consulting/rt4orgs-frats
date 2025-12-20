@@ -4074,16 +4074,18 @@ async def rep_get_leads(request: Request):
         # Get conversations with inbound messages
         # For reps: filter by rep_user_id. For owner: show all.
         if rep_user_id:
-            # Rep: only their conversations with inbound messages
+            # Rep: only their assigned cards with inbound messages (≥1 inbound = lead)
+            # Join with card_assignments to filter by assigned cards only
             try:
                 # Try with environment_id (new schema)
                 cur.execute("""
                     SELECT DISTINCT c.card_id, c.phone, c.state, c.last_inbound_at, c.last_outbound_at,
                            COALESCE(c.history::text, '[]') as history, c.environment_id
                     FROM conversations c
+                    INNER JOIN card_assignments ca ON c.card_id = ca.card_id
                     WHERE c.card_id IS NOT NULL
                       AND c.last_inbound_at IS NOT NULL
-                      AND c.rep_user_id = %s
+                      AND ca.user_id = %s
                     ORDER BY c.last_inbound_at DESC;
                 """, (rep_user_id,))
             except psycopg2.ProgrammingError:
@@ -4092,9 +4094,10 @@ async def rep_get_leads(request: Request):
                     SELECT DISTINCT c.card_id, c.phone, c.state, c.last_inbound_at, c.last_outbound_at,
                            COALESCE(c.history::text, '[]') as history
                     FROM conversations c
+                    INNER JOIN card_assignments ca ON c.card_id = ca.card_id
                     WHERE c.card_id IS NOT NULL
                       AND c.last_inbound_at IS NOT NULL
-                      AND c.rep_user_id = %s
+                      AND ca.user_id = %s
                     ORDER BY c.last_inbound_at DESC;
                 """, (rep_user_id,))
         else:
