@@ -4753,35 +4753,88 @@ async def rep_get_stats(request: Request):
                 if status in stats:
                     stats[status] = count
             
+            # Get total cards assigned (all statuses)
+            cur.execute("""
+                SELECT COUNT(DISTINCT card_id)
+                FROM card_assignments
+                WHERE user_id = %s
+            """, (user_id,))
+            row = cur.fetchone()
+            total_assigned = row[0] if row else 0
+            stats["total_assigned"] = total_assigned
+            
+            # Get total leads (assigned cards with inbound messages)
+            cur.execute("""
+                SELECT COUNT(DISTINCT c.card_id)
+                FROM conversations c
+                INNER JOIN card_assignments ca ON c.card_id = ca.card_id
+                WHERE ca.user_id = %s
+                  AND c.card_id IS NOT NULL
+                  AND c.last_inbound_at IS NOT NULL
+            """, (user_id,))
+            row = cur.fetchone()
+            total_leads = row[0] if row else 0
+            stats["total_leads"] = total_leads
+            
+            # Calculate response rate (leads / assigned)
+            response_rate = (total_leads / total_assigned * 100) if total_assigned > 0 else 0
+            stats["response_rate"] = round(response_rate, 1)
+            
+            # Calculate close rate (closed / assigned or closed / leads)
+            close_rate_assigned = (stats["closed"] / total_assigned * 100) if total_assigned > 0 else 0
+            close_rate_leads = (stats["closed"] / total_leads * 100) if total_leads > 0 else 0
+            stats["close_rate_assigned"] = round(close_rate_assigned, 1)
+            stats["close_rate_leads"] = round(close_rate_leads, 1)
+            
             # Get total conversations (rep mode + assigned cards in AI mode)
             cur.execute("""
                 SELECT COUNT(DISTINCT c.phone)
                 FROM conversations c
-                LEFT JOIN card_assignments ca ON c.card_id = ca.card_id
-                WHERE (
-                    c.rep_user_id = %s
-                    OR (c.card_id IS NOT NULL AND ca.user_id = %s)
-                )
-            """, (user_id, user_id))
+                INNER JOIN card_assignments ca ON c.card_id = ca.card_id
+                WHERE ca.user_id = %s
+                  AND c.card_id IS NOT NULL
+            """, (user_id,))
             row = cur.fetchone()
             stats["total_conversations"] = row[0] if row else 0
             
-            # Get messages sent count (outbound messages from rep)
+            # Get active conversations (with recent activity in last 7 days)
+            from datetime import datetime, timedelta
+            seven_days_ago = datetime.utcnow() - timedelta(days=7)
+            cur.execute("""
+                SELECT COUNT(DISTINCT c.phone)
+                FROM conversations c
+                INNER JOIN card_assignments ca ON c.card_id = ca.card_id
+                WHERE ca.user_id = %s
+                  AND c.card_id IS NOT NULL
+                  AND (
+                    c.last_inbound_at >= %s
+                    OR c.last_outbound_at >= %s
+                    OR c.updated_at >= %s
+                  )
+            """, (user_id, seven_days_ago, seven_days_ago, seven_days_ago))
+            row = cur.fetchone()
+            stats["active_conversations"] = row[0] if row else 0
+            
+            # Get messages sent count (outbound messages)
             cur.execute("""
                 SELECT COUNT(*)
                 FROM conversations c
-                WHERE c.rep_user_id = %s
-                AND c.history::text LIKE '%"direction":"outbound"%'
+                INNER JOIN card_assignments ca ON c.card_id = ca.card_id
+                WHERE ca.user_id = %s
+                  AND c.card_id IS NOT NULL
+                  AND c.history::text LIKE '%"direction":"outbound"%'
             """, (user_id,))
             row = cur.fetchone()
             stats["messages_sent"] = row[0] if row else 0
             
-            # Get messages received count (inbound messages to rep)
+            # Get messages received count (inbound messages)
             cur.execute("""
                 SELECT COUNT(*)
                 FROM conversations c
-                WHERE c.rep_user_id = %s
-                AND c.history::text LIKE '%"direction":"inbound"%'
+                INNER JOIN card_assignments ca ON c.card_id = ca.card_id
+                WHERE ca.user_id = %s
+                  AND c.card_id IS NOT NULL
+                  AND c.history::text LIKE '%"direction":"inbound"%'
             """, (user_id,))
             row = cur.fetchone()
             stats["messages_received"] = row[0] if row else 0

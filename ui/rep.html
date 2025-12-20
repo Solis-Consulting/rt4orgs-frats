@@ -1041,11 +1041,24 @@
         const stats = data.stats || {};
         
         let html = '';
-        html += `<div class="stat-card"><div class="stat-value">${stats.assigned || 0}</div><div class="stat-label">Assigned</div></div>`;
-        html += `<div class="stat-card"><div class="stat-value">${stats.active || 0}</div><div class="stat-label">Active</div></div>`;
+        
+        // Primary metrics
+        html += `<div class="stat-card"><div class="stat-value">${stats.total_assigned || stats.assigned || 0}</div><div class="stat-label">Cards Assigned</div></div>`;
+        html += `<div class="stat-card"><div class="stat-value">${stats.total_leads || 0}</div><div class="stat-label">Leads (Responded)</div></div>`;
         html += `<div class="stat-card"><div class="stat-value">${stats.closed || 0}</div><div class="stat-label">Closed</div></div>`;
+        html += `<div class="stat-card"><div class="stat-value">${stats.active || 0}</div><div class="stat-label">Active</div></div>`;
+        
+        // Performance metrics
+        html += `<div class="stat-card"><div class="stat-value">${stats.response_rate || 0}%</div><div class="stat-label">Response Rate</div></div>`;
+        html += `<div class="stat-card"><div class="stat-value">${stats.close_rate_leads || 0}%</div><div class="stat-label">Close Rate (of Leads)</div></div>`;
+        html += `<div class="stat-card"><div class="stat-value">${stats.close_rate_assigned || 0}%</div><div class="stat-label">Close Rate (of Assigned)</div></div>`;
+        html += `<div class="stat-card"><div class="stat-value">${stats.active_conversations || 0}</div><div class="stat-label">Active (7 days)</div></div>`;
+        
+        // Activity metrics
+        html += `<div class="stat-card"><div class="stat-value">${stats.total_conversations || 0}</div><div class="stat-label">Total Conversations</div></div>`;
+        html += `<div class="stat-card"><div class="stat-value">${stats.messages_sent || 0}</div><div class="stat-label">Messages Sent</div></div>`;
+        html += `<div class="stat-card"><div class="stat-value">${stats.messages_received || 0}</div><div class="stat-label">Messages Received</div></div>`;
         html += `<div class="stat-card"><div class="stat-value">${stats.lost || 0}</div><div class="stat-label">Lost</div></div>`;
-        html += `<div class="stat-card"><div class="stat-value">${stats.total_conversations || 0}</div><div class="stat-label">Conversations</div></div>`;
         
         document.getElementById('statsGrid').innerHTML = html;
       } catch (error) {
