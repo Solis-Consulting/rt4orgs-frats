@@ -104,7 +104,8 @@ BEGIN
             ) THEN
                 ALTER TABLE conversations 
                 ADD CONSTRAINT fk_conversations_card_id 
-                FOREIGN KEY (card_id) REFERENCES cards(id);
+                FOREIGN KEY (card_id) REFERENCES cards(id)
+                ON DELETE CASCADE;
             END IF;
         END IF;
     END IF;
