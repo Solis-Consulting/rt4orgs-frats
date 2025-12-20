@@ -150,6 +150,7 @@
 
     let currentView = 'cards';
     let allCards = [];
+    let allLeads = []; // Initialize to empty array to handle empty responses
     let allConversations = [];
     let selectedPhone = null;
     let apiToken = null; // No persistent storage - must enter each time
@@ -795,7 +796,8 @@
         }
         
         const data = await res.json();
-        allLeads = data.leads || [];
+        // Always coerce to array - handle empty responses gracefully
+        allLeads = Array.isArray(data.leads) ? data.leads : [];
         renderLeads();
       } catch (error) {
         console.error('Error loading leads:', error);
