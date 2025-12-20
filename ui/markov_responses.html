@@ -60,7 +60,7 @@
 <body>
   <div class="shell">
     <div class="card">
-      <a href="index.html" class="link">&larr; Back to list</a>
+      <a href="#" id="backLink" class="link">&larr; Back to list</a>
       <h1>Markov Response Editor</h1>
       <div class="sub" id="editorSubtitle">Configure auto-responses for each Markov state and the initial outreach message.</div>
 
@@ -125,7 +125,15 @@
 
     // Authentication check (owner or rep)
     (async function checkAuth() {
-      const apiToken = localStorage.getItem('apiToken');
+      let apiToken = localStorage.getItem('apiToken');
+      let isRepToken = false;
+      
+      // Try rep token from session storage if owner token not found
+      if (!apiToken) {
+        apiToken = sessionStorage.getItem('repApiToken');
+        isRepToken = true;
+      }
+      
       if (!apiToken) {
         window.location.href = 'login.html';
         return;
@@ -142,17 +150,31 @@
 
         if (res.status === 401 || res.status === 403) {
           localStorage.removeItem('apiToken');
+          sessionStorage.removeItem('repApiToken');
           window.location.href = 'login.html';
           return;
         }
 
         if (!res.ok) {
           localStorage.removeItem('apiToken');
+          sessionStorage.removeItem('repApiToken');
           window.location.href = 'login.html';
           return;
         }
 
-        // Token validated - determine if owner or rep and update UI
+        // Token validated - set back link based on token type
+        const backLink = document.getElementById('backLink');
+        if (backLink) {
+          if (isRepToken || sessionStorage.getItem('repApiToken')) {
+            backLink.href = 'rep.html';
+            backLink.textContent = '← Back to Rep Dashboard';
+          } else {
+            backLink.href = 'index.html';
+            backLink.textContent = '← Back to list';
+          }
+        }
+
+        // Determine if owner or rep and update UI
         try {
           const adminRes = await fetch(`${BACKEND}/admin/users`, {
             headers: {
@@ -178,6 +200,7 @@
       } catch (error) {
         console.error('Auth check failed:', error);
         localStorage.removeItem('apiToken');
+        sessionStorage.removeItem('repApiToken');
         window.location.href = 'login.html';
         return;
       }
@@ -185,7 +208,10 @@
 
     // Get headers function
     function getHeaders() {
-      const apiToken = localStorage.getItem('apiToken');
+      let apiToken = localStorage.getItem('apiToken');
+      if (!apiToken) {
+        apiToken = sessionStorage.getItem('repApiToken');
+      }
       if (!apiToken) {
         window.location.href = 'login.html';
         return {};

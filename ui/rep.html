@@ -153,7 +153,22 @@
     let allLeads = []; // Initialize to empty array to handle empty responses
     let allConversations = [];
     let selectedPhone = null;
-    let apiToken = null; // No persistent storage - must enter each time
+    let apiToken = null;
+    
+    // Check for existing rep token in sessionStorage on page load
+    (async function checkExistingSession() {
+      const storedToken = sessionStorage.getItem('repApiToken');
+      if (storedToken) {
+        console.log('[REP_AUTH] Found existing token in sessionStorage, validating...');
+        const isValid = await validateAndSetToken(storedToken);
+        if (isValid) {
+          console.log('[REP_AUTH] Session resumed successfully');
+        } else {
+          console.log('[REP_AUTH] Stored token invalid, clearing sessionStorage');
+          sessionStorage.removeItem('repApiToken');
+        }
+      }
+    })();
 
     // Token prompt handling
     const tokenPrompt = document.getElementById('tokenPrompt');
@@ -190,6 +205,11 @@
 
         // Token is valid - hide prompt, show main content
         apiToken = token.trim();
+        
+        // Store token in sessionStorage for cross-page navigation
+        sessionStorage.setItem('repApiToken', apiToken);
+        console.log('[REP_AUTH] Token stored in sessionStorage for cross-page navigation');
+        
         tokenPrompt.style.display = 'none';
         mainContent.style.display = 'block';
         userInfo.textContent = 'Rep Dashboard';
@@ -267,7 +287,7 @@
         else if (view === 'conversations') loadConversations();
         else if (view === 'stats') loadStats();
         else if (view === 'markov') {
-          // Redirect to markov editor (it will handle auth)
+          // Navigate to markov editor (token already in sessionStorage)
           window.location.href = 'markov_responses.html';
         }
       });
@@ -432,7 +452,8 @@
           html += `<td>${assignedAt}</td>`;
           html += `<td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${notes !== '-' ? notes : ''}">${notes}</td>`;
           html += `<td>${updated}</td>`;
-          html += `<td><a class='link' href='card.html?id=${encodeURIComponent(card.id)}' onclick="sessionStorage.setItem('repApiToken', '${apiToken}'); return true;">View</a></td>`;
+          // Token already in sessionStorage, just navigate
+          html += `<td><a class='link' href='card.html?id=${encodeURIComponent(card.id)}'>View</a></td>`;
           html += '</tr>';
         });
       });
@@ -847,7 +868,8 @@
           html += `<td>${lastOutbound}</td>`;
           html += `<td>${lead.inbound_count || 0}</td>`;
           html += `<td>${salesStateBadge}</td>`;
-          html += `<td><a class='link' href='card.html?id=${encodeURIComponent(lead.card_id)}' onclick="sessionStorage.setItem('repApiToken', '${apiToken}'); return true;">View</a></td>`;
+          // Token already in sessionStorage, just navigate
+          html += `<td><a class='link' href='card.html?id=${encodeURIComponent(lead.card_id)}'>View</a></td>`;
           html += '</tr>';
         });
       }
@@ -1088,6 +1110,8 @@
 
     function logout() {
       apiToken = null;
+      // Clear session storage on logout
+      sessionStorage.removeItem('repApiToken');
       tokenPrompt.style.display = 'block';
       mainContent.style.display = 'none';
       tokenInput.value = '';

@@ -36,7 +36,7 @@
 <body>
   <div class="shell">
     <div class="card">
-      <a href="index.html">&larr; Back to list</a>
+      <a href="#" id="backLink">&larr; Back to list</a>
       <div id="content" style="margin-top:12px;">Loading...</div>
     </div>
   </div>
@@ -47,15 +47,17 @@
 
     // Authentication check (owner or rep)
     (async function checkAuth() {
-      const apiToken = localStorage.getItem('apiToken');
+      let apiToken = localStorage.getItem('apiToken');
+      let isRepToken = false;
+      
+      // Try rep token from session storage if owner token not found
       if (!apiToken) {
-        // Try rep token from session storage (reps don't use localStorage)
-        const repToken = sessionStorage.getItem('repApiToken');
-        if (!repToken) {
-          window.location.href = 'login.html';
-          return;
-        }
-        // Rep token found - continue (will be validated by API)
+        apiToken = sessionStorage.getItem('repApiToken');
+        isRepToken = true;
+      }
+      
+      if (!apiToken) {
+        window.location.href = 'login.html';
         return;
       }
 
@@ -78,6 +80,17 @@
         }
 
         // Token validated (owner or rep) - continue loading page
+        // Set back link based on token type
+        const backLink = document.getElementById('backLink');
+        if (backLink) {
+          if (isRepToken || sessionStorage.getItem('repApiToken')) {
+            backLink.href = 'rep.html';
+            backLink.textContent = '← Back to Rep Dashboard';
+          } else {
+            backLink.href = 'index.html';
+            backLink.textContent = '← Back to list';
+          }
+        }
       } catch (error) {
         console.error('Auth check failed:', error);
         localStorage.removeItem('apiToken');
