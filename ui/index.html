@@ -794,8 +794,18 @@
       }
 
       try {
+        const apiToken = localStorage.getItem('apiToken');
+        if (!apiToken) {
+          alert('Please login to delete cards');
+          return;
+        }
+        
         const res = await fetch(`${BACKEND}/cards/${encodeURIComponent(cardId)}`, {
           method: "DELETE",
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          }
         });
 
         if (!res.ok) {
@@ -961,10 +971,22 @@
         const errors = [];
 
         // Delete cards one by one (could be optimized with a bulk endpoint)
+        const apiToken = localStorage.getItem('apiToken');
+        if (!apiToken) {
+          alert('Please login to delete cards');
+          deleteBtn.disabled = false;
+          deleteBtn.textContent = "Delete Selected Cards";
+          return;
+        }
+        
         for (const cardId of selectedIds) {
           try {
             const res = await fetch(`${BACKEND}/cards/${encodeURIComponent(cardId)}`, {
               method: "DELETE",
+              headers: {
+                'Authorization': `Bearer ${apiToken}`,
+                'Content-Type': 'application/json'
+              }
             });
 
             if (!res.ok) {

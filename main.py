@@ -1256,9 +1256,22 @@ async def twilio_inbound(request: Request):
         reply_text = None
         next_state = None  # Define at higher scope for campaign suppression check
         
-        # Skip reply generation if bot loop detected (but still process/store inbound for leads)
+        # 🔒 SAFETY INVARIANT: Check if card is assigned before auto-responding
+        # Do not auto-respond to unassigned cards (prevents spam loops)
+        card_assigned = False
+        if card_id:
+            from backend.assignments import get_card_assignment
+            assignment = get_card_assignment(conn, card_id)
+            card_assigned = assignment is not None and assignment.get("user_id") is not None
+            if not card_assigned:
+                print(f"[TWILIO_INBOUND] 🛑 SAFETY: Card {card_id} is not assigned - skipping auto-response (inbound will still be stored)", flush=True)
+        
+        # Skip reply generation if bot loop detected OR card is unassigned (but still process/store inbound for leads)
         if skip_auto_reply:
             print(f"[TWILIO_INBOUND] 🛑 Skipping reply generation due to bot loop prevention (inbound will still be stored)", flush=True)
+            reply_text = None
+        elif not card_assigned and card_id:
+            print(f"[TWILIO_INBOUND] 🛑 Skipping reply generation - card is unassigned (inbound will still be stored)", flush=True)
             reply_text = None
         elif result.get("next_state"):
             next_state = result["next_state"]
