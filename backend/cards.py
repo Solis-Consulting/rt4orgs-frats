@@ -1,6 +1,7 @@
 """
 Card management module for JSON-native CRM.
 Handles validation, normalization, and storage of contact cards and entity cards.
+Supports vertical-based contact types with pitch templates.
 """
 
 from __future__ import annotations
@@ -12,6 +13,46 @@ from datetime import datetime
 import psycopg2
 from psycopg2.extras import Json
 
+# Vertical type definitions
+VERTICAL_TYPES = {
+    "frats": {
+        "name": "Fraternities",
+        "required_fields": ["name", "role", "chapter", "fraternity", "phone", "email"],
+        "optional_fields": ["tags", "metadata"],
+        "pitch_template": "Hello {name}, we'd love to see how {fraternity} at {chapter} could engage with a FRESH PNM list.\nWe helped {purchased_chapter} at {purchased_institution} save DAYS of outreach. I'm David with RT4Orgs — https://rt4orgs.com"
+    },
+    "faith": {
+        "name": "Faith / Religious Groups",
+        "required_fields": ["name", "role", "faith_group", "university", "phone", "email"],
+        "optional_fields": ["tags", "metadata"],
+        "pitch_template": "Hello {name}, we help {faith_group} at {university} reach students likely to be receptive to faith-based community.\nOur lists allow your team to spend less time searching and more time welcoming, mentoring, and serving students.\nI'm Sarah with RT4Orgs — https://rt4orgs.com"
+    },
+    "academic": {
+        "name": "Academic / Program-Specific",
+        "required_fields": ["name", "role", "program", "department", "university", "phone", "email"],
+        "optional_fields": ["tags", "metadata"],
+        "pitch_template": "Hi {name}, we support {program} in {department} at {university} by providing a curated list of students already aligned with your program.\nThis helps your office save hours in outreach and focus on mentoring and advising.\nI'm Alex with RT4Orgs — https://rt4orgs.com"
+    },
+    "government": {
+        "name": "Government / Student Government / Orgs",
+        "required_fields": ["name", "role", "org", "university", "phone", "email"],
+        "optional_fields": ["tags", "metadata"],
+        "pitch_template": "Hello {name}, we help {org} at {university} streamline communication with student leaders and members.\nOur curated lists save your staff days of manual outreach, giving you more time for impactful student programming.\nI'm Jordan with RT4Orgs — https://rt4orgs.com"
+    },
+    "cultural": {
+        "name": "Cultural / Faith-based Contacts",
+        "required_fields": ["name", "role", "group", "university"],
+        "optional_fields": ["email", "phone", "insta", "other_social", "tags", "metadata"],
+        "pitch_template": "Hello {name}, we help {group} at {university} connect with students interested in cultural and faith-based communities.\nOur curated lists save your team time in outreach, allowing you to focus on building meaningful connections.\nI'm {rep_name} with RT4Orgs — https://rt4orgs.com"
+    },
+    "sports": {
+        "name": "Sports / Club Contacts",
+        "required_fields": ["name", "role", "team", "university"],
+        "optional_fields": ["email", "phone", "insta", "other_social", "tags", "metadata"],
+        "pitch_template": "Hello {name}, we help {team} at {university} streamline communication with athletes and club members.\nOur curated lists save your staff time in outreach, giving you more time for training and team building.\nI'm {rep_name} with RT4Orgs — https://rt4orgs.com"
+    }
+}
+
 
 def slugify(text: str) -> str:
     """Convert text to URL-friendly slug."""
@@ -19,6 +60,89 @@ def slugify(text: str) -> str:
     text = re.sub(r'[^\w\s-]', '', text)
     text = re.sub(r'[-\s]+', '_', text)
     return text
+
+
+def get_pitch_template(vertical: str) -> Optional[str]:
+    """Get pitch template for a vertical type."""
+    vertical_info = VERTICAL_TYPES.get(vertical)
+    if vertical_info:
+        return vertical_info.get("pitch_template")
+    return None
+
+
+def generate_pitch(card: Dict[str, Any], vertical: Optional[str] = None, 
+                   additional_data: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """
+    Generate a personalized pitch from a card using the vertical's pitch template.
+    
+    Args:
+        card: Contact card dictionary
+        vertical: Vertical type (if not provided, will try to infer from card)
+        additional_data: Additional data for placeholders (e.g., purchased_chapter, rep_name)
+    
+    Returns:
+        Generated pitch text or None if template not found
+    """
+    # Determine vertical if not provided
+    if not vertical:
+        vertical = card.get("vertical")
+    
+    if not vertical or vertical not in VERTICAL_TYPES:
+        return None
+    
+    template = get_pitch_template(vertical)
+    if not template:
+        return None
+    
+    # Merge card data with additional data
+    data = card.copy()
+    if additional_data:
+        data.update(additional_data)
+    
+    # Map card fields to template placeholders
+    # Handle different field name variations
+    replacements = {}
+    
+    # Common fields
+    replacements["{name}"] = data.get("name", data.get("contact_name", ""))
+    replacements["{contact_name}"] = data.get("name", data.get("contact_name", ""))
+    
+    # Vertical-specific mappings
+    if vertical == "frats":
+        replacements["{fraternity}"] = data.get("fraternity", "")
+        replacements["{chapter}"] = data.get("chapter", "")
+        replacements["{purchased_chapter}"] = additional_data.get("purchased_chapter", "a chapter") if additional_data else "a chapter"
+        replacements["{purchased_institution}"] = additional_data.get("purchased_institution", "a university") if additional_data else "a university"
+    
+    elif vertical == "faith":
+        replacements["{faith_group}"] = data.get("faith_group", "")
+        replacements["{university}"] = data.get("university", "")
+    
+    elif vertical == "academic":
+        replacements["{program}"] = data.get("program", data.get("program_name", ""))
+        replacements["{department}"] = data.get("department", data.get("department_name", ""))
+        replacements["{university}"] = data.get("university", "")
+    
+    elif vertical == "government":
+        replacements["{org}"] = data.get("org", data.get("organization_name", ""))
+        replacements["{university}"] = data.get("university", "")
+    
+    elif vertical == "cultural":
+        replacements["{group}"] = data.get("group", data.get("faith_group_or_org", ""))
+        replacements["{university}"] = data.get("university", "")
+        replacements["{rep_name}"] = additional_data.get("rep_name", "a team member") if additional_data else "a team member"
+    
+    elif vertical == "sports":
+        replacements["{team}"] = data.get("team", data.get("team_or_club", ""))
+        replacements["{university}"] = data.get("university", "")
+        replacements["{rep_name}"] = additional_data.get("rep_name", "a team member") if additional_data else "a team member"
+    
+    # Replace placeholders in template
+    pitch = template
+    for placeholder, value in replacements.items():
+        pitch = pitch.replace(placeholder, str(value))
+    
+    return pitch
 
 
 def generate_card_id(card: Dict[str, Any]) -> str:
@@ -42,18 +166,89 @@ def generate_card_id(card: Dict[str, Any]) -> str:
 
 def validate_card_schema(card: Dict[str, Any]) -> tuple[bool, Optional[str]]:
     """
-    Validate card schema per type.
+    Validate card schema per type and vertical.
     Returns (is_valid, error_message).
     """
     card_type = card.get("type")
+    vertical = card.get("vertical")
+    
+    # If vertical is present but type is missing, assume it's a person card
+    # (normalize_card will set type to "person" but validation happens after normalization)
+    if not card_type and vertical:
+        card_type = "person"
     
     if not card_type:
         return False, "Missing required field: type"
     
+    # Validate vertical-specific person cards
+    # If vertical is present, treat as person card (type may be auto-set by normalization)
+    if vertical and (card_type == "person" or not card_type):
+        if vertical not in VERTICAL_TYPES:
+            return False, f"Invalid vertical: {vertical}. Must be one of: {', '.join(VERTICAL_TYPES.keys())}"
+        
+        vertical_config = VERTICAL_TYPES[vertical]
+        required_fields = vertical_config.get("required_fields", [])
+        
+        # Check required fields
+        missing_fields = []
+        for field in required_fields:
+            # Handle field name variations
+            if field == "contact_name":
+                value = card.get("name") or card.get("contact_name")
+                if not value or (isinstance(value, str) and not value.strip()):
+                    missing_fields.append("name/contact_name")
+            elif field == "position":
+                value = card.get("role") or card.get("position")
+                if not value or (isinstance(value, str) and not value.strip()):
+                    missing_fields.append("role/position")
+            elif field == "phone_number":
+                value = card.get("phone") or card.get("phone_number")
+                if not value or (isinstance(value, str) and not value.strip()):
+                    missing_fields.append("phone/phone_number")
+            elif field == "faith_group_or_org":
+                value = card.get("group") or card.get("faith_group_or_org")
+                if not value or (isinstance(value, str) and not value.strip()):
+                    missing_fields.append("group/faith_group_or_org")
+            elif field == "team_or_club":
+                value = card.get("team") or card.get("team_or_club")
+                if not value or (isinstance(value, str) and not value.strip()):
+                    missing_fields.append("team/team_or_club")
+            elif field == "program_name":
+                value = card.get("program") or card.get("program_name")
+                if not value or (isinstance(value, str) and not value.strip()):
+                    missing_fields.append("program/program_name")
+            elif field == "department_name":
+                value = card.get("department") or card.get("department_name")
+                if not value or (isinstance(value, str) and not value.strip()):
+                    missing_fields.append("department/department_name")
+            elif field == "organization_name":
+                value = card.get("org") or card.get("organization_name")
+                if not value or (isinstance(value, str) and not value.strip()):
+                    missing_fields.append("org/organization_name")
+            elif field == "email":
+                # Email validation - check if it's in required or optional
+                value = card.get(field)
+                # Email is now in optional_fields for cultural/sports, so skip if missing
+                # But if it's in required_fields, validate it
+                if vertical not in ["cultural", "sports"]:
+                    # For other verticals, email is required
+                    if not value or (isinstance(value, str) and not value.strip()):
+                        missing_fields.append(field)
+            else:
+                value = card.get(field)
+                if not value or (isinstance(value, str) and not value.strip()):
+                    missing_fields.append(field)
+        
+        if missing_fields:
+            return False, f"{vertical_config['name']} card missing required fields: {', '.join(missing_fields)}"
+        
+        return True, None
+    
+    # Legacy validation for non-vertical cards
     if card_type not in ["person", "fraternity", "team", "business"]:
         return False, f"Invalid type: {card_type}. Must be one of: person, fraternity, team, business"
     
-    # Type-specific validation
+    # Type-specific validation (legacy)
     if card_type == "person":
         if not card.get("name"):
             return False, "Person card missing required field: name"
@@ -86,18 +281,40 @@ def validate_card_schema(card: Dict[str, Any]) -> tuple[bool, Optional[str]]:
 
 def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Normalize card: ensure id exists, clean up structure.
+    Normalize card: ensure id exists, clean up structure, map field variations.
     Returns normalized card dict.
     """
     normalized = card.copy()
+    
+    # Normalize field name variations for vertical-based cards
+    vertical = normalized.get("vertical")
+    if vertical and normalized.get("type") == "person":
+        # Map common field variations to standard names
+        field_mappings = {
+            "contact_name": "name",
+            "position": "role",
+            "phone_number": "phone",
+            "faith_group_or_org": "group",
+            "team_or_club": "team",
+            "program_name": "program",
+            "department_name": "department",
+            "organization_name": "org"
+        }
+        
+        for old_field, new_field in field_mappings.items():
+            if old_field in normalized and new_field not in normalized:
+                normalized[new_field] = normalized[old_field]
     
     # Ensure id exists
     if not normalized.get("id"):
         normalized["id"] = generate_card_id(normalized)
     
-    # Ensure type is set
+    # Ensure type is set - if vertical is present but type is missing, assume person
     if not normalized.get("type"):
-        normalized["type"] = "person"
+        if normalized.get("vertical"):
+            normalized["type"] = "person"
+        else:
+            normalized["type"] = "person"  # Default to person for backward compatibility
     
     # Ensure arrays exist for entity types
     if normalized["type"] == "fraternity" and "members" not in normalized:
@@ -114,6 +331,10 @@ def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
     # Ensure metadata exists for person cards
     if normalized["type"] == "person" and "metadata" not in normalized:
         normalized["metadata"] = {}
+    
+    # Ensure vertical is preserved
+    if vertical:
+        normalized["vertical"] = vertical
     
     return normalized
 
@@ -459,4 +680,34 @@ def get_card_relationships(conn: Any, card_id: str) -> List[Dict[str, Any]]:
             }
             for row in cur.fetchall()
         ]
+
+
+def get_vertical_info(vertical: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Get information about vertical types.
+    
+    Args:
+        vertical: Specific vertical to get info for, or None for all verticals
+    
+    Returns:
+        Dictionary with vertical information
+    """
+    if vertical:
+        if vertical in VERTICAL_TYPES:
+            return {
+                "vertical": vertical,
+                **VERTICAL_TYPES[vertical]
+            }
+        return {}
+    
+    return {
+        "verticals": {
+            k: {
+                "name": v["name"],
+                "required_fields": v["required_fields"],
+                "optional_fields": v.get("optional_fields", [])
+            }
+            for k, v in VERTICAL_TYPES.items()
+        }
+    }
 

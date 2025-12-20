@@ -47,6 +47,9 @@ from backend.cards import (
     get_card,
     get_card_relationships,
     delete_card,
+    get_vertical_info,
+    generate_pitch,
+    VERTICAL_TYPES,
 )
 from backend.query import build_list_query
 from backend.resolve import resolve_target, extract_phones_from_cards
@@ -2066,6 +2069,76 @@ async def upload_cards(
         },
         status_code=status_code
     )
+
+
+@app.get("/cards/verticals")
+async def get_verticals_endpoint(vertical: Optional[str] = Query(None), request: Request = None):
+    """
+    Get information about vertical types.
+    Returns all verticals or specific vertical if 'vertical' query param provided.
+    """
+    # Optional authentication - allow public access to vertical info
+    try:
+        await get_current_owner_or_rep(request)
+    except:
+        pass  # Allow unauthenticated access to vertical info
+    
+    info = get_vertical_info(vertical)
+    return info
+
+
+@app.post("/cards/generate-pitch")
+async def generate_pitch_endpoint(
+    data: Dict[str, Any],
+    request: Request
+):
+    """
+    Generate a personalized pitch from a card using the vertical's pitch template.
+    
+    Body:
+    {
+        "card": {...},
+        "vertical": "frats",
+        "additional_data": {
+            "purchased_chapter": "...",
+            "rep_name": "..."
+        }
+    }
+    """
+    # Authenticate user
+    try:
+        current_user = await get_current_owner_or_rep(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[GENERATE_PITCH] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    card = data.get("card")
+    vertical = data.get("vertical")
+    additional_data = data.get("additional_data", {})
+    
+    if not card:
+        raise HTTPException(status_code=400, detail="Missing 'card' in request body")
+    
+    if not vertical:
+        vertical = card.get("vertical")
+    
+    if not vertical:
+        raise HTTPException(status_code=400, detail="Missing 'vertical' - provide in request body or card")
+    
+    if vertical not in VERTICAL_TYPES:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid vertical: {vertical}. Must be one of: {', '.join(VERTICAL_TYPES.keys())}"
+        )
+    
+    pitch = generate_pitch(card, vertical, additional_data)
+    
+    if not pitch:
+        raise HTTPException(status_code=500, detail="Failed to generate pitch")
+    
+    return {"pitch": pitch, "vertical": vertical}
 
 
 @app.get("/cards/{card_id}")

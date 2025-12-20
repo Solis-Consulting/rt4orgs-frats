@@ -44,8 +44,18 @@
       <div class="sub">Upload JSON cards (person, fraternity, team, business). Cards will be validated and normalized.</div>
 
       <div class="toolbar">
+        <select id="verticalSelect" style="padding: 8px 12px; background: #020617; border: 1px solid #4b5563; border-radius: 8px; color: #e5e7eb; font-size: 14px; cursor: pointer;">
+          <option value="">Select Vertical (Optional)</option>
+          <option value="frats">Fraternities</option>
+          <option value="faith">Faith / Religious Groups</option>
+          <option value="academic">Academic / Program-Specific</option>
+          <option value="government">Government / Student Government / Orgs</option>
+          <option value="cultural">Cultural / Faith-based</option>
+          <option value="sports">Sports / Club</option>
+        </select>
         <button id="validateBtn">Validate JSON</button>
         <button id="previewBtn">Preview Cards</button>
+        <button id="previewPitchBtn" class="button-secondary">Preview Pitch</button>
         <button id="uploadBtn" disabled>Upload Cards</button>
         <button id="loadExampleBtn" class="button-secondary">Load Example</button>
         <input type="file" id="fileInput" accept=".json" style="display: none;">
@@ -68,6 +78,10 @@
 
       <div id="status"></div>
       <div id="preview" class="preview"></div>
+      <div id="pitchPreview" class="preview" style="display: none;">
+        <div style="margin-top: 16px;"><strong>Pitch Preview:</strong></div>
+        <div id="pitchContent"></div>
+      </div>
     </div>
   </div>
 
@@ -250,6 +264,16 @@
         showStatus('JSON must be a non-empty array of cards', 'error');
         return;
       }
+      
+      // Apply selected vertical to person cards that don't have one
+      const selectedVertical = document.getElementById('verticalSelect').value;
+      if (selectedVertical) {
+        cardsToUpload.forEach(card => {
+          if (card.type === 'person' && !card.vertical) {
+            card.vertical = selectedVertical;
+          }
+        });
+      }
 
       const uploadBtn = document.getElementById('uploadBtn');
       uploadBtn.disabled = true;
@@ -385,8 +409,90 @@
     }
 
     function loadExample() {
-      const example = [
-        {
+      const vertical = document.getElementById('verticalSelect').value;
+      let example;
+      
+      if (vertical === 'frats') {
+        example = [{
+          "type": "person",
+          "vertical": "frats",
+          "name": "Aidan Scheible",
+          "role": "President",
+          "phone": "+12489962425",
+          "email": "scheibae@miamioh.edu",
+          "fraternity": "SigChi",
+          "chapter": "Alpha",
+          "tags": ["fraternity", "rush", "decision_maker"],
+          "sales_state": "cold"
+        }];
+      } else if (vertical === 'faith') {
+        example = [{
+          "type": "person",
+          "vertical": "faith",
+          "name": "Sarah Johnson",
+          "role": "Campus Minister",
+          "phone": "+1234567890",
+          "email": "sarah@example.edu",
+          "faith_group": "Campus Crusade",
+          "university": "State University",
+          "sales_state": "cold"
+        }];
+      } else if (vertical === 'academic') {
+        example = [{
+          "type": "person",
+          "vertical": "academic",
+          "name": "Alex Chen",
+          "role": "Program Director",
+          "phone": "+1234567890",
+          "email": "alex@example.edu",
+          "program": "Engineering Honors",
+          "department": "Engineering",
+          "university": "State University",
+          "sales_state": "cold"
+        }];
+      } else if (vertical === 'government') {
+        example = [{
+          "type": "person",
+          "vertical": "government",
+          "name": "Jordan Smith",
+          "role": "Student Body President",
+          "phone": "+1234567890",
+          "email": "jordan@example.edu",
+          "org": "Student Government",
+          "university": "State University",
+          "sales_state": "cold"
+        }];
+      } else if (vertical === 'cultural') {
+        example = [{
+          "type": "person",
+          "vertical": "cultural",
+          "name": "Maria Garcia",
+          "role": "President",
+          "email": "maria@example.edu",
+          "phone": "+1234567890",
+          "group": "Latinx Student Association",
+          "university": "State University",
+          "insta": "@maria_garcia",
+          "tags": [],
+          "metadata": {}
+        }];
+      } else if (vertical === 'sports') {
+        example = [{
+          "type": "person",
+          "vertical": "sports",
+          "name": "Mike Thompson",
+          "role": "Team Captain",
+          "email": "mike@example.edu",
+          "phone": "+1234567890",
+          "team": "Ultimate Frisbee",
+          "university": "State University",
+          "insta": "@mike_t",
+          "tags": [],
+          "metadata": {}
+        }];
+      } else {
+        // Default example (frats)
+        example = [{
           "type": "person",
           "name": "Aidan Scheible",
           "role": "President",
@@ -400,22 +506,76 @@
             "insta": "",
             "other_social": ""
           }
-        },
-        {
-          "id": "sigchi_alpha",
-          "type": "fraternity",
-          "name": "Sigma Chi – Alpha Chapter",
-          "school": "Miami University",
-          "members": ["aidan_scheible_sigchi_alpha"],
-          "sales_state": "active_outreach",
-          "owner": "david"
-        }
-      ];
+        }];
+      }
       
       document.getElementById('jsonInput').value = JSON.stringify(example, null, 2);
       validatedCards = example;
       document.getElementById('uploadBtn').disabled = false;
       showStatus('Example loaded', 'success');
+    }
+    
+    async function previewPitch() {
+      hideStatus();
+      const input = document.getElementById('jsonInput').value.trim();
+      const vertical = document.getElementById('verticalSelect').value;
+      
+      if (!input) {
+        showStatus('Please enter JSON data', 'error');
+        return;
+      }
+      
+      try {
+        const parsed = JSON.parse(input);
+        
+        if (!Array.isArray(parsed)) {
+          showStatus('JSON must be an array', 'error');
+          return;
+        }
+        
+        if (parsed.length === 0) {
+          showStatus('Array is empty', 'error');
+          return;
+        }
+        
+        // Get first person card for pitch preview
+        const firstCard = parsed.find(card => card.type === 'person') || parsed[0];
+        const cardVertical = firstCard.vertical || vertical;
+        
+        if (!cardVertical) {
+          showStatus('Please select a vertical or include "vertical" field in card', 'error');
+          return;
+        }
+        
+        // Call backend to generate pitch
+        const headers = getHeaders();
+        const response = await fetch(`${BACKEND}/cards/generate-pitch`, {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({
+            card: firstCard,
+            vertical: cardVertical
+          })
+        });
+        
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({ error: 'Failed to generate pitch' }));
+          showStatus(`Error generating pitch: ${error.error || 'Unknown error'}`, 'error');
+          return;
+        }
+        
+        const result = await response.json();
+        const pitchDiv = document.getElementById('pitchPreview');
+        const pitchContent = document.getElementById('pitchContent');
+        
+        pitchContent.innerHTML = `<div class="preview-item">
+          <div style="white-space: pre-wrap; font-family: monospace; font-size: 13px; line-height: 1.6;">${result.pitch || 'No pitch generated'}</div>
+        </div>`;
+        pitchDiv.style.display = 'block';
+        showStatus('Pitch preview generated', 'success');
+      } catch (e) {
+        showStatus(`Error: ${e.message}`, 'error');
+      }
     }
 
     function handleFileSelect(event) {
@@ -435,9 +595,34 @@
       setTimeout(validateJSON, 100);
     });
 
+    // Auto-apply vertical to cards when selected
+    document.getElementById('verticalSelect').addEventListener('change', function() {
+      const vertical = this.value;
+      if (vertical) {
+        const input = document.getElementById('jsonInput').value.trim();
+        if (input) {
+          try {
+            const parsed = JSON.parse(input);
+            if (Array.isArray(parsed)) {
+              // Add vertical to all person cards that don't have one
+              parsed.forEach(card => {
+                if (card.type === 'person' && !card.vertical) {
+                  card.vertical = vertical;
+                }
+              });
+              document.getElementById('jsonInput').value = JSON.stringify(parsed, null, 2);
+            }
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+      }
+    });
+    
     // Wire up button and file handlers (no inline HTML handlers)
     document.getElementById('validateBtn').addEventListener('click', validateJSON);
     document.getElementById('previewBtn').addEventListener('click', previewCards);
+    document.getElementById('previewPitchBtn').addEventListener('click', previewPitch);
     document.getElementById('uploadBtn').addEventListener('click', uploadCards);
     document.getElementById('loadExampleBtn').addEventListener('click', loadExample);
     document.getElementById('fileInput').addEventListener('change', handleFileSelect);
