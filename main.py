@@ -4815,29 +4815,79 @@ async def rep_get_stats(request: Request):
             row = cur.fetchone()
             stats["active_conversations"] = row[0] if row else 0
             
-            # Get messages sent count (outbound messages)
+            # Get messages sent count (outbound messages) - count from history JSONB
             cur.execute("""
-                SELECT COUNT(*)
+                SELECT 
+                    SUM(jsonb_array_length(COALESCE(c.history, '[]'::jsonb))) FILTER (
+                        WHERE EXISTS (
+                            SELECT 1 FROM jsonb_array_elements(c.history) AS msg
+                            WHERE msg->>'direction' = 'outbound'
+                        )
+                    )
                 FROM conversations c
                 INNER JOIN card_assignments ca ON c.card_id = ca.card_id
                 WHERE ca.user_id = %s
                   AND c.card_id IS NOT NULL
-                  AND c.history::text LIKE '%"direction":"outbound"%'
+                  AND c.history IS NOT NULL
             """, (user_id,))
             row = cur.fetchone()
-            stats["messages_sent"] = row[0] if row else 0
+            # Alternative: count individual messages
+            if row and row[0] is not None:
+                stats["messages_sent"] = int(row[0])
+            else:
+                # Fallback: count by checking history array
+                cur.execute("""
+                    SELECT COUNT(*)
+                    FROM conversations c
+                    INNER JOIN card_assignments ca ON c.card_id = ca.card_id
+                    WHERE ca.user_id = %s
+                      AND c.card_id IS NOT NULL
+                      AND EXISTS (
+                          SELECT 1 FROM jsonb_array_elements(COALESCE(c.history, '[]'::jsonb)) AS msg
+                          WHERE msg->>'direction' = 'outbound'
+                      )
+                """, (user_id,))
+                row = cur.fetchone()
+                stats["messages_sent"] = row[0] if row and row[0] else 0
             
-            # Get messages received count (inbound messages)
+            # Get messages received count (inbound messages) - count from history JSONB
             cur.execute("""
                 SELECT COUNT(*)
                 FROM conversations c
                 INNER JOIN card_assignments ca ON c.card_id = ca.card_id
                 WHERE ca.user_id = %s
                   AND c.card_id IS NOT NULL
-                  AND c.history::text LIKE '%"direction":"inbound"%'
+                  AND EXISTS (
+                      SELECT 1 FROM jsonb_array_elements(COALESCE(c.history, '[]'::jsonb)) AS msg
+                      WHERE msg->>'direction' = 'inbound'
+                  )
             """, (user_id,))
             row = cur.fetchone()
-            stats["messages_received"] = row[0] if row else 0
+            stats["messages_received"] = row[0] if row and row[0] else 0
+            
+            # Log stats for debugging
+            logger.info(f"[REP_STATS] Rep {user_id} stats: {stats}")
     
-    return {"ok": True, "stats": stats}
+    # Ensure all expected keys exist (even if 0)
+    default_stats = {
+        "assigned": 0,
+        "active": 0,
+        "closed": 0,
+        "lost": 0,
+        "total_assigned": 0,
+        "total_leads": 0,
+        "response_rate": 0,
+        "close_rate_assigned": 0,
+        "close_rate_leads": 0,
+        "total_conversations": 0,
+        "active_conversations": 0,
+        "messages_sent": 0,
+        "messages_received": 0,
+    }
+    
+    # Merge defaults with actual stats
+    final_stats = {**default_stats, **stats}
+    
+    logger.info(f"[REP_STATS] Returning stats: {final_stats}")
+    return {"ok": True, "stats": final_stats}
 

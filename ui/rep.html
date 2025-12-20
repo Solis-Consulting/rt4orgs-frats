@@ -1025,8 +1025,11 @@
     });
 
     async function loadStats() {
+      console.log('[STATS] Loading stats...');
       try {
         const res = await fetch(`${BACKEND}/rep/stats`, { headers: getHeaders() });
+        console.log('[STATS] Response status:', res.status);
+        
         if (res.status === 401 || res.status === 403) {
           apiToken = null;
           tokenPrompt.style.display = 'block';
@@ -1037,8 +1040,18 @@
           return;
         }
         
+        if (!res.ok) {
+          const text = await res.text();
+          console.error('[STATS] Error response:', text);
+          document.getElementById('statsGrid').innerHTML = `<div style='color: #fecaca; padding: 20px;'>Error loading stats: HTTP ${res.status}</div>`;
+          return;
+        }
+        
         const data = await res.json();
+        console.log('[STATS] Full response:', data);
         const stats = data.stats || {};
+        console.log('[STATS] Stats object:', stats);
+        console.log('[STATS] Stats keys:', Object.keys(stats));
         
         let html = '';
         
@@ -1061,8 +1074,11 @@
         html += `<div class="stat-card"><div class="stat-value">${stats.lost || 0}</div><div class="stat-label">Lost</div></div>`;
         
         document.getElementById('statsGrid').innerHTML = html;
+        console.log('[STATS] Stats rendered successfully');
       } catch (error) {
-        console.error('Error loading stats:', error);
+        console.error('[STATS] Error loading stats:', error);
+        console.error('[STATS] Error stack:', error.stack);
+        document.getElementById('statsGrid').innerHTML = `<div style='color: #fecaca; padding: 20px;'>Error loading stats: ${error.message}</div>`;
         if (error.message.includes('No API token')) {
           tokenPrompt.style.display = 'block';
           mainContent.style.display = 'none';
