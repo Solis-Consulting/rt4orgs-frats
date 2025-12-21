@@ -306,10 +306,17 @@ def run_blast_for_cards(
         source: Source identifier (e.g., "rep_ui", "owner_ui")
         rep_user_id: Optional rep user ID (for conversation tracking)
     """
+    # 🔥 BLAST MODE - Explicitly mark this as outbound-only, no inbound logic applies
+    # This ensures no reply suppression, state checks, or Markov transition logic interferes
+    is_blast_mode = True
+    is_inbound = False
+    
     # High-level run visibility with detailed logging
     print("=" * 80, flush=True)
-    print(f"[BLAST_RUN] 🚀 STARTING BLAST", flush=True)
+    print(f"[BLAST_RUN] 🚀 STARTING BLAST (BLAST MODE - NO INBOUND LOGIC)", flush=True)
     print("=" * 80, flush=True)
+    print(f"[BLAST_RUN] ⚠️ BLAST MODE: is_blast_mode={is_blast_mode}, is_inbound={is_inbound}", flush=True)
+    print(f"[BLAST_RUN] ⚠️ BLAST MODE: All reply suppression, state checks, and Markov transition logic DISABLED", flush=True)
     print(f"[BLAST_RUN] Card IDs: {card_ids} (count: {len(card_ids)})", flush=True)
     print(f"[BLAST_RUN] Limit: {limit}", flush=True)
     print(f"[BLAST_RUN] Owner: {owner}", flush=True)
@@ -563,12 +570,16 @@ def run_blast_for_cards(
             print(f"[BLAST_SEND_ATTEMPT] Using System Phone Number (via Messaging Service)", flush=True)
             
             print(f"[BLAST_SEND_ATTEMPT] send_sms() will use system Twilio credentials from environment variables", flush=True)
+            print(f"[BLAST_SEND_ATTEMPT] ⚠️ BLAST MODE: No reply suppression, no state checks, no guards - sending unconditionally", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Calling send_sms() NOW...", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Request timestamp: {datetime.utcnow().isoformat()}", flush=True)
             # send_sms() now always uses environment variables - no parameters needed
+            # BLAST MODE: Always send, no guards, no suppression
             try:
+                print(f"[BLAST_SEND_ATTEMPT] ✅ EXECUTING send_sms() - BLAST MODE (no guards)", flush=True)
                 sms_result = send_sms(phone, message)
-                print(f"[BLAST_SEND_ATTEMPT] send_sms() returned successfully", flush=True)
+                print(f"[BLAST_SEND_ATTEMPT] ✅ send_sms() returned successfully", flush=True)
+                print(f"[BLAST_SEND_ATTEMPT] SMS Result: {sms_result}", flush=True)
             except Exception as send_error:
                 print("=" * 80, flush=True)
                 print(f"[BLAST_SEND_ATTEMPT] ❌ EXCEPTION in send_sms()", flush=True)
