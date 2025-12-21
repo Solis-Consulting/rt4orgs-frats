@@ -4537,10 +4537,9 @@ async def rep_blast(
     request: Request
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
-    # 🔥 CRITICAL: Log IMMEDIATELY - BEFORE ANYTHING ELSE
-    # This MUST be the absolute first line - if this doesn't log, FastAPI is rejecting before handler
-    logger.error("🔥🔥🔥 ENTERED /rep/blast HANDLER 🔥🔥🔥")
-    print("🔥🔥🔥 ENTERED /rep/blast HANDLER 🔥🔥🔥", flush=True)
+    # 1️⃣ At the very top of /rep/blast
+    logger.error("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast")
+    print("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast", flush=True)
     print(f"[REP_BLAST] Request method: {request.method}", flush=True)
     print(f"[REP_BLAST] Request path: {request.url.path}", flush=True)
     print(f"[REP_BLAST] Request headers: {dict(request.headers)}", flush=True)
@@ -4564,6 +4563,10 @@ async def rep_blast(
     # Parse JSON directly - bypasses all FastAPI validation
     try:
         payload = await request.json()
+        # 2️⃣ Immediately after parsing payload
+        card_ids = payload.get("card_ids", [])
+        logger.error(f"[BLAST_ENDPOINT] Payload card_ids = {card_ids}")
+        print(f"[BLAST_ENDPOINT] Payload card_ids = {card_ids}", flush=True)
         logger.error(f"🔥 BLAST PAYLOAD: {payload}")
         print(f"🔥 BLAST PAYLOAD: {payload}", flush=True)
     except Exception as json_err:
@@ -4575,6 +4578,10 @@ async def rep_blast(
     
     # Use 'user' instead of 'current_user' to match dependency name
     current_user = user
+    
+    # 3️⃣ Right after authentication
+    logger.error(f"[BLAST_ENDPOINT] Authenticated user id={current_user.get('id')} role={current_user.get('role')}")
+    print(f"[BLAST_ENDPOINT] Authenticated user id={current_user.get('id')} role={current_user.get('role')}", flush=True)
     
     # Now continue with the rest of the handler logic
     try:
@@ -4626,13 +4633,15 @@ async def rep_blast(
         
         # ✅ FIX 3: Normalize payload defensively - handle multiple payload shapes
         # Frontend might send: card_ids, ids, leads, or other variations
-        card_ids = (
-            payload.get("card_ids")
-            or payload.get("ids")
-            or payload.get("leads")
-            or payload.get("cardIds")  # camelCase variant
-            or []
-        )
+        # Note: card_ids was already extracted above, but normalize here too for safety
+        if 'card_ids' not in locals() or not card_ids:
+            card_ids = (
+                payload.get("card_ids")
+                or payload.get("ids")
+                or payload.get("leads")
+                or payload.get("cardIds")  # camelCase variant
+                or []
+            )
         
         # Ensure card_ids is a list
         if not isinstance(card_ids, list):
@@ -4714,6 +4723,11 @@ async def rep_blast(
             # Get all cards assigned to this rep
             print(f"[BLAST_ENDPOINT] Fetching assigned cards for rep {current_user['id']}...", flush=True)
             all_assigned = get_rep_assigned_cards(conn, current_user["id"])
+            # 4️⃣ After fetching assigned cards (THIS IS THE LIKELY KILLER)
+            logger.error(
+                f"[BLAST_ENDPOINT] Assigned cards count = {len(all_assigned)}; "
+                f"first_ids={[c['id'] for c in all_assigned[:5]]}"
+            )
             print(f"[BLAST_ENDPOINT] Found {len(all_assigned)} assigned cards", flush=True)
             assigned_ids = {c["id"] for c in all_assigned}
             print(f"[BLAST_ENDPOINT] Assigned card IDs: {list(assigned_ids)[:5]}..." if len(assigned_ids) > 5 else f"[BLAST_ENDPOINT] Assigned card IDs: {list(assigned_ids)}", flush=True)
@@ -4726,6 +4740,8 @@ async def rep_blast(
                 # Verify ALL specified cards are assigned to this rep
                 unauthorized = [cid for cid in card_ids if cid not in assigned_ids]
                 if unauthorized:
+                    # 6️⃣ Before EVERY early return (non-negotiable)
+                    logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: unauthorized card_ids")
                     print(f"[BLAST_ENDPOINT] ❌ EARLY EXIT: Unauthorized cards detected", flush=True)
                     print(f"[BLAST_ENDPOINT]   Unauthorized: {unauthorized}", flush=True)
                     logger.warning(f"[BLAST] Rep {current_user['id']} attempted to blast unauthorized cards: {unauthorized}")
@@ -4733,9 +4749,16 @@ async def rep_blast(
                 
                 # Filter to only assigned cards (safety check)
                 card_ids = [cid for cid in card_ids if cid in assigned_ids]
+                # 5️⃣ After filtering requested cards against assigned cards
+                logger.error(
+                    f"[BLAST_ENDPOINT] Cards after assignment filter = {len(card_ids)}; "
+                    f"ids={card_ids}"
+                )
                 print(f"[BLAST_ENDPOINT]   After filtering: {len(card_ids)} authorized card(s)", flush=True)
                 
                 if not card_ids:
+                    # 6️⃣ Before EVERY early return (non-negotiable)
+                    logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: no valid cards after filtering")
                     print(f"[BLAST_ENDPOINT] ❌ EARLY EXIT: No valid assigned cards after filtering", flush=True)
                     logger.warning(f"[BLAST] Rep {current_user['id']} - no valid assigned cards after filtering")
                     return {"ok": False, "error": "None of the specified cards are assigned to you", "sent": 0, "skipped": 0}
@@ -4745,6 +4768,8 @@ async def rep_blast(
                 cards = get_rep_assigned_cards(conn, current_user["id"], status=status_filter)
                 print(f"[BLAST_ENDPOINT]   Found {len(cards)} assigned cards", flush=True)
                 if not cards:
+                    # 6️⃣ Before EVERY early return (non-negotiable)
+                    logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: no assigned cards found")
                     print(f"[BLAST_ENDPOINT] ❌ EARLY EXIT: No assigned cards found", flush=True)
                     logger.info(f"[BLAST] Rep {current_user['id']} - no assigned cards found with status={status_filter}")
                     return {"ok": False, "error": "No assigned cards found", "sent": 0, "skipped": 0}
@@ -4759,8 +4784,9 @@ async def rep_blast(
         
         print(f"[BLAST_ENDPOINT] Final card_ids count: {len(card_ids) if card_ids else 0}", flush=True)
         if not card_ids:
+            # 6️⃣ Before EVERY early return (non-negotiable)
+            logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: no card_ids provided")
             print(f"[BLAST_ENDPOINT] ❌ EARLY EXIT: No cards to blast - returning error", flush=True)
-            logger.error(f"[BLAST] ❌ EARLY EXIT: No cards to blast")
             return {"ok": False, "error": "No cards to blast", "sent": 0, "skipped": 0}
         
         print(f"[BLAST_ENDPOINT] ✅ Card validation passed - {len(card_ids)} cards to blast", flush=True)
@@ -4777,9 +4803,10 @@ async def rep_blast(
             print(f"[BLAST_ENDPOINT] Validating Twilio environment variables...", flush=True)
             phone_number = os.getenv("TWILIO_PHONE_NUMBER")
             if not phone_number:
+                # 6️⃣ Before EVERY early return (non-negotiable)
+                logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: missing Twilio config (PHONE_NUMBER)")
                 error_msg = "TWILIO_PHONE_NUMBER is not set in environment variables. Blast cannot proceed."
                 print(f"[BLAST_ENDPOINT] ❌ {error_msg}", flush=True)
-                logger.error(f"[BLAST] ❌ {error_msg}")
                 return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
             print(f"[BLAST_ENDPOINT] ✅ TWILIO_PHONE_NUMBER: {phone_number}", flush=True)
             
@@ -4789,16 +4816,18 @@ async def rep_blast(
             auth_token = os.getenv("TWILIO_AUTH_TOKEN")
             
             if not account_sid:
+                # 6️⃣ Before EVERY early return (non-negotiable)
+                logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: missing Twilio config (ACCOUNT_SID)")
                 error_msg = "TWILIO_ACCOUNT_SID is not set in environment variables. Blast cannot proceed."
                 print(f"[BLAST_ENDPOINT] ❌ {error_msg}", flush=True)
-                logger.error(f"[BLAST] ❌ {error_msg}")
                 return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
             print(f"[BLAST_ENDPOINT] ✅ TWILIO_ACCOUNT_SID: {account_sid[:10]}...", flush=True)
             
             if not auth_token:
+                # 6️⃣ Before EVERY early return (non-negotiable)
+                logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: missing Twilio config (AUTH_TOKEN)")
                 error_msg = "TWILIO_AUTH_TOKEN is not set in environment variables. Blast cannot proceed."
                 print(f"[BLAST_ENDPOINT] ❌ {error_msg}", flush=True)
-                logger.error(f"[BLAST] ❌ {error_msg}")
                 return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
             print(f"[BLAST_ENDPOINT] ✅ TWILIO_AUTH_TOKEN: {auth_token[:10]}...", flush=True)
             
@@ -4834,8 +4863,9 @@ async def rep_blast(
             print(f"[BLAST_ENDPOINT]   owner: {current_user['id']}", flush=True)
             print(f"[BLAST_ENDPOINT]   source: {'owner_ui' if current_user.get('role') == 'admin' else 'rep_ui'}", flush=True)
             print(f"[BLAST_ENDPOINT]   rep_user_id: {rep_user_id}", flush=True)
+            # 7️⃣ Immediately before blast execution (the goal)
+            logger.error(f"[BLAST_ENDPOINT] 🔥🔥🔥 ABOUT TO EXECUTE BLAST for cards={card_ids}")
             print(f"[BLAST_ENDPOINT] Calling run_blast_for_cards() NOW...", flush=True)
-            logger.error(f"[BLAST] 🔥🔥🔥 ABOUT TO EXECUTE BLAST for cards={card_ids} 🔥🔥🔥")
             print(f"[BLAST_ENDPOINT] 🔥🔥🔥 ABOUT TO EXECUTE BLAST 🔥🔥🔥", flush=True)
             print(f"[BLAST_ENDPOINT]   card_ids: {card_ids}", flush=True)
             print(f"[BLAST_ENDPOINT]   rep_user_id: {rep_user_id}", flush=True)

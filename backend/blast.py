@@ -311,6 +311,9 @@ def run_blast_for_cards(
     is_blast_mode = True
     is_inbound = False
     
+    # 8️⃣ Inside run_blast_for_cards (first line)
+    logger.error(f"[BLAST_RUN] 🚀 STARTING BLAST: cards={len(card_ids)} rep={rep_user_id}")
+    
     # High-level run visibility with detailed logging
     print("=" * 80, flush=True)
     print(f"[BLAST_RUN] 🚀 STARTING BLAST (BLAST MODE - NO INBOUND LOGIC)", flush=True)
@@ -571,6 +574,9 @@ def run_blast_for_cards(
             
             print(f"[BLAST_SEND_ATTEMPT] send_sms() will use system Twilio credentials from environment variables", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] ⚠️ BLAST MODE: No reply suppression, no state checks, no guards - sending unconditionally", flush=True)
+            # 9️⃣ Right before Twilio send
+            logger.error(f"[BLAST_SEND] 📤 Sending SMS to {phone} (card_id={card_id})")
+            print(f"[BLAST_SEND] 📤 Sending SMS to {phone} (card_id={card_id})", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Calling send_sms() NOW...", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Request timestamp: {datetime.utcnow().isoformat()}", flush=True)
             # send_sms() now always uses environment variables - no parameters needed
