@@ -459,7 +459,6 @@ def run_blast_for_cards(
         # 🔥 3️⃣ PHONE NORMALIZATION - logged and validated
         if not raw_phone:
             skip_card("NO_PHONE", card_id, phone=None, checked_fields=list(data.keys()) if isinstance(data, dict) else [])
-            skipped_count += 1
             continue
         
         try:
@@ -472,14 +471,12 @@ def run_blast_for_cards(
             print(f"[PHONE_NORMALIZED] raw={raw_phone} → normalized={phone_normalized}", flush=True)
         except Exception as e:
             skip_card("INVALID_PHONE", card_id, phone=raw_phone, error=str(e))
-            skipped_count += 1
             continue
         
         # 🔥 SKIP CHECKS with explicit logging (only critical safety checks)
         # Check 1: Invalid phone format (after normalization) - CRITICAL
         if not phone_normalized or not phone_normalized.startswith("+"):
             skip_card("INVALID_PHONE", card_id, phone=phone_normalized or raw_phone, normalized=phone_normalized, raw=raw_phone)
-            skipped_count += 1
             continue
         
         # Note: Test card detection and test phone blocking removed
