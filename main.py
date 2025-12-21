@@ -1394,20 +1394,47 @@ async def twilio_inbound(request: Request):
         
         # 🔒 SAFETY INVARIANT: Check if card is assigned before auto-responding
         # Do not auto-respond to unassigned cards (prevents spam loops)
+        # ✅ OPTION A: Auto-assign on first inbound to conversation owner
         card_assigned = False
         if card_id:
-            from backend.assignments import get_card_assignment
+            from backend.assignments import get_card_assignment, assign_card_to_rep
             assignment = get_card_assignment(conn, card_id)
             card_assigned = assignment is not None and assignment.get("user_id") is not None
+            
             if not card_assigned:
-                print(f"[TWILIO_INBOUND] 🛑 SAFETY: Card {card_id} is not assigned - skipping auto-response (inbound will still be stored)", flush=True)
+                print(f"[TWILIO_INBOUND] 🔍 Card {card_id} is not assigned", flush=True)
+                
+                # Auto-assign to conversation owner (rep_user_id) if available
+                if rep_user_id:
+                    print(f"[TWILIO_INBOUND] 🔄 Auto-assigning card to conversation owner: {rep_user_id}", flush=True)
+                    assign_success = assign_card_to_rep(
+                        conn=conn,
+                        card_id=card_id,
+                        user_id=rep_user_id,
+                        assigned_by=rep_user_id,  # Self-assigned via inbound
+                        notes="Auto-assigned on first inbound message"
+                    )
+                    if assign_success:
+                        print(f"[TWILIO_INBOUND] ✅ Card auto-assigned successfully to {rep_user_id}", flush=True)
+                        card_assigned = True
+                        # Re-fetch assignment to ensure it's fresh
+                        assignment = get_card_assignment(conn, card_id)
+                    else:
+                        print(f"[TWILIO_INBOUND] ⚠️ Failed to auto-assign card {card_id} to {rep_user_id}", flush=True)
+                else:
+                    print(f"[TWILIO_INBOUND] 🛑 SAFETY: Card {card_id} is not assigned and no rep_user_id available - skipping auto-response (inbound will still be stored)", flush=True)
         
         # Skip reply generation if bot loop detected OR card is unassigned (but still process/store inbound for leads)
         if skip_auto_reply:
             print(f"[TWILIO_INBOUND] 🛑 Skipping reply generation due to bot loop prevention (inbound will still be stored)", flush=True)
             reply_text = None
         elif not card_assigned and card_id:
+            # Card is still unassigned after auto-assignment attempt
+            # This means either:
+            # 1. No rep_user_id was available (conversation has no owner)
+            # 2. Auto-assignment failed
             print(f"[TWILIO_INBOUND] 🛑 Skipping reply generation - card is unassigned (inbound will still be stored)", flush=True)
+            print(f"[TWILIO_INBOUND]   Reason: Card {card_id} has no assignment and no rep_user_id to assign to", flush=True)
             reply_text = None
         elif result.get("next_state"):
             print("=" * 80, flush=True)
