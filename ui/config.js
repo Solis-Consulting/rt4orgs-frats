@@ -5,7 +5,12 @@
 
 export const BACKEND_URL =
   window.BACKEND_URL ||
-  (location.hostname === "localhost"
+  (location.hostname === "localhost" || location.hostname === "127.0.0.1"
     ? "http://localhost:8000"
     : "https://rt4orgs-frats-production.up.railway.app");
+
+// 🔥 CRITICAL: Log the resolved backend URL for debugging
+console.log("🌐 [CONFIG] Backend URL resolved to:", BACKEND_URL);
+console.log("🌐 [CONFIG] Current hostname:", location.hostname);
+console.log("🌐 [CONFIG] Protocol:", location.protocol);
 

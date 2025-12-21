@@ -796,22 +796,54 @@
         btn.textContent = 'Blasting...';
         
         console.log("📡 [BLAST] sending POST /rep/blast");
-        console.log("📡 [BLAST] Full fetch URL:", `${BACKEND}/rep/blast`);
+        
+        // 🔥 CRITICAL: Validate backend URL before fetch
+        const blastUrl = `${BACKEND}/rep/blast`;
+        console.log("📡 [BLAST] Full fetch URL:", blastUrl);
+        console.log("📡 [BLAST] URL protocol:", new URL(blastUrl, window.location.href).protocol);
+        console.log("📡 [BLAST] Current page protocol:", window.location.protocol);
+        
+        // Check for mixed content (HTTPS page trying to fetch HTTP)
+        if (window.location.protocol === 'https:' && blastUrl.startsWith('http://')) {
+          const errorMsg = `🚨 MIXED CONTENT BLOCK: Page is HTTPS but backend URL is HTTP: ${blastUrl}`;
+          console.error(errorMsg);
+          alert(errorMsg);
+          btn.disabled = false;
+          btn.textContent = 'Blast Selected Assigned Leads';
+          return;
+        }
+        
+        // Check if BACKEND is undefined or invalid
+        if (!BACKEND || BACKEND === 'undefined' || BACKEND.startsWith('undefined')) {
+          const errorMsg = `🚨 BACKEND URL IS UNDEFINED: ${BACKEND}`;
+          console.error(errorMsg);
+          alert(errorMsg);
+          btn.disabled = false;
+          btn.textContent = 'Blast Selected Assigned Leads';
+          return;
+        }
         
         try {
-          const res = await fetch(`${BACKEND}/rep/blast`, {
+          console.log("📡 [BLAST] Starting fetch to:", blastUrl);
+          console.log("📡 [BLAST] Headers:", getHeaders());
+          console.log("📡 [BLAST] Body:", JSON.stringify({ card_ids: ids }));
+          
+          const res = await fetch(blastUrl, {
             method: "POST",
             headers: getHeaders(),
             body: JSON.stringify({ card_ids: ids }),
           });
           
           console.log("📬 [BLAST] response status:", res.status);
+          console.log("📬 [BLAST] response headers:", Object.fromEntries(res.headers.entries()));
           const t = await res.text();
           console.log("📬 [BLAST] response body:", t);
           
           if (!res.ok) {
             console.error("❌ [BLAST] Response not OK:", res.status, t);
             alert(`Error ${res.status}: ${t.substring(0, 200)}`);
+            btn.disabled = false;
+            btn.textContent = 'Blast Selected Assigned Leads';
             return;
           }
           
@@ -822,10 +854,22 @@
             loadCards();
           } catch (parseErr) {
             console.error("❌ [BLAST] JSON parse failed:", parseErr);
+            alert(`Error parsing response: ${parseErr.message}`);
           }
         } catch (fetchErr) {
+          // 🔥 ENHANCED ERROR LOGGING
           console.error("🔥 [BLAST] fetch failed:", fetchErr);
-          alert(`Error: ${fetchErr.message}`);
+          console.error("🔥 [BLAST] Error name:", fetchErr.name);
+          console.error("🔥 [BLAST] Error message:", fetchErr.message);
+          console.error("🔥 [BLAST] Error stack:", fetchErr.stack);
+          console.error("🔥 [BLAST] URL that failed:", blastUrl);
+          console.error("🔥 [BLAST] Network error type:", fetchErr.name === 'TypeError' ? 'Network/CORS/Mixed Content' : 'Other');
+          
+          let errorMsg = `Error: ${fetchErr.message}`;
+          if (fetchErr.name === 'TypeError' && fetchErr.message.includes('fetch')) {
+            errorMsg = `Network error: Failed to fetch. This usually means:\n1. Backend URL is wrong: ${blastUrl}\n2. CORS is blocking the request\n3. Mixed content (HTTPS page calling HTTP backend)\n4. Network is unreachable`;
+          }
+          alert(errorMsg);
         } finally {
           btn.disabled = false;
           btn.textContent = 'Blast Selected Assigned Leads';
