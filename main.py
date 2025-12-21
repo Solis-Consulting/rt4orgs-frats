@@ -4333,7 +4333,8 @@ async def get_current_admin_user(request: Request) -> Dict[str, Any]:
     user = await get_current_user(request)
     # Owner (admin role) has full access
     if user.get("role") != "admin":
-        logger.warning(f"[AUTH] Forbidden admin access by {user['id']} (role: {user.get('role')})")
+        # Log at INFO level - this is expected behavior when reps try to access admin endpoints
+        logger.info(f"[AUTH] Admin access denied for {user['id']} (role: {user.get('role')}) - returning 403")
         raise HTTPException(status_code=403, detail="Owner/Admin access required")
     logger.info(f"[AUTH] Admin access granted to {user['id']}")
     return user
