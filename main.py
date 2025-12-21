@@ -263,26 +263,24 @@ async def lifespan(app: FastAPI):
     if twilio_auth_token:
         print(f"  Value: {twilio_auth_token[:10]}...{twilio_auth_token[-4:] if len(twilio_auth_token) > 14 else twilio_auth_token} (length: {len(twilio_auth_token)})")
     
-    # 🔥 CRITICAL: Show ONLY ONE mode (mutually exclusive)
-    if twilio_messaging_service_sid:
-        # Messaging Service mode: Phone number handling is DISABLED
-        print(f"TWILIO_MESSAGING_SERVICE_SID: ✅ SET (WILL USE)")
-        print(f"  ✅ Using Messaging Service (campaign metadata attached, NO from_ parameter)")
-        print(f"TWILIO_PHONE_NUMBER: {'SET (IGNORED)' if twilio_phone_number_raw else 'NOT SET (NOT NEEDED)'}")
-        print(f"  ⚠️  Phone number handling DISABLED in Messaging Service mode")
+    # 🔥 CRITICAL: FORCE DIRECT MODE - always use from_ parameter (ignore Messaging Service)
+    # This ensures immediate delivery without waiting for MS sender pool resolution
+    twilio_phone_number_e164 = normalize_phone(twilio_phone_number_raw) if twilio_phone_number_raw else ""
+    
+    print(f"TWILIO_PHONE_NUMBER: {'✅ SET' if twilio_phone_number_raw else '❌ NOT SET'}")
+    if twilio_phone_number_raw:
+        print(f"  Raw value: {twilio_phone_number_raw}")
+        if twilio_phone_number_raw != twilio_phone_number_e164:
+            print(f"  Normalized (E.164): {twilio_phone_number_e164}")
+        print(f"  ✅ Using DIRECT Twilio send mode (from_={twilio_phone_number_e164})")
     else:
-        # Direct mode: Normalize and validate phone
-        twilio_phone_number_e164 = normalize_phone(twilio_phone_number_raw) if twilio_phone_number_raw else ""
-        print(f"TWILIO_PHONE_NUMBER: {'✅ SET' if twilio_phone_number_raw else '❌ NOT SET'}")
-        if twilio_phone_number_raw:
-            print(f"  Raw value: {twilio_phone_number_raw}")
-            if twilio_phone_number_raw != twilio_phone_number_e164:
-                print(f"  Normalized (E.164): {twilio_phone_number_e164}")
-            print(f"  ✅ Using DIRECT Twilio send mode (from_={twilio_phone_number_e164})")
-        else:
-            print(f"  ❌ ERROR: TWILIO_PHONE_NUMBER must be set for direct mode")
-        print(f"TWILIO_MESSAGING_SERVICE_SID: ❌ NOT SET")
-        print(f"  ⚠️  No Messaging Service - using direct phone number")
+        print(f"  ❌ ERROR: TWILIO_PHONE_NUMBER must be set (REQUIRED)")
+    
+    print(f"TWILIO_MESSAGING_SERVICE_SID: {'SET (IGNORED)' if twilio_messaging_service_sid else 'NOT SET'}")
+    if twilio_messaging_service_sid:
+        print(f"  ⚠️  Messaging Service is configured but will be IGNORED (force direct mode)")
+    else:
+        print(f"  ✅ Force direct mode (no Messaging Service configured)")
     print("=" * 60)
     print("✅ LIFESPAN STARTUP COMPLETE")
     print("=" * 60)

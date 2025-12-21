@@ -61,17 +61,17 @@ TEMPLATE_PATH = BASE_DIR / "templates" / "messages.txt"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONTACTS_DIR = PROJECT_ROOT / "backend" / "contacts"
 
-# 🔥 CRITICAL: Only normalize phone if Messaging Service is NOT configured
-# If Messaging Service is set, phone number handling is completely disabled
-_MESSAGING_SERVICE_SID = os.getenv("TWILIO_MESSAGING_SERVICE_SID", "")
+# 🔥 CRITICAL: ALWAYS use direct mode (from_ parameter) - ignore Messaging Service
+# This ensures immediate delivery without waiting for MS sender pool resolution
+# Messaging Service is ignored even if configured (force direct mode)
 _RAW_TWILIO_PHONE = os.getenv("TWILIO_PHONE_NUMBER", "")
+_MESSAGING_SERVICE_SID = os.getenv("TWILIO_MESSAGING_SERVICE_SID", "")
 
 if _MESSAGING_SERVICE_SID:
-    # Messaging Service mode: Phone number normalization is NOT needed
-    TWILIO_PHONE_E164 = ""
-    print(f"[BLAST_MODULE] ✅ Messaging Service configured - phone number handling disabled", flush=True)
-elif _RAW_TWILIO_PHONE:
-    # Direct mode: Normalize phone to E.164 format
+    print(f"[BLAST_MODULE] ⚠️ TWILIO_MESSAGING_SERVICE_SID is set but will be IGNORED (using direct mode)", flush=True)
+
+if _RAW_TWILIO_PHONE:
+    # Direct mode: Normalize phone to E.164 format (ALWAYS used)
     TWILIO_PHONE_E164 = normalize_phone(_RAW_TWILIO_PHONE)
     # Validate normalized phone at module load
     if TWILIO_PHONE_E164 and not TWILIO_PHONE_E164.startswith("+"):
@@ -81,8 +81,10 @@ elif _RAW_TWILIO_PHONE:
         print(f"[BLAST_MODULE] 📞 Normalized TWILIO_PHONE_NUMBER: {_RAW_TWILIO_PHONE} → {TWILIO_PHONE_E164}", flush=True)
     else:
         print(f"[BLAST_MODULE] 📞 TWILIO_PHONE_NUMBER already in E.164: {TWILIO_PHONE_E164}", flush=True)
+    print(f"[BLAST_MODULE] ✅ FORCE DIRECT MODE: Using direct phone number (from_={TWILIO_PHONE_E164})", flush=True)
 else:
     TWILIO_PHONE_E164 = ""
+    print(f"[BLAST_MODULE] ❌ ERROR: TWILIO_PHONE_NUMBER not set (REQUIRED)", flush=True)
 
 
 def _contact_has_been_blasted(contact_name: str) -> bool:
@@ -217,11 +219,16 @@ def send_sms(to_number: str, body: str, force_direct: bool = False) -> Dict[str,
     messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
     status_callback_url = os.getenv("TWILIO_STATUS_CALLBACK_URL", "").strip()
     
-    # 🔥 CRITICAL: Determine mode FIRST - phone handling only happens in direct mode
-    use_messaging_service = bool(messaging_service_sid)
+    # 🔥 CRITICAL: FORCE DIRECT MODE - ignore Messaging Service entirely
+    # This ensures immediate delivery without waiting for MS sender pool resolution
+    # Messaging Service is ignored even if configured
+    use_messaging_service = False
     
-    # ONLY access phone if Messaging Service is NOT configured
-    phone_number_normalized = TWILIO_PHONE_E164 if not use_messaging_service else None
+    # ALWAYS use direct phone number
+    phone_number_normalized = TWILIO_PHONE_E164
+    
+    if messaging_service_sid:
+        print(f"[SEND_SMS] ⚠️ TWILIO_MESSAGING_SERVICE_SID is set but will be IGNORED (force direct mode)", flush=True)
     
     # Validate immediately - fail fast with clear errors
     if not token_to_use:
@@ -234,27 +241,22 @@ def send_sms(to_number: str, body: str, force_direct: bool = False) -> Dict[str,
         print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
         raise ValueError(error_msg)
     
-    # 🔒 ROUTING LOGIC: Use Messaging Service if available (has campaign/brand metadata)
-    # Otherwise fall back to direct phone number
-    # CRITICAL: These paths are MUTUALLY EXCLUSIVE - phone handling ONLY in direct mode
-    if use_messaging_service:
-        print(f"[SEND_SMS] ✅ Using Messaging Service (campaign metadata attached, NO from_ parameter)", flush=True)
-        print(f"[SEND_SMS] Messaging Service SID: {messaging_service_sid[:10]}...{messaging_service_sid[-4:]} (length: {len(messaging_service_sid)})", flush=True)
-        send_mode = "MESSAGING_SERVICE"
-        # CRITICAL: Do NOT validate or access phone number when using Messaging Service
-    else:
-        print(f"[SEND_SMS] ✅ Using direct phone number (no Messaging Service configured)", flush=True)
-        if not phone_number_normalized:
-            error_msg = "TWILIO_PHONE_NUMBER not set in environment variables (REQUIRED when Messaging Service not available)"
-            print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
-            raise ValueError(error_msg)
-        
-        # Validate E.164 format
-        if not phone_number_normalized.startswith("+"):
-            error_msg = f"TWILIO_PHONE_NUMBER must be in E.164 format (got: {phone_number_normalized})"
-            print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
-            raise ValueError(error_msg)
-        send_mode = "DIRECT_NUMBER"
+    # 🔒 CRITICAL: FORCE DIRECT MODE - always use from_ parameter
+    # This bypasses Messaging Service sender pool resolution and delivers immediately
+    print(f"[SEND_SMS] ✅ FORCE DIRECT MODE: Using direct phone number (from_={phone_number_normalized})", flush=True)
+    
+    if not phone_number_normalized:
+        error_msg = "TWILIO_PHONE_NUMBER not set in environment variables (REQUIRED)"
+        print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
+        raise ValueError(error_msg)
+    
+    # Validate E.164 format
+    if not phone_number_normalized.startswith("+"):
+        error_msg = f"TWILIO_PHONE_NUMBER must be in E.164 format (got: {phone_number_normalized})"
+        print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
+        raise ValueError(error_msg)
+    
+    send_mode = "DIRECT_NUMBER"
     
     # Validate Account SID format
     if not sid_to_use.startswith('AC'):
@@ -271,49 +273,28 @@ def send_sms(to_number: str, body: str, force_direct: bool = False) -> Dict[str,
     print(f"[SEND_SMS] ✅ Using system Twilio credentials from environment variables", flush=True)
     print(f"[SEND_SMS] Account SID: {sid_to_use[:10]}...{sid_to_use[-4:]} (length: {len(sid_to_use)})", flush=True)
     print(f"[SEND_SMS] Auth Token: {token_to_use[:10]}...{token_to_use[-4:]} (length: {len(token_to_use)})", flush=True)
-    print(f"[SEND_SMS] 📡 Send Mode: {send_mode}", flush=True)
-    # CRITICAL: Only log phone-related info in direct mode
-    if use_messaging_service:
-        print(f"[SEND_SMS] Messaging Service SID: {messaging_service_sid[:10]}...{messaging_service_sid[-4:]} (length: {len(messaging_service_sid)})", flush=True)
-        print(f"[SEND_SMS] ⚠️ Phone number handling DISABLED (Messaging Service mode)", flush=True)
-    else:
-        print(f"[SEND_SMS] Phone Number (E.164 normalized): {phone_number_normalized}", flush=True)
-        print(f"[SEND_SMS] ✅ Using direct phone number (from_={phone_number_normalized})", flush=True)
+    print(f"[SEND_SMS] 📡 Send Mode: {send_mode} (FORCE DIRECT)", flush=True)
+    print(f"[SEND_SMS] Phone Number (E.164 normalized): {phone_number_normalized}", flush=True)
     
     try:
         print(f"[SEND_SMS] Creating Twilio Client with Account SID: {sid_to_use[:10]}... and Token: {token_to_use[:15]}...", flush=True)
         client = Client(sid_to_use, token_to_use)
         print(f"[SEND_SMS] ✅ Twilio Client created")
         
-        # 🔒 PREPARE MESSAGE PARAMETERS: Explicit branching - no ambiguity
-        # CRITICAL: Never mix both - Twilio will reject if both are set
-        # Use Messaging Service if available (preserves campaign/brand metadata for carriers)
-        # Otherwise fall back to direct phone number
-        if use_messaging_service:
-            # Messaging Service mode: Includes campaign/brand metadata for carrier approval
-            message_params = {
-                "to": to_number,
-                "body": body,
-                "messaging_service_sid": messaging_service_sid
-            }
-            # Add status callback if configured (for delivery status tracking)
-            if status_callback_url:
-                message_params["status_callback"] = status_callback_url
-            # CRITICAL: Do NOT set from_ when using Messaging Service
-            assert "from_" not in message_params, "Cannot use from_ with Messaging Service"
-        else:
-            # Direct mode: Use from_ phone number (fallback when Messaging Service not configured)
-            # 🔥 CRITICAL: Use normalized E.164 format (Twilio requires + prefix)
-            message_params = {
-                "to": to_number,
-                "body": body,
-                "from_": phone_number_normalized
-            }
-            # Add status callback if configured (for delivery status tracking)
-            if status_callback_url:
-                message_params["status_callback"] = status_callback_url
-            # CRITICAL: Do NOT set messaging_service_sid when using direct phone
-            assert "messaging_service_sid" not in message_params, "Cannot use messaging_service_sid with direct phone"
+        # 🔒 CRITICAL: FORCE DIRECT MODE - always use from_ parameter
+        # This ensures immediate delivery without waiting for Messaging Service sender pool
+        message_params = {
+            "to": to_number,
+            "body": body,
+            "from_": phone_number_normalized
+        }
+        
+        # Add status callback if configured (for delivery status tracking)
+        if status_callback_url:
+            message_params["status_callback"] = status_callback_url
+        
+        # CRITICAL: Do NOT set messaging_service_sid (force direct mode)
+        assert "messaging_service_sid" not in message_params, "Cannot use messaging_service_sid with direct phone (force direct mode)"
         
         # ENHANCED LOGGING: Log all parameters being sent to Twilio
         print("=" * 80, flush=True)
@@ -324,12 +305,8 @@ def send_sms(to_number: str, body: str, force_direct: bool = False) -> Dict[str,
         print(f"[SEND_SMS] Send Mode: {send_mode}", flush=True)
         print("=" * 80, flush=True)
         print(f"[SEND_SMS] 📋 EXACT PARAMETERS BEING SENT TO TWILIO:", flush=True)
-        if use_messaging_service:
-            print(f"[SEND_SMS]   messaging_service_sid: {messaging_service_sid[:10]}...{messaging_service_sid[-4:]}", flush=True)
-            print(f"[SEND_SMS]   from_: NOT SET (using Messaging Service)", flush=True)
-        else:
-            print(f"[SEND_SMS]   from_: {phone_number_normalized} (E.164 normalized)", flush=True)
-            print(f"[SEND_SMS]   messaging_service_sid: NOT SET (using direct phone number)", flush=True)
+        print(f"[SEND_SMS]   from_: {phone_number_normalized} (E.164 normalized, FORCE DIRECT)", flush=True)
+        print(f"[SEND_SMS]   messaging_service_sid: NOT SET (force direct mode - ignoring MS)", flush=True)
         print(f"[SEND_SMS]   to: {message_params.get('to')}", flush=True)
         print(f"[SEND_SMS]   body: {message_params.get('body', '')[:100]}{'...' if len(message_params.get('body', '')) > 100 else ''}", flush=True)
         print(f"[SEND_SMS]   body length: {len(message_params.get('body', ''))} chars", flush=True)
