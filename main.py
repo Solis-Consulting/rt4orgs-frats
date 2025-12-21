@@ -4543,8 +4543,12 @@ async def rep_blast(
     _logger = logging.getLogger(__name__)
     
     # 1️⃣ At the very top of /rep/blast
-    _logger.error("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast")
-    print("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast", flush=True)
+    try:
+        _logger.error("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast")
+        print("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast", flush=True)
+    except Exception as log_err:
+        # If logging fails, at least print
+        print(f"🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast (logger error: {log_err})", flush=True)
     print(f"[REP_BLAST] Request method: {request.method}", flush=True)
     print(f"[REP_BLAST] Request path: {request.url.path}", flush=True)
     print(f"[REP_BLAST] Request headers: {dict(request.headers)}", flush=True)
@@ -4556,11 +4560,11 @@ async def rep_blast(
         print(f"[REP_BLAST] ✅ Authentication successful: {user.get('id')} (role: {user.get('role')})", flush=True)
     except HTTPException as auth_exc:
         print(f"[REP_BLAST] ❌ Auth HTTPException: {auth_exc.status_code} - {auth_exc.detail}", flush=True)
-        logger.error(f"[REP_BLAST] Auth HTTPException: {auth_exc.status_code} - {auth_exc.detail}")
+        _logger.error(f"[REP_BLAST] Auth HTTPException: {auth_exc.status_code} - {auth_exc.detail}")
         raise
     except Exception as e:
         print(f"[REP_BLAST] ❌ Auth error: {type(e).__name__}: {str(e)}", flush=True)
-        logger.error(f"[REP_BLAST] Auth error: {e}")
+        _logger.error(f"[REP_BLAST] Auth error: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -4572,10 +4576,10 @@ async def rep_blast(
         card_ids = payload.get("card_ids", [])
         _logger.error(f"[BLAST_ENDPOINT] Payload card_ids = {card_ids}")
         print(f"[BLAST_ENDPOINT] Payload card_ids = {card_ids}", flush=True)
-        logger.error(f"🔥 BLAST PAYLOAD: {payload}")
+        _logger.error(f"🔥 BLAST PAYLOAD: {payload}")
         print(f"🔥 BLAST PAYLOAD: {payload}", flush=True)
     except Exception as json_err:
-        logger.error(f"🔥 BLAST PAYLOAD PARSE ERROR: {json_err}")
+        _logger.error(f"🔥 BLAST PAYLOAD PARSE ERROR: {json_err}")
         print(f"🔥 BLAST PAYLOAD PARSE ERROR: {json_err}", flush=True)
         import traceback
         traceback.print_exc()
@@ -4959,8 +4963,8 @@ async def rep_blast(
             print("=" * 80, flush=True)
             
             # This should never be reached because we catch exceptions above
-            logger.error(f"[BLAST] ❌ EXCEPTION in rep_blast: {e}")
-            logger.error(f"[BLAST] Traceback:\n{error_trace}")
+            _logger.error(f"[BLAST] ❌ EXCEPTION in rep_blast: {e}")
+            _logger.error(f"[BLAST] Traceback:\n{error_trace}")
             raise HTTPException(status_code=500, detail=f"Blast failed: {str(e)}")
     except Exception as e:
         # Outer try block exception handler
