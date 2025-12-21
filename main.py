@@ -1814,10 +1814,11 @@ async def twilio_inbound(request: Request):
             # Add safety guard for outbound-only states
             OUTBOUND_ONLY_STATES = {"initial_outreach"}
             if reply_state in OUTBOUND_ONLY_STATES:
-                # This should rarely happen since inbound shouldn't be in initial_outreach
-                # But if it does, we'll still try to use it (may be empty, which is fine)
-                logger.warning(f"[MARKOV] reply_state is outbound-only: {reply_state} (may not have inbound response)")
-                print(f"[TWILIO_INBOUND] ⚠️ reply_state is outbound-only: {reply_state}", flush=True)
+                # If previous_state is outbound-only, we can't use it for inbound reply lookup
+                # Use next_state instead (the state we're transitioning TO)
+                logger.info(f"[MARKOV] reply_state is outbound-only: {reply_state}, using next_state for reply: {next_state}")
+                print(f"[TWILIO_INBOUND] ⚠️ reply_state is outbound-only: {reply_state}, using next_state for reply: {next_state}", flush=True)
+                reply_state = next_state  # Use next_state since previous_state is outbound-only
             
             # Log the distinction between reply state and tracking state
             logger.info(f"[MARKOV_REPLY_SELECTION] reply_state={reply_state} tracking_state={next_state}")
