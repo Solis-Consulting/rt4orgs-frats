@@ -1690,6 +1690,9 @@ async def twilio_inbound(request: Request):
         # 🔧 FIX: Check for duplicate outbound suppression (environment-scoped)
         # Only suppress if same environment_id and same state, and not a test number
         # CRITICAL: Only check messages with message_sid (actually sent, not just generated)
+        # ⚠️ IMPORTANT: We do NOT suppress based on state equality (previous_state == next_state)
+        # Sales conversations often stay in the same state for multiple turns (e.g., interest → interest)
+        # We only suppress if we've ALREADY SENT a message in this state recently (duplicate prevention)
         should_suppress = False
         suppression_reason = None
         
@@ -1698,6 +1701,8 @@ async def twilio_inbound(request: Request):
                 try:
                     # Check message_events for recent outbound in same environment and state
                     # CRITICAL: Only messages with message_sid count as "sent"
+                    # Check for true duplicates: same state AND same message text within recent time window
+                    # Do NOT suppress just because state is the same - allow multiple replies in same state
                     check_cur.execute("""
                         SELECT COUNT(*) FROM message_events
                         WHERE phone_number = %s
@@ -1705,14 +1710,19 @@ async def twilio_inbound(request: Request):
                           AND direction = 'outbound'
                           AND message_sid IS NOT NULL
                           AND state = %s
-                    """, (normalized_phone, environment_id, next_state))
+                          AND message_text = %s
+                          AND sent_at > NOW() - INTERVAL '5 minutes'
+                    """, (normalized_phone, environment_id, next_state, reply_text))
                     duplicate_count = check_cur.fetchone()[0]
                     if duplicate_count > 0:
                         should_suppress = True
-                        suppression_reason = f"Duplicate outbound detected: environment_id={environment_id}, state={next_state}"
+                        suppression_reason = f"Duplicate outbound detected: same state and same text within 5 minutes"
                         print(f"[TWILIO_INBOUND] ⚠️ BLAST GUARD: {suppression_reason}", flush=True)
-                        print(f"[TWILIO_INBOUND]   Found {duplicate_count} prior outbound(s) in same environment/state", flush=True)
+                        print(f"[TWILIO_INBOUND]   Found {duplicate_count} prior outbound(s) with same state and text", flush=True)
                         print(f"[TWILIO_INBOUND]   Suppressing to prevent duplicate send", flush=True)
+                    else:
+                        # Same state but different text or older than 5 minutes - allow it
+                        print(f"[TWILIO_INBOUND] ✅ Same state but different text or old - allowing send", flush=True)
                 except psycopg2.ProgrammingError as e:
                     # message_events table doesn't exist - fallback to history check
                     if 'message_events' in str(e):
@@ -1740,12 +1750,19 @@ async def twilio_inbound(request: Request):
                                     for msg in reversed(history):
                                         if isinstance(msg, dict) and msg.get("direction") == "outbound":
                                             last_state = msg.get("state")
+                                            last_text = msg.get("text", "")
                                             
-                                            # Suppress if same state (prevent duplicate sends)
-                                            if last_state == next_state:
+                                            # Only suppress if same state AND same message text (true duplicate)
+                                            # Do NOT suppress just because state is the same - sales conversations
+                                            # often stay in same state for multiple turns (interest → interest)
+                                            if last_state == next_state and last_text == reply_text:
                                                 should_suppress = True
-                                                suppression_reason = f"Duplicate outbound detected: state={next_state}"
+                                                suppression_reason = f"Duplicate outbound detected: same state and same text"
                                                 print(f"[TWILIO_INBOUND] ⚠️ BLAST GUARD (fallback): {suppression_reason}", flush=True)
+                                                break
+                                            # If state is same but text is different, allow it (different response for same state)
+                                            elif last_state == next_state:
+                                                print(f"[TWILIO_INBOUND] ✅ Same state but different text - allowing send", flush=True)
                                                 break
                             except Exception as e:
                                 print(f"[TWILIO_INBOUND] ⚠️ Error checking history for suppression: {e}", flush=True)
