@@ -4899,6 +4899,11 @@ async def rep_blast(
     
     # Try both snake_case and camelCase for compatibility
     card_ids = payload.get("card_ids") or payload.get("cardIds")
+    
+    # 🔥 CRITICAL DIAGNOSTIC: Log input card_ids immediately after parsing
+    logger.error(f"[BLAST_INPUT] selected_card_ids={card_ids} count={len(card_ids) if isinstance(card_ids, list) else 0}")
+    print(f"[BLAST_INPUT] selected_card_ids={card_ids} count={len(card_ids) if isinstance(card_ids, list) else 0}", flush=True)
+    
     logger.error(f"[BLAST] Cards resolved: {len(card_ids) if isinstance(card_ids, list) else 0}")
     print("🚀🚀🚀 CARD IDS RECEIVED:", card_ids, flush=True)
     print("🚀🚀🚀 CARD IDS TYPE:", type(card_ids), flush=True)

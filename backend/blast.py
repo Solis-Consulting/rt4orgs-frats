@@ -371,6 +371,12 @@ def run_blast_for_cards(
     # Fetch cards from DB
     print(f"[BLAST_RUN] Fetching {len(card_ids)} cards from database...", flush=True)
     cards = _fetch_cards_by_ids(conn, card_ids)
+    
+    # 🔥 CRITICAL DIAGNOSTIC: Log resolved cards right before loop
+    resolved_ids = [c["id"] for c in cards] if cards else []
+    logger.error(f"[BLAST_RESOLVED_CARDS] resolved_count={len(cards)} resolved_ids={resolved_ids}")
+    print(f"[BLAST_RESOLVED_CARDS] resolved_count={len(cards)} resolved_ids={resolved_ids}", flush=True)
+    
     print(f"[BLAST_RUN] Found {len(cards)} person cards with phone numbers", flush=True)
     if not cards:
         print(f"[BLAST_RUN] ❌ No matching person cards with phone numbers found", flush=True)
