@@ -1308,8 +1308,8 @@ async def twilio_inbound(request: Request):
                 else:
                     logger.error(f"[INVARIANT] [CONVERSATION_LOOKUP] ❌ NOT FOUND: No conversation exists for phone={normalized_phone}")
                     print(f"[INVARIANT] [CONVERSATION_LOOKUP] ❌ NOT FOUND - checking all conversations...", flush=True)
-                    # Debug: Show all conversations with similar phone numbers
-                    cur.execute("SELECT phone, card_id, state, environment_id FROM conversations ORDER BY updated_at DESC LIMIT 10")
+                    # Debug: Show all conversations with similar phone numbers (ordered by last_outbound_at for consistency)
+                    cur.execute("SELECT phone, card_id, state, environment_id FROM conversations ORDER BY last_outbound_at DESC NULLS LAST, updated_at DESC LIMIT 10")
                     all_convs = cur.fetchall()
                     logger.error(f"[INVARIANT] [CONVERSATION_LOOKUP] Recent conversations: {all_convs}")
                     print(f"[INVARIANT] [CONVERSATION_LOOKUP] Recent conversations in DB:", flush=True)
@@ -1364,12 +1364,27 @@ async def twilio_inbound(request: Request):
             else:
                 # Conversation exists but env is NULL - create new environment (don't route to old one)
                 print(f"[TWILIO_INBOUND] ⚠️ Conversation exists but environment_id is NULL - creating new environment", flush=True)
+                
+                # Note: We'll set card_id from conversation at the end (line ~1407) for consistency
+                # But we need it early here for environment creation, so set it now
+                # 🔥 CRITICAL: Use conversation's card_id as authoritative (it's the card that received the outbound)
+                # Step 1 lookup may find a different card if multiple cards share the same phone
+                if card_id_from_convo:
+                    card_id = card_id_from_convo
+                    print(f"[TWILIO_INBOUND] ✅ Using conversation's card_id (authoritative, early for env creation): {card_id}", flush=True)
+                    # Reload card using conversation's card_id (it may differ from Step 1 lookup)
+                    card = None  # Force reload below
+                
                 resolved_rep_user_id = rep_from_convo
                 if card_id:
                     from backend.handoffs import resolve_current_rep
                     resolved_rep_user_id = resolve_current_rep(conn, card_id) or rep_from_convo
                 
-                # Infer campaign_id from card if available
+                # Infer campaign_id from card if available (need to reload card first)
+                if not card and card_id:
+                    from backend.cards import get_card
+                    card = get_card(conn, card_id)
+                
                 campaign_id = None
                 if card and card.get("card_data"):
                     card_data = card["card_data"]
@@ -1388,10 +1403,14 @@ async def twilio_inbound(request: Request):
                 env_source = "conversation_repair"
                 print(f"[TWILIO_INBOUND] ✅ Created new environment for existing conversation: {environment_id}", flush=True)
             
-            # Use conversation's card_id if we don't have one
-            if card_id_from_convo and not card_id:
+            # 🔥 CRITICAL FIX: Always use conversation's card_id if it exists (authoritative)
+            # The conversation's card_id is the card that received the outbound message
+            # Step 1 phone lookup may find a different card if multiple cards share the same phone
+            if card_id_from_convo:
                 card_id = card_id_from_convo
-                print(f"[TWILIO_INBOUND] ✅ Using card_id from conversation: {card_id}", flush=True)
+                print(f"[TWILIO_INBOUND] ✅ Using conversation's card_id (authoritative from outbound): {card_id}", flush=True)
+                # Reload card using conversation's card_id (it may differ from Step 1 lookup)
+                card = None  # Force reload below
         else:
             # Step 2: No conversation exists - this is a HARD FAILURE
             # 🔥 STEP 3 (continued): Conversation NOT found - explicit drop log
