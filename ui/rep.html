@@ -96,7 +96,7 @@
             <option value="closed">Closed</option>
             <option value="lost">Lost</option>
           </select>
-          <button type="button" id="blastBtn" disabled>Blast Selected Assigned Leads</button>
+          <button type="button" id="blastBtn" class="blast-btn" disabled>Blast Selected Assigned Leads</button>
           <button id="checkAllAssignBtn">Check All & Assign</button>
         </div>
         <div id="cardsTableWrap"></div>
@@ -818,8 +818,16 @@
       const btn = e.target.closest("#blastBtn");
       if (!btn) return;
 
+      // 🔥 CRITICAL: Prevent form submission - JS OWNS THIS EVENT
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+
       console.log("🚨🚨🚨 BLAST CLICK DETECTED");
+      console.log("🚨 BLAST CLICK — JS OWNS THIS EVENT");
       console.log("BTN.disabled =", btn.disabled);
+      console.log("BTN.type =", btn.type);
+      console.log("BTN.closest('form') =", btn.closest('form'));
       console.log("STORE =", window.__SELECTED_CARD_IDS__);
       console.log("STORE size =", window.__SELECTED_CARD_IDS__?.size);
 
