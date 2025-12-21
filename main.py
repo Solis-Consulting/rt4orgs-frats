@@ -5217,10 +5217,25 @@ async def rep_blast(
             print("=" * 80, flush=True)
             
             # This should never be reached because we catch exceptions above
-            _logger.error(f"[BLAST] ❌ EXCEPTION in rep_blast: {e}")
-            _logger.error(f"[BLAST] Traceback:\n{error_trace}")
+            logger.error(f"[BLAST] ❌ EXCEPTION in rep_blast: {e}")
+            logger.error(f"[BLAST] Traceback:\n{error_trace}")
             raise HTTPException(status_code=500, detail=f"Blast failed: {str(e)}")
-    except Exception as e:
+        except Exception as outer_e:
+            # Top-level exception handler
+            print("=" * 80, flush=True)
+            print(f"❌ [BLAST] TOP-LEVEL EXCEPTION", flush=True)
+            print("=" * 80, flush=True)
+            print(f"❌ [BLAST] Error type: {type(outer_e).__name__}", flush=True)
+            print(f"❌ [BLAST] Error message: {str(outer_e)}", flush=True)
+            import traceback
+            print(f"❌ [BLAST] Full traceback:", flush=True)
+            traceback.print_exc()
+            print("=" * 80, flush=True)
+            logger.error(f"[BLAST] Top-level exception: {outer_e}")
+            return JSONResponse(
+                status_code=500,
+                content={"ok": False, "error": f"Blast failed: {str(outer_e)}", "sent": 0, "skipped": 0}
+            )
         # Outer try block exception handler
         print("=" * 80, flush=True)
         print(f"[BLAST_ENDPOINT] ❌ OUTER EXCEPTION CAUGHT", flush=True)
