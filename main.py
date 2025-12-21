@@ -4532,6 +4532,9 @@ async def test_blast_ping(request: Request):
     return {"ok": True, "message": "Test endpoint reached successfully", "timestamp": datetime.utcnow().isoformat()}
 
 
+# 🔥 MODULE LOAD CONFIRMATION: This proves the route is registered
+print("🔥🔥🔥 [MODULE_LOAD] /rep/blast route definition loaded in main.py", flush=True)
+
 @app.post("/rep/blast")
 async def rep_blast(
     request: Request
@@ -4543,12 +4546,12 @@ async def rep_blast(
     _logger = logging.getLogger(__name__)
     
     # 1️⃣ At the very top of /rep/blast
+    print("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast", flush=True)
     try:
         _logger.error("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast")
-        print("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast", flush=True)
     except Exception as log_err:
         # If logging fails, at least print
-        print(f"🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast (logger error: {log_err})", flush=True)
+        print(f"[BLAST_ENDPOINT] Logger error (non-fatal): {log_err}", flush=True)
     print(f"[REP_BLAST] Request method: {request.method}", flush=True)
     print(f"[REP_BLAST] Request path: {request.url.path}", flush=True)
     print(f"[REP_BLAST] Request headers: {dict(request.headers)}", flush=True)
