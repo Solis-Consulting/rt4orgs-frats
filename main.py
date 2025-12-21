@@ -4777,53 +4777,52 @@ async def rep_blast(
     request: Request
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
+    print("🚨🚨🚨 [BLAST] ROUTE ENTERED", flush=True)
+    
+    # Authenticate user
     try:
-        print("🚨🚨🚨 [BLAST] ROUTE ENTERED", flush=True)
-        
-        # Authenticate user
-        try:
-            user = await get_current_owner_or_rep(request)
-            print("👤 [BLAST] user:", {
-                "id": user.get("id"),
-                "username": user.get("username"),
-                "role": user.get("role"),
-            }, flush=True)
-        except HTTPException as auth_exc:
-            print(f"❌ [BLAST] Auth HTTPException: {auth_exc.status_code} - {auth_exc.detail}", flush=True)
-            raise
-        except Exception as e:
-            print(f"❌ [BLAST] Auth error: {type(e).__name__}: {str(e)}", flush=True)
-            import traceback
-            traceback.print_exc()
-            raise HTTPException(status_code=401, detail="Authentication required")
-        
-        # Get raw body
-        raw = await request.body()
-        print("📦 [BLAST] raw body:", raw, flush=True)
-        
-        # Parse JSON
-        try:
-            import json
-            payload = json.loads(raw.decode('utf-8'))
-        except Exception as e:
-            print("❌ [BLAST] JSON parse failed:", e, flush=True)
-            raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
-        
-        print("🧠 [BLAST] parsed payload:", payload, flush=True)
-        
-        card_ids = payload.get("card_ids")
-        print("🧠 [BLAST] card_ids:", card_ids, flush=True)
-        
-        if not card_ids:
-            print("❌ [BLAST] NO CARD IDS — ABORTING", flush=True)
-            return {"ok": False, "error": "no card_ids"}
-        
-        print("🚀 [BLAST] BEGIN LOOP", flush=True)
-        
-        current_user = user
-        
-        # Wrap rest of handler in try-except to catch any errors
-        try:
+        user = await get_current_owner_or_rep(request)
+        print("👤 [BLAST] user:", {
+            "id": user.get("id"),
+            "username": user.get("username"),
+            "role": user.get("role"),
+        }, flush=True)
+    except HTTPException as auth_exc:
+        print(f"❌ [BLAST] Auth HTTPException: {auth_exc.status_code} - {auth_exc.detail}", flush=True)
+        raise
+    except Exception as e:
+        print(f"❌ [BLAST] Auth error: {type(e).__name__}: {str(e)}", flush=True)
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Get raw body
+    raw = await request.body()
+    print("📦 [BLAST] raw body:", raw, flush=True)
+    
+    # Parse JSON
+    try:
+        import json
+        payload = json.loads(raw.decode('utf-8'))
+    except Exception as e:
+        print("❌ [BLAST] JSON parse failed:", e, flush=True)
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
+    
+    print("🧠 [BLAST] parsed payload:", payload, flush=True)
+    
+    card_ids = payload.get("card_ids")
+    print("🧠 [BLAST] card_ids:", card_ids, flush=True)
+    
+    if not card_ids:
+        print("❌ [BLAST] NO CARD IDS — ABORTING", flush=True)
+        return {"ok": False, "error": "no card_ids"}
+    
+    print("🚀 [BLAST] BEGIN LOOP", flush=True)
+    
+    current_user = user
+    
+    # Wrap rest of handler in try-except to catch any errors
+    try:
     
     # Now continue with the rest of the handler logic
     try:
