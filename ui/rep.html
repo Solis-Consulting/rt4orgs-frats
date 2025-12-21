@@ -145,8 +145,21 @@
   </div>
 
   <script type="module">
-    import { BACKEND_URL } from '/config.js';
-    const BACKEND = BACKEND_URL;
+    // 🔥 HARDCODED BACKEND URL (config.js import may fail in Vercel)
+    const BACKEND = "https://rt4orgs-frats-production.up.railway.app";
+    
+    // Fallback: try to load from config.js if it exists, but don't fail if it doesn't
+    try {
+      const { BACKEND_URL } = await import('/config.js');
+      if (BACKEND_URL) {
+        const BACKEND_FROM_CONFIG = BACKEND_URL;
+        console.log("🌐 [CONFIG] Loaded BACKEND_URL from config.js:", BACKEND_FROM_CONFIG);
+      }
+    } catch (e) {
+      console.warn("⚠️ [CONFIG] Could not load config.js, using hardcoded BACKEND:", BACKEND);
+    }
+    
+    console.log("🌐 [CONFIG] Using BACKEND:", BACKEND);
 
     // ✅ JS PARSED SUCCESSFULLY - if you see this, syntax is valid
     console.log("✅ JS PARSED SUCCESSFULLY");
