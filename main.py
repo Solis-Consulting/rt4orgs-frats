@@ -658,11 +658,12 @@ async def inbound_intelligent(event: dict):
                 else:
                     print(f"[INBOUND_INTELLIGENT] ⚠️ No conversation found for environment {environment_id}, trying phone-only lookup", flush=True)
                     # Fallback to phone-only if environment-scoped lookup fails
+                    # Order by last_outbound_at to select conversation with most recent outbound (same fix as main inbound handler)
                     cur.execute("""
                         SELECT phone, state, COALESCE(history::text, '[]') as history
                         FROM conversations
                         WHERE phone = %s
-                        ORDER BY updated_at DESC
+                        ORDER BY last_outbound_at DESC NULLS LAST, updated_at DESC
                         LIMIT 1;
                     """, (phone,))
                     row = cur.fetchone()
@@ -1289,11 +1290,14 @@ async def twilio_inbound(request: Request):
         
         with conn.cursor() as cur:
             try:
+                # 🔥 CRITICAL FIX: Order by last_outbound_at DESC to find conversation with most recent outbound
+                # This ensures inbound replies attach to the conversation that sent the most recent outbound message
+                # Priority: 1) Most recent outbound, 2) Then by updated_at for conversations without outbound timestamps
                 cur.execute("""
                     SELECT environment_id, rep_user_id, card_id, state, last_outbound_source, last_outbound_at, updated_at
                     FROM conversations
                     WHERE phone = %s
-                    ORDER BY updated_at DESC
+                    ORDER BY last_outbound_at DESC NULLS LAST, updated_at DESC
                     LIMIT 1
                 """, (normalized_phone,))
                 conversation_by_phone = cur.fetchone()
@@ -1313,11 +1317,12 @@ async def twilio_inbound(request: Request):
                         print(f"  phone={conv[0]} card_id={conv[1]} state={conv[2]} env={conv[3]}", flush=True)
             except psycopg2.ProgrammingError:
                 # Fallback if environment_id column doesn't exist
+                # Still use last_outbound_at for proper conversation resolution
                 cur.execute("""
                     SELECT NULL as environment_id, rep_user_id, card_id, state, NULL as last_outbound_source, last_outbound_at, updated_at
                     FROM conversations
                     WHERE phone = %s
-                    ORDER BY updated_at DESC
+                    ORDER BY last_outbound_at DESC NULLS LAST, updated_at DESC
                     LIMIT 1
                 """, (normalized_phone,))
                 conversation_by_phone = cur.fetchone()
@@ -1329,11 +1334,12 @@ async def twilio_inbound(request: Request):
         if conversation_by_phone:
             env_id_from_convo, rep_from_convo, card_id_from_convo, state_from_convo, last_source, last_outbound_at, updated_at = conversation_by_phone
             # 🔥 STEP 3 (continued): Conversation found confirmation
-            logger.error(f"✅ CONVERSATION FOUND env={env_id_from_convo} rep={rep_from_convo} card_id={card_id_from_convo} state={state_from_convo}")
-            print(f"✅ CONVERSATION FOUND env={env_id_from_convo} rep={rep_from_convo} card_id={card_id_from_convo} state={state_from_convo}", flush=True)
-            print(f"[TWILIO_INBOUND] ✅ Found conversation by phone: env={env_id_from_convo}, rep={rep_from_convo}, state={state_from_convo}, last_source={last_source}", flush=True)
-            # 🔥 INVARIANT VERIFICATION: Conversation match confirmed
-            logger.error(f"[INVARIANT] ✅ Conversation match: phone={normalized_phone} env={env_id_from_convo} card_id={card_id_from_convo} state={state_from_convo}")
+            # Log last_outbound_at to show why this conversation was selected (most recent outbound)
+            logger.error(f"✅ CONVERSATION FOUND env={env_id_from_convo} rep={rep_from_convo} card_id={card_id_from_convo} state={state_from_convo} last_outbound_at={last_outbound_at}")
+            print(f"✅ CONVERSATION FOUND env={env_id_from_convo} rep={rep_from_convo} card_id={card_id_from_convo} state={state_from_convo} last_outbound_at={last_outbound_at}", flush=True)
+            print(f"[TWILIO_INBOUND] ✅ Found conversation by phone (selected by most recent outbound): env={env_id_from_convo}, rep={rep_from_convo}, state={state_from_convo}, last_source={last_source}, last_outbound_at={last_outbound_at}", flush=True)
+            # 🔥 INVARIANT VERIFICATION: Conversation match confirmed - selected by last_outbound_at DESC
+            logger.error(f"[INVARIANT] ✅ Conversation match: phone={normalized_phone} env={env_id_from_convo} card_id={card_id_from_convo} state={state_from_convo} last_outbound_at={last_outbound_at} (selected by most recent outbound)")
             
             # Step 1: conversation-by-phone (highest priority - NEVER override with routing)
             if env_id_from_convo:
@@ -1795,7 +1801,7 @@ async def twilio_inbound(request: Request):
                 print(f"[TWILIO_INBOUND] ⚠️ reply_state is outbound-only: {reply_state}", flush=True)
             
             # Log the distinction between reply state and tracking state
-            logger.error(f"[MARKOV_REPLY_SELECTION] reply_state={reply_state} tracking_state={next_state}")
+            logger.info(f"[MARKOV_REPLY_SELECTION] reply_state={reply_state} tracking_state={next_state}")
             print(f"[MARKOV_REPLY_SELECTION] reply_state={reply_state} tracking_state={next_state}", flush=True)
             print(f"[TWILIO_INBOUND]   reply_state (for lookup): '{reply_state}'", flush=True)
             print(f"[TWILIO_INBOUND]   tracking_state (for DB): '{next_state}'", flush=True)
@@ -1969,7 +1975,9 @@ async def twilio_inbound(request: Request):
             elif not result.get("next_state"):
                 print(f"[TWILIO_INBOUND]     Reason: No state transition from Markov engine", flush=True)
             else:
-                print(f"[TWILIO_INBOUND]     Reason: No configured response for state '{next_state}'", flush=True)
+                # Note: Actual lookup used previous_state (reply_state), but next_state is used for DB tracking
+                previous_state_for_msg = result.get("previous_state", "unknown")
+                print(f"[TWILIO_INBOUND]     Reason: No configured response for reply_state '{previous_state_for_msg}' (tracking_state={next_state})", flush=True)
         print("=" * 80, flush=True)
         
         # Filter out "OK" messages - don't send standalone "OK" responses
