@@ -1162,11 +1162,20 @@ async def twilio_inbound(request: Request):
         
         # Continue with AI processing for 'ai' mode
         # Classify intent from message text (simple keyword-based for now)
-        print(f"[TWILIO_INBOUND] 🔍 Classifying intent from message: '{Body}'", flush=True)
+        print("=" * 80, flush=True)
+        print(f"[TWILIO_INBOUND] 🔍 MARKOV INTENT CLASSIFICATION", flush=True)
+        print("=" * 80, flush=True)
+        print(f"[TWILIO_INBOUND]   Message text: '{Body}'", flush=True)
+        print(f"[TWILIO_INBOUND]   Current conversation state: {conversation_state}", flush=True)
+        print(f"[TWILIO_INBOUND]   Card ID: {card_id}", flush=True)
+        print(f"[TWILIO_INBOUND]   Rep user ID: {rep_user_id}", flush=True)
         intent = classify_intent_simple(Body)
-        print(f"[TWILIO_INBOUND] ✅ Classified intent: {intent}", flush=True)
-        print(f"[TWILIO_INBOUND]   category: {intent.get('category')}", flush=True)
-        print(f"[TWILIO_INBOUND]   subcategory: {intent.get('subcategory')}", flush=True)
+        print(f"[TWILIO_INBOUND] ✅ Classified intent: {json.dumps(intent, indent=2)}", flush=True)
+        print(f"[TWILIO_INBOUND]   category: {intent.get('category', 'NONE')}", flush=True)
+        print(f"[TWILIO_INBOUND]   subcategory: {intent.get('subcategory', 'NONE')}", flush=True)
+        if not intent:
+            print(f"[TWILIO_INBOUND] ⚠️ WARNING: Intent classifier returned empty dict - no category detected", flush=True)
+        print("=" * 80, flush=True)
         
         # Prepare event payload for inbound_intelligent
         event = {
@@ -1178,12 +1187,21 @@ async def twilio_inbound(request: Request):
         
         print(f"[TWILIO_INBOUND] 📞 Calling inbound_intelligent for {normalized_phone}", flush=True)
         print(f"[TWILIO_INBOUND]   Event payload: {json.dumps(event, indent=2)}", flush=True)
+        print(f"[TWILIO_INBOUND]   Current conversation state: {conversation_state}", flush=True)
+        print(f"[TWILIO_INBOUND]   Rep user ID: {rep_user_id}", flush=True)
+        print(f"[TWILIO_INBOUND]   Card ID: {card_id}", flush=True)
         
         # Call the intelligence handler directly (no HTTP overhead)
         result = await inbound_intelligent(event)
         
-        print(f"[TWILIO_INBOUND] ✅ Intelligence result received:", flush=True)
-        print(f"[TWILIO_INBOUND]   {json.dumps(result, indent=2, default=str)}", flush=True)
+        print("=" * 80, flush=True)
+        print(f"[TWILIO_INBOUND] ✅ MARKOV INTELLIGENCE RESULT", flush=True)
+        print("=" * 80, flush=True)
+        print(f"[TWILIO_INBOUND]   Full result: {json.dumps(result, indent=2, default=str)}", flush=True)
+        print(f"[TWILIO_INBOUND]   next_state: {result.get('next_state')}", flush=True)
+        print(f"[TWILIO_INBOUND]   previous_state: {result.get('previous_state')}", flush=True)
+        print(f"[TWILIO_INBOUND]   intent: {result.get('intent')}", flush=True)
+        print("=" * 80, flush=True)
         
         # 🔧 CRITICAL: Update last_inbound_at and card_id on the conversation scoped to environment_id
         # The inbound_intelligent function updates by phone only, but we need to update
@@ -1274,6 +1292,14 @@ async def twilio_inbound(request: Request):
             print(f"[TWILIO_INBOUND] 🛑 Skipping reply generation - card is unassigned (inbound will still be stored)", flush=True)
             reply_text = None
         elif result.get("next_state"):
+            print("=" * 80, flush=True)
+            print(f"[TWILIO_INBOUND] 🔄 MARKOV STATE TRANSITION DETECTED", flush=True)
+            print("=" * 80, flush=True)
+            print(f"[TWILIO_INBOUND]   Previous state: {result.get('previous_state', 'unknown')}", flush=True)
+            print(f"[TWILIO_INBOUND]   Next state: {result.get('next_state')}", flush=True)
+            print(f"[TWILIO_INBOUND]   Intent category: {result.get('intent', {}).get('category', 'unknown')}", flush=True)
+            print(f"[TWILIO_INBOUND]   Intent subcategory: {result.get('intent', {}).get('subcategory', 'unknown')}", flush=True)
+            print("=" * 80, flush=True)
             next_state = result["next_state"]
             previous_state = result.get("previous_state", "initial_outreach")
             
@@ -1370,20 +1396,58 @@ async def twilio_inbound(request: Request):
                     print(f"[TWILIO_INBOUND]   Final reply_text: {reply_text}", flush=True)
             else:
                 # No configured response found (neither rep-specific nor global)
-                print(f"[TWILIO_INBOUND] ⚠️ No configured response found for state='{next_state}', rep_user_id={rep_user_id}")
-                print(f"[TWILIO_INBOUND] This means neither the rep nor the owner has configured a response for this state")
-                # Don't send a reply if not configured - prevents unwanted messages
-                reply_text = None
+                print("=" * 80, flush=True)
+                print(f"[TWILIO_INBOUND] ⚠️ NO MARKOV RESPONSE CONFIGURED", flush=True)
+                print("=" * 80, flush=True)
+                print(f"[TWILIO_INBOUND]   State: '{next_state}'", flush=True)
+                print(f"[TWILIO_INBOUND]   Rep user ID: {rep_user_id}", flush=True)
+                print(f"[TWILIO_INBOUND]   This means neither the rep nor the owner has configured a response for this state", flush=True)
+                print(f"[TWILIO_INBOUND]   💡 Action: Configure a response in Markov Editor for state '{next_state}'", flush=True)
+                print("=" * 80, flush=True)
+                
+                # FALLBACK: Send a generic acknowledgment if no response configured
+                # This prevents dead air and confirms the system is working
+                if card_assigned:
+                    print(f"[TWILIO_INBOUND] 🔄 Using fallback response (no configured response for state '{next_state}')", flush=True)
+                    name = (card.get("card_data", {}) or {}).get("name", "there")
+                    reply_text = f"Thanks for your message, {name}! We'll get back to you soon."
+                    print(f"[TWILIO_INBOUND]   Fallback response: {reply_text}", flush=True)
+                else:
+                    # Don't send a reply if card is unassigned
+                    reply_text = None
+        else:
+            # No next_state from Markov engine - this shouldn't happen but handle gracefully
+            print("=" * 80, flush=True)
+            print(f"[TWILIO_INBOUND] ⚠️ NO STATE TRANSITION FROM MARKOV ENGINE", flush=True)
+            print("=" * 80, flush=True)
+            print(f"[TWILIO_INBOUND]   Result keys: {list(result.keys())}", flush=True)
+            print(f"[TWILIO_INBOUND]   Result: {json.dumps(result, indent=2, default=str)}", flush=True)
+            print(f"[TWILIO_INBOUND]   This means the Markov engine did not return a next_state", flush=True)
+            print(f"[TWILIO_INBOUND]   💡 Check: Is the intent classifier working? Is the state transition logic correct?", flush=True)
+            print("=" * 80, flush=True)
+            reply_text = None
         
         # Send explicit reply via Twilio (webhook return does NOT send SMS)
         print("=" * 80, flush=True)
-        print(f"[TWILIO_INBOUND] 📤 PREPARING TO SEND REPLY", flush=True)
+        print(f"[TWILIO_INBOUND] 📤 MARKOV REPLY DECISION", flush=True)
         print("=" * 80, flush=True)
+        print(f"[TWILIO_INBOUND]   Will send reply: {reply_text is not None}", flush=True)
         print(f"[TWILIO_INBOUND]   reply_text: {reply_text}", flush=True)
         print(f"[TWILIO_INBOUND]   reply_text type: {type(reply_text)}", flush=True)
         if reply_text:
             print(f"[TWILIO_INBOUND]   reply_text length: {len(reply_text)}", flush=True)
             print(f"[TWILIO_INBOUND]   reply_text preview: {reply_text[:100]}...", flush=True)
+        else:
+            print(f"[TWILIO_INBOUND]   ⚠️ No reply will be sent", flush=True)
+            if not card_assigned and card_id:
+                print(f"[TWILIO_INBOUND]     Reason: Card is unassigned (safety invariant)", flush=True)
+            elif skip_auto_reply:
+                print(f"[TWILIO_INBOUND]     Reason: Bot loop prevention", flush=True)
+            elif not result.get("next_state"):
+                print(f"[TWILIO_INBOUND]     Reason: No state transition from Markov engine", flush=True)
+            else:
+                print(f"[TWILIO_INBOUND]     Reason: No configured response for state '{next_state}'", flush=True)
+        print("=" * 80, flush=True)
         
         # Filter out "OK" messages - don't send standalone "OK" responses
         if reply_text:
