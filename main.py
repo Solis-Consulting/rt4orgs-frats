@@ -4817,8 +4817,8 @@ async def rep_blast(
         print("❌ [BLAST] NO CARD IDS — ABORTING", flush=True)
         return {"ok": False, "error": "no card_ids"}
     
-    print("🚀 [BLAST] BEGIN LOOP", flush=True)
-    
+        print("🚀 [BLAST] BEGIN LOOP", flush=True)
+        
         current_user = user
         
         # Now continue with the rest of the handler logic
