@@ -443,31 +443,11 @@ def run_blast_for_cards(
         # Normalize phone immediately after validating it exists
         phone_normalized = normalize_phone(raw_phone)
         
-        # 🔥 COMPREHENSIVE SKIP CHECKS with explicit logging
+        # 🔥 SKIP CHECKS with explicit logging (only critical safety checks)
         skip_reason = None
         
-        # Check 1: Test card detection (name contains test/test markers)
-        card_name = (data.get("name") or "").lower()
-        card_id_lower = card_id.lower()
-        if "test" in card_name or "_test" in card_id_lower or "test_" in card_id_lower:
-            skip_reason = "TEST_CARD"
-            print(
-                f"[BLAST_SKIP] card_id={card_id} phone={phone_normalized} reason={skip_reason} "
-                f"(name='{data.get('name')}' or id contains 'test')",
-                flush=True,
-            )
-        
-        # Check 2: Self-send prevention (if rep_user_id matches card owner)
-        elif rep_user_id and card.get("owner") == rep_user_id:
-            skip_reason = "REP_OWNED_CARD"
-            print(
-                f"[BLAST_SKIP] card_id={card_id} phone={phone_normalized} reason={skip_reason} "
-                f"(owner={card.get('owner')} matches rep_user_id={rep_user_id})",
-                flush=True,
-            )
-        
-        # Check 3: Invalid phone format (after normalization)
-        elif not phone_normalized or not phone_normalized.startswith("+"):
+        # Check 1: Invalid phone format (after normalization) - CRITICAL
+        if not phone_normalized or not phone_normalized.startswith("+"):
             skip_reason = "INVALID_PHONE"
             print(
                 f"[BLAST_SKIP] card_id={card_id} phone={raw_phone} reason={skip_reason} "
@@ -475,19 +455,11 @@ def run_blast_for_cards(
                 flush=True,
             )
         
-        # Check 4: Known test/internal phone numbers
-        elif phone_normalized in [
-            "+19843695080",  # Alan's test number
-            "+19194436288",  # System phone
-        ]:
-            skip_reason = "TEST_PHONE_NUMBER"
-            print(
-                f"[BLAST_SKIP] card_id={card_id} phone={phone_normalized} reason={skip_reason} "
-                f"(known test number)",
-                flush=True,
-            )
+        # Note: Test card detection and test phone blocking removed
+        # Cards with "test" in name/id or known test numbers will now send
+        # Only invalid phone format causes skip
         
-        # If any skip condition matched, skip this card
+        # If skip condition matched, skip this card
         if skip_reason:
             skipped_count += 1
             results.append(
@@ -499,6 +471,12 @@ def run_blast_for_cards(
                 }
             )
             continue
+        
+        # Log card details (no skip, will send)
+        print(
+            f"[BLAST_SEND] ✅ Card passed skip checks - will send: card_id={card_id} phone={phone_normalized}",
+            flush=True,
+        )
 
         # ✅ Card passed all skip checks - use normalized phone for sending
         phone = phone_normalized
