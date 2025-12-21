@@ -311,6 +311,9 @@
       }
 
       console.log("[SELECTED IDS]", Array.from(window.__SELECTED_CARD_IDS__));
+      
+      // 🔥 UPDATE BUTTON STATE IMMEDIATELY
+      updateBlastButton();
     };
 
     async function loadCards() {
@@ -605,8 +608,13 @@
     }
 
     function updateBlastButton() {
-      const selected = document.querySelectorAll('.card-checkbox:checked').length;
-      document.getElementById('blastBtn').disabled = selected === 0;
+      // 🔥 USE GLOBAL SELECTION STORE (not DOM queries)
+      const selectedCount = window.__SELECTED_CARD_IDS__ ? window.__SELECTED_CARD_IDS__.size : 0;
+      const btn = document.getElementById('blastBtn');
+      if (btn) {
+        btn.disabled = selectedCount === 0;
+        console.log('[UPDATE_BLAST_BTN] Selected count:', selectedCount, 'Button disabled:', btn.disabled);
+      }
     }
 
     document.getElementById('cardSearch').addEventListener('input', renderCards);
