@@ -4821,7 +4821,7 @@ async def rep_blast(
     
     # Get raw body
     raw = await request.body()
-    print("📦 [BLAST] raw body:", raw, flush=True)
+    print("🚀🚀🚀 BLAST HIT — RAW BODY:", raw, flush=True)
     
     # Parse JSON
     try:
@@ -4831,19 +4831,19 @@ async def rep_blast(
         print("❌ [BLAST] JSON parse failed:", e, flush=True)
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
     
-    # 🔥 CRITICAL DEBUG: Print JSON payload immediately after parsing
-    print("🧠 [BLAST] JSON:", payload, flush=True)
-    print("🧠 [BLAST] parsed payload:", payload, flush=True)
+    # 🔥 CRITICAL: Print payload and card_ids BEFORE any guards
+    print("🚀🚀🚀 BLAST HIT — PARSED PAYLOAD:", payload, flush=True)
     
     # Try both snake_case and camelCase for compatibility
     card_ids = payload.get("card_ids") or payload.get("cardIds")
-    print("🧠 [BLAST] card_ids value:", card_ids, "type:", type(card_ids), flush=True)
+    print("🚀🚀🚀 CARD IDS RECEIVED:", card_ids, flush=True)
+    print("🚀🚀🚀 CARD IDS TYPE:", type(card_ids), flush=True)
     if card_ids is not None:
-        print("🧠 [BLAST] card_ids length:", len(card_ids) if isinstance(card_ids, list) else "NOT A LIST", flush=True)
+        print("🚀🚀🚀 CARD IDS LENGTH:", len(card_ids) if isinstance(card_ids, list) else "NOT A LIST", flush=True)
     
     if not card_ids:
         print("❌ [BLAST] NO CARD IDS — ABORTING", flush=True)
-        return {"ok": False, "error": "no card_ids"}
+        return {"ok": False, "error": "no card_ids", "sent": 0, "skipped": 0}
     
     print("🚀 [BLAST] BEGIN LOOP", flush=True)
     

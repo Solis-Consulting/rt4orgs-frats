@@ -812,7 +812,14 @@
       }
     });
     
-    // 🔥 PHASE 3: Force blast handler to scream if it runs
+    // 🔥 READ SELECTION DIRECTLY FROM DOM (DOM is source of truth)
+    function getSelectedCardIds() {
+      return Array.from(
+        document.querySelectorAll('input[type="checkbox"][data-card-id]:checked')
+      ).map(cb => cb.dataset.cardId || cb.getAttribute('data-card-id')).filter(Boolean);
+    }
+
+    // 🔥 PHASE 3: Blast handler - reads selection from DOM at blast time
     document.addEventListener("click", async (e) => {
       // Find blast button using closest (handles clicks on button or child elements)
       const btn = e.target.closest("#blastBtn");
@@ -825,17 +832,11 @@
 
       console.log("🚨🚨🚨 BLAST CLICK DETECTED");
       console.log("🚨 BLAST CLICK — JS OWNS THIS EVENT");
-      console.log("BTN.disabled =", btn.disabled);
-      console.log("BTN.type =", btn.type);
-      console.log("BTN.closest('form') =", btn.closest('form'));
-      console.log("STORE =", window.__SELECTED_CARD_IDS__);
-      console.log("STORE size =", window.__SELECTED_CARD_IDS__?.size);
-
-      alert("BLAST HANDLER FIRED — CHECK CONSOLE");
       
       // Check if button is disabled
       if (btn.disabled) {
         console.warn("[BLAST] ⚠️ Button is disabled - cannot blast");
+        alert("Please select at least one card to blast");
         return;
       }
 
@@ -852,13 +853,18 @@
         return;
       }
 
-      const ids = Array.from(window.__SELECTED_CARD_IDS__ || []);
-      if (!ids.length) {
-        alert("Select at least one card");
+      // 🔥 CRITICAL: Read selection DIRECTLY from DOM (not cached state)
+      const cardIds = getSelectedCardIds();
+      console.log("[BLAST] DOM-selected card IDs:", cardIds);
+      console.log("[BLAST] Selected count:", cardIds.length);
+
+      if (cardIds.length === 0) {
+        alert("No cards selected — aborting blast");
+        console.warn("[BLAST] ❌ No cards selected in DOM - aborting");
         return;
       }
 
-      if (!confirm(`Blast ${ids.length} assigned lead(s)?`)) {
+      if (!confirm(`Blast ${cardIds.length} assigned lead(s)?`)) {
         return;
       }
 
@@ -866,8 +872,10 @@
       btn.textContent = 'Blasting...';
 
       const url = new URL("/rep/blast", backend).toString();
+      const requestBody = { card_ids: cardIds };
       console.log("🌐 [BLAST] POST →", url);
-      console.log("🌐 [BLAST] Request body:", JSON.stringify({ card_ids: ids }));
+      console.log("🌐 [BLAST] Request body:", JSON.stringify(requestBody));
+      console.log("🌐 [BLAST] Card IDs being sent:", cardIds);
 
       let res;
       try {
@@ -879,7 +887,7 @@
             "Authorization": `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ card_ids: ids }),
+          body: JSON.stringify(requestBody),
         });
         console.log("✅ [BLAST] Fetch completed - status:", res.status);
       } catch (err) {
