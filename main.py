@@ -1017,9 +1017,19 @@ async def twilio_inbound(request: Request):
     Receives form-encoded data from Twilio and processes through intelligence layer.
     Gated by webhook configuration (enabled, mode, logging).
     """
-    # 🔥 CRITICAL: Log IMMEDIATELY - this proves the webhook was called
-    print("🔥🔥🔥 TWILIO INBOUND WEBHOOK HIT 🔥🔥🔥", flush=True)
-    logger.error("🔥 TWILIO INBOUND WEBHOOK HIT")
+    # 🔥🔥🔥 NUCLEAR LOG - FIRST LINE OF FUNCTION - PROVES WEBHOOK WAS CALLED
+    import sys
+    sys.stdout.flush()
+    sys.stderr.flush()
+    print("=" * 80, flush=True)
+    print("🔥🔥🔥🔥🔥 TWILIO INBOUND WEBHOOK HIT 🔥🔥🔥🔥🔥", flush=True)
+    print("🔥🔥🔥🔥🔥 TWILIO INBOUND WEBHOOK HIT 🔥🔥🔥🔥🔥", flush=True)
+    print("🔥🔥🔥🔥🔥 TWILIO INBOUND WEBHOOK HIT 🔥🔥🔥🔥🔥", flush=True)
+    print("=" * 80, flush=True)
+    import logging
+    _logger = logging.getLogger(__name__)
+    _logger.error("🔥🔥🔥 TWILIO INBOUND WEBHOOK HIT 🔥🔥🔥")
+    logger.error("🔥🔥🔥 TWILIO INBOUND WEBHOOK HIT 🔥🔥🔥")
     
     # CRITICAL: Log raw body FIRST to catch requests even if form parsing fails
     try:
