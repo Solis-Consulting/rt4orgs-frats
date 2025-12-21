@@ -769,15 +769,11 @@
       });
       
       blastBtn.addEventListener('click', async (e) => {
-        // 🔥 GUARANTEED SIGNAL: Alert as FIRST LINE
-        alert("BLAST CLICK HANDLER FIRED");
-        
-        // 🔥 LOG API_BASE IMMEDIATELY
-        console.log("🌐 [BLAST] API_BASE (BACKEND_URL):", BACKEND_URL);
+        // 🔥 CRITICAL: Log immediately when handler fires
+        console.log("🚨 [BLAST] CLICK HANDLER FIRED");
+        console.log("🌐 [BLAST] BACKEND_URL:", BACKEND_URL);
         console.log("🌐 [BLAST] BACKEND:", BACKEND);
         console.log("🌐 [BLAST] Full URL will be:", `${BACKEND}/rep/blast`);
-        
-        console.log("🚨 [BLAST] CLICK HANDLER FIRED");
         
         if (e) {
           e.preventDefault();
