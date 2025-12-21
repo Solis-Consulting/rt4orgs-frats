@@ -330,6 +330,9 @@ async def log_requests(request: Request, call_next):
     import time
     start = time.time()
     
+    # 🔥 LOG EVERY SINGLE REQUEST (no exceptions)
+    print(f"🌐 [HTTP] {request.method} {request.url.path}", flush=True)
+    
     # Log request (don't read body here - it can only be read once)
     has_body = request.method in ("POST", "PUT", "PATCH")
     
