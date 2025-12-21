@@ -3360,12 +3360,27 @@ async def update_single_markov_response(
     response_text = payload.get("response_text", "")
     description = payload.get("description", "")
     
+    # 🔧 CRITICAL FIX: Coerce response_text to string (handle dict/object inputs)
+    # Some UI paths may send structured objects, but DB column expects TEXT
+    if isinstance(response_text, dict):
+        # If it's a dict, try to extract 'text' field or serialize to JSON
+        response_text = response_text.get("text", json.dumps(response_text))
+        logger.warning(f"⚠️ response_text was dict - coerced to string (length: {len(response_text)})")
+    elif not isinstance(response_text, str):
+        # Coerce any other non-string type to string
+        response_text = str(response_text)
+        logger.warning(f"⚠️ response_text was {type(response_text)} - coerced to string")
+    
+    # Ensure description is also a string
+    if not isinstance(description, str):
+        description = str(description) if description else ""
+    
     if not state_key:
         logger.error("❌ Missing state_key in payload")
         raise HTTPException(status_code=400, detail="state_key is required")
     
     logger.info(f"✏️ Saving state: {state_key} (user_id: {user_id or 'global'})")
-    logger.debug(f"Response text length: {len(response_text)}")
+    logger.debug(f"Response text type: {type(response_text)}, length: {len(response_text)}")
     
     try:
         with conn.cursor() as cur:
@@ -3473,6 +3488,14 @@ async def update_markov_responses(
             for state_key, config in responses.items():
                 logger.info(f"✏️ Saving state: {state_key}")
                 response_text = config.get("response_text", "")
+                
+                # 🔧 CRITICAL FIX: Coerce response_text to string (handle dict/object inputs)
+                if isinstance(response_text, dict):
+                    response_text = response_text.get("text", json.dumps(response_text))
+                    logger.warning(f"⚠️ response_text was dict for {state_key} - coerced to string")
+                elif not isinstance(response_text, str):
+                    response_text = str(response_text)
+                    logger.warning(f"⚠️ response_text was {type(response_text)} for {state_key} - coerced to string")
                 description = config.get("description", "")
                 logger.debug(f"Response text length: {len(response_text)}")
                 
@@ -3511,6 +3534,15 @@ async def update_markov_responses(
             # Update initial outreach (special key)
             if initial_outreach is not None:
                 logger.info("✏️ Saving initial_outreach")
+                
+                # 🔧 CRITICAL FIX: Coerce initial_outreach to string (handle dict/object inputs)
+                if isinstance(initial_outreach, dict):
+                    initial_outreach = initial_outreach.get("text", json.dumps(initial_outreach))
+                    logger.warning(f"⚠️ initial_outreach was dict - coerced to string")
+                elif not isinstance(initial_outreach, str):
+                    initial_outreach = str(initial_outreach)
+                    logger.warning(f"⚠️ initial_outreach was {type(initial_outreach)} - coerced to string")
+                
                 try:
                     if user_id:
                         # Rep: save with user_id (use partial unique index)
