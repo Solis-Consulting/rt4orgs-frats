@@ -313,24 +313,20 @@ print("=" * 60)
 
 # 🔥 CRITICAL: CORS middleware MUST be added immediately after app creation
 # This handles preflight OPTIONS requests that browsers send before POST with Authorization headers
-# Using explicit headers instead of "*" wildcard for better browser compatibility
+# POST with Authorization header REQUIRES successful preflight - browser silently blocks if preflight fails
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://rt4orgs-frats.vercel.app",
+        "https://rt4orgs-frats.vercel.app/",  # With trailing slash variant
         "http://localhost:3000",  # Local development
         "http://localhost:8000",  # Local development
         "http://127.0.0.1:3000",  # Local development
         "http://127.0.0.1:8000",  # Local development
     ],
-    allow_credentials=False,  # Set to False since frontend uses credentials: "omit"
-    allow_methods=["GET", "POST", "OPTIONS"],  # Explicit methods (browsers are strict about wildcards)
-    allow_headers=[
-        "Authorization",
-        "Content-Type",
-        "Accept",
-        "Origin",
-    ],  # Explicit headers (browsers reject "*" with credentials)
+    allow_credentials=True,  # Allow credentials to support Authorization header
+    allow_methods=["*"],  # Allow all methods (including POST, OPTIONS)
+    allow_headers=["*"],  # Allow all headers (especially Authorization)
     expose_headers=["*"],
     max_age=3600,  # Cache preflight for 1 hour
 )

@@ -806,7 +806,7 @@
         res = await fetch(url, {
           method: "POST",
           mode: "cors",
-          credentials: "omit",
+          credentials: "include",  // Match backend allow_credentials=True
           headers: {
             "Authorization": `Bearer ${token}`,
             "Content-Type": "application/json",
