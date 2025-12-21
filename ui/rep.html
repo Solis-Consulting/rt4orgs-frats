@@ -361,10 +361,20 @@
     
     // 🔥 EVENT DELEGATION for card checkboxes (survives table re-renders)
     document.addEventListener("change", (e) => {
-      // Check if change event is from a card checkbox
-      if (e.target.matches('.card-checkbox[data-card-id]') || e.target.matches('.card-checkbox[data-id]')) {
-        console.log("[SELECTION] Card checkbox changed via delegation:", e.target.dataset.cardId || e.target.dataset.id);
-        handleCardToggle(e.target);
+      // Check if change event is from a card checkbox (not group checkbox or select-all)
+      const checkbox = e.target;
+      if (checkbox.type === 'checkbox' && checkbox.classList.contains('card-checkbox')) {
+        const cardId = checkbox.dataset.cardId || checkbox.dataset.id;
+        if (cardId) {
+          console.log("[SELECTION] ✅ Card checkbox changed via delegation:", cardId);
+          console.log("[SELECTION] Checkbox checked:", checkbox.checked);
+          console.log("[SELECTION] Before - store size:", window.__SELECTED_CARD_IDS__.size);
+          handleCardToggle(checkbox);
+          console.log("[SELECTION] After - store size:", window.__SELECTED_CARD_IDS__.size);
+          console.log("[SELECTION] Store contents:", Array.from(window.__SELECTED_CARD_IDS__));
+        } else {
+          console.error("[SELECTION] ❌ Card checkbox missing both data-card-id and data-id:", checkbox);
+        }
       }
     });
 
