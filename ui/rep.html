@@ -444,7 +444,7 @@
           const updated = card.updated_at ? new Date(card.updated_at).toLocaleDateString() : '-';
           
           html += `<tr class="group-row group-rows" data-group-id="${groupId}">`;
-          html += `<td><input type="checkbox" class="card-checkbox" data-id="${card.id}" data-group-id="${groupId}"></td>`;
+          html += `<td><input type="checkbox" class="card-checkbox" data-id="${card.id}" data-card-id="${card.id}" data-group-id="${groupId}"></td>`;
           html += `<td>${name}</td>`;
           html += `<td><span class='badge ${type}'>${type}</span></td>`;
           html += `<td><span class='badge gray'>${salesState}</span></td>`;
@@ -622,23 +622,43 @@
       fetch('http://127.0.0.1:7242/ingest/a5ef77db-cf0a-4573-b971-236b0aa12e72',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rep.html:blastBtn:CLICK',message:'Blast button clicked',data:{timestamp:Date.now()},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
       // #endregion
       
-      // 🔧 FIX: Get selected card IDs - query ALL checkboxes (including hidden/collapsed groups)
-      // Use querySelectorAll which works even on hidden elements
-      const allCheckboxes = document.querySelectorAll('.card-checkbox');
-      const checkedCheckboxes = document.querySelectorAll('.card-checkbox:checked');
-      const selected = Array.from(checkedCheckboxes).map(cb => {
-        const id = cb.getAttribute('data-id');
-        console.log('[BLAST] Found checked checkbox:', { id, checked: cb.checked, visible: cb.offsetParent !== null });
-        return id;
-      }).filter(id => id); // Filter out any null/undefined IDs
+      // 🔧 FIX: Get selected card IDs - use unambiguous selector
+      // Query ALL input checkboxes with card-checkbox class (works even on hidden/collapsed groups)
+      const allCheckboxes = document.querySelectorAll('input.card-checkbox');
+      const checkedCheckboxes = document.querySelectorAll('input.card-checkbox:checked');
       
-      // 🔥 NUCLEAR DEBUG: Log selection state
+      // 🔥 NUCLEAR DEBUG: Log selection state BEFORE processing
       console.log('BLAST CLICKED', {
         totalCheckboxes: allCheckboxes.length,
         checkedCount: checkedCheckboxes.length,
-        selectedIds: selected,
-        selectedCount: selected.length
+        allCheckboxDetails: Array.from(allCheckboxes).map(cb => ({
+          id: cb.getAttribute('data-id'),
+          cardId: cb.getAttribute('data-card-id'),
+          checked: cb.checked,
+          visible: cb.offsetParent !== null,
+          classes: cb.className
+        })),
+        checkedDetails: Array.from(checkedCheckboxes).map(cb => ({
+          id: cb.getAttribute('data-id'),
+          cardId: cb.getAttribute('data-card-id'),
+          checked: cb.checked,
+          visible: cb.offsetParent !== null
+        }))
       });
+      
+      // Get IDs - try data-card-id first, fallback to data-id
+      const selected = Array.from(checkedCheckboxes).map(cb => {
+        const cardId = cb.getAttribute('data-card-id') || cb.getAttribute('data-id');
+        console.log('[BLAST] Processing checked checkbox:', { 
+          cardId, 
+          dataId: cb.getAttribute('data-id'),
+          dataCardId: cb.getAttribute('data-card-id'),
+          checked: cb.checked 
+        });
+        return cardId;
+      }).filter(id => id); // Filter out any null/undefined IDs
+      
+      console.log('[BLAST] Final selected IDs:', selected);
       
       // #region agent log - Cards selected
       fetch('http://127.0.0.1:7242/ingest/a5ef77db-cf0a-4573-b971-236b0aa12e72',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rep.html:blastBtn:SELECTED',message:'Cards selected for blast',data:{selected_count:selected.length,selected_ids:selected,total_checkboxes:allCheckboxes.length,checked_count:checkedCheckboxes.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
