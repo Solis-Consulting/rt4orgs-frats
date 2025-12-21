@@ -1076,6 +1076,17 @@ async def twilio_inbound(request: Request):
         
         # Normalize phone number from Twilio (E.164 format)
         normalized_phone = normalize_phone(From)
+        
+        # 🔧 FIX #2: STOP must short-circuit before Markov (compliance requirement)
+        # Twilio STOP messages must never enter Markov pipeline
+        if Body and Body.strip().upper() in {"STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"}:
+            logger.warning(f"[INBOUND] STOP received from {normalized_phone}")
+            print(f"[TWILIO_INBOUND] 🛑 STOP message received from {normalized_phone} - short-circuiting before Markov", flush=True)
+            # TODO: Implement mark_opt_out(normalized_phone) if you have that function
+            # For now, just return empty response
+            from twilio.twiml.messaging_response import MessagingResponse
+            response = MessagingResponse()
+            return PlainTextResponse(str(response), status_code=200, media_type="application/xml")
         print("=" * 80, flush=True)
         print(f"[TWILIO_INBOUND] 🔥🔥🔥 INBOUND WEBHOOK RECEIVED 🔥🔥🔥", flush=True)
         print("=" * 80, flush=True)
@@ -1153,10 +1164,22 @@ async def twilio_inbound(request: Request):
             else:
                 print(f"[TWILIO_INBOUND] ⚠️ No card found by phone number: {normalized_phone}", flush=True)
         
+        # 🔧 FIX #1: Initialize environment_id at the very start (MANDATORY)
+        # This prevents UnboundLocalError - environment_id must be total, never conditional
+        environment_id = None
+        env_source = None
+        routed_rep_id = None
+        routed_campaign_id = None
+        
         # 🔥 CRITICAL: Find conversation by phone FIRST (across all environments)
         # This prevents losing the conversation due to environment mismatch
         print(f"[TWILIO_INBOUND] 🔍 Step 2: Finding conversation by phone (across environments)...", flush=True)
         conversation_by_phone = None
+        env_id_from_convo = None
+        rep_from_convo = None
+        card_id_from_convo = None
+        state_from_convo = None
+        
         with conn.cursor() as cur:
             try:
                 cur.execute("""
@@ -1181,9 +1204,10 @@ async def twilio_inbound(request: Request):
         if conversation_by_phone:
             env_id_from_convo, rep_from_convo, card_id_from_convo, state_from_convo, last_source, last_outbound_at, updated_at = conversation_by_phone
             print(f"[TWILIO_INBOUND] ✅ Found conversation by phone: env={env_id_from_convo}, rep={rep_from_convo}, state={state_from_convo}, last_source={last_source}", flush=True)
-            # Use conversation's environment_id if available
+            # Step 1: conversation-by-phone (highest priority)
             if env_id_from_convo:
                 environment_id = env_id_from_convo
+                env_source = "conversation"
                 print(f"[TWILIO_INBOUND] ✅ Using environment_id from conversation: {environment_id}", flush=True)
             # Use conversation's card_id if we don't have one
             if card_id_from_convo and not card_id:
@@ -1197,13 +1221,17 @@ async def twilio_inbound(request: Request):
         print(f"[TWILIO_INBOUND] 🔍 Step 2b: Routing to environment (last outbound wins)...", flush=True)
         from backend.environment import route_inbound_to_environment, get_or_create_environment, store_message_event
         
-        # Route to environment that last sent an outbound SMS (or use conversation's environment if found)
+        # Step 2: routing fallback
         if not environment_id:
-            environment_id, routed_rep_id, routed_campaign_id = route_inbound_to_environment(conn, normalized_phone)
+            routed_env_id, routed_rep_id, routed_campaign_id = route_inbound_to_environment(conn, normalized_phone)
+            if routed_env_id:
+                environment_id = routed_env_id
+                env_source = "routing"
+                print(f"[TWILIO_INBOUND] ✅ Using environment_id from routing: {environment_id}", flush=True)
         
-        # If no prior outbound, create new environment based on current context
+        # Step 3: hard fallback (NEVER allow None past this)
         if not environment_id:
-            print(f"[TWILIO_INBOUND] ⚠️ No prior outbound found - creating new environment", flush=True)
+            print(f"[TWILIO_INBOUND] ⚠️ No environment found - creating new environment", flush=True)
             # Resolve rep_id from card_assignments if we have card_id
             resolved_rep_user_id = None
             if card_id:
@@ -1226,11 +1254,22 @@ async def twilio_inbound(request: Request):
             environment_id = get_or_create_environment(conn, normalized_phone, resolved_rep_user_id, campaign_id, card_id)
             routed_rep_id = resolved_rep_user_id
             routed_campaign_id = campaign_id
+            env_source = "created"
             print(f"[TWILIO_INBOUND] ✅ Created new environment: {environment_id} (rep={routed_rep_id}, campaign={routed_campaign_id})", flush=True)
         else:
-            if conversation_by_phone:
-                routed_rep_id = rep_from_convo or routed_rep_id
+            if conversation_by_phone and rep_from_convo:
+                routed_rep_id = rep_from_convo
             print(f"[TWILIO_INBOUND] ✅ Using environment: {environment_id} (rep={routed_rep_id}, campaign={routed_campaign_id})", flush=True)
+        
+        # 🔒 CRITICAL: Log environment_id source (never allow None past this point)
+        logger.error(f"[INBOUND_ENV] using environment_id={environment_id} source={env_source} phone={normalized_phone}")
+        print(f"[TWILIO_INBOUND] 🔒 [INBOUND_ENV] environment_id={environment_id} source={env_source}", flush=True)
+        
+        # Final safety check - this should never happen but fail loud if it does
+        if environment_id is None:
+            error_msg = f"[INBOUND] FATAL: environment_id is None after all fallbacks. phone={normalized_phone}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
         
         # Step 3: Use helper function to resolve rep_user_id with repair capability
         # This replaces the previous complex resolution logic with a clean helper that:
