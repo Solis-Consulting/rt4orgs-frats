@@ -4767,10 +4767,19 @@ async def rep_blast(
     request: Request
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
+    # 🔥🔥🔥 NUCLEAR LOG - This proves the endpoint was hit
+    print("🔥🔥🔥 BLAST ENDPOINT HIT 🔥🔥🔥", flush=True)
+    print("🔥🔥🔥 BLAST ENDPOINT HIT 🔥🔥🔥", flush=True)
+    print("🔥🔥🔥 BLAST ENDPOINT HIT 🔥🔥🔥", flush=True)
+    import sys
+    sys.stdout.flush()
+    sys.stderr.flush()
+    
     # ✅ CRITICAL: Ensure logger is available - import at function level if needed
     # This must happen BEFORE any logger.error() calls
     import logging
     _logger = logging.getLogger(__name__)
+    _logger.error("🔥🔥🔥 BLAST ENDPOINT HIT 🔥🔥🔥")
     
     # 1️⃣ At the very top of /rep/blast
     print("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast", flush=True)
