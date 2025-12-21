@@ -4818,14 +4818,12 @@ async def rep_blast(
             print("❌ [BLAST] NO CARD IDS — ABORTING", flush=True)
             return {"ok": False, "error": "no card_ids"}
         
-    print("🚀 [BLAST] BEGIN LOOP", flush=True)
-    
-    current_user = user
-    
-    # Wrap rest of handler in try-except to catch any errors
-    try:
-    _logger.error(f"[BLAST_ENDPOINT] Authenticated user id={current_user.get('id')} role={current_user.get('role')}")
-    print(f"[BLAST_ENDPOINT] Authenticated user id={current_user.get('id')} role={current_user.get('role')}", flush=True)
+        print("🚀 [BLAST] BEGIN LOOP", flush=True)
+        
+        current_user = user
+        
+        # Wrap rest of handler in try-except to catch any errors
+        try:
     
     # Now continue with the rest of the handler logic
     try:
