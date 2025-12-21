@@ -420,107 +420,71 @@ def run_blast_for_cards(
             flush=True,
         )
 
-        # 🔥 CRITICAL: Extract phone from multiple possible field locations
-        # Cards come from different pipelines with different field names
-        # Check all common variations before declaring phone missing
+        # 🔥 1️⃣ ABSOLUTE BLAST TRUTH LOG - single source of reality
+        log_ctx = {
+            "card_id": card_id,
+            "rep": rep_user_id,
+            "env": environment_id,
+            "raw_card_data_keys": list(data.keys()) if isinstance(data, dict) else []
+        }
+        logger.info(f"[BLAST_CARD] evaluating card_id={card_id}", extra=log_ctx)
+        print(f"[BLAST_CARD] evaluating card_id={card_id} rep={rep_user_id} env={environment_id}", flush=True)
+        
+        # 🔥 2️⃣ CANONICAL PHONE EXTRACTION - no branching ambiguity
         def extract_phone_from_card(card_data):
             """Extract phone from card_data, checking multiple field name variations."""
             if not card_data:
-                return None
+                return None, None
             
-            # Try canonical location first
-            phone = card_data.get("phone")
-            if phone and str(phone).strip():
-                return str(phone).strip()
-            
-            # Try alternative field names
-            phone = card_data.get("phone_number")
-            if phone and str(phone).strip():
-                return str(phone).strip()
-            
-            # Try nested in metadata
-            metadata = card_data.get("metadata", {})
-            if isinstance(metadata, dict):
-                phone = metadata.get("phone")
-                if phone and str(phone).strip():
-                    return str(phone).strip()
-            
-            # Try contact_info nested
-            contact_info = card_data.get("contact_info", {})
-            if isinstance(contact_info, dict):
-                phone = contact_info.get("phone") or contact_info.get("phone_number")
-                if phone and str(phone).strip():
-                    return str(phone).strip()
-            
-            return None
-        
-        raw_phone = extract_phone_from_card(data)
-        
-        # Log what we found for debugging
-        if raw_phone:
-            print(f"[BLAST] Extracted phone from card: {raw_phone} (card_id={card_id})", flush=True)
-        else:
-            # Log all possible phone fields for debugging
-            phone_fields = {
-                "phone": data.get("phone"),
-                "phone_number": data.get("phone_number"),
-                "metadata.phone": data.get("metadata", {}).get("phone") if isinstance(data.get("metadata"), dict) else None,
-                "contact_info.phone": data.get("contact_info", {}).get("phone") if isinstance(data.get("contact_info"), dict) else None,
+            candidates = {
+                "phone": card_data.get("phone"),
+                "phone_number": card_data.get("phone_number"),
+                "metadata.phone": card_data.get("metadata", {}).get("phone") if isinstance(card_data.get("metadata"), dict) else None,
+                "contact_info.phone": card_data.get("contact_info", {}).get("phone") if isinstance(card_data.get("contact_info"), dict) else None,
+                "contact_info.phone_number": card_data.get("contact_info", {}).get("phone_number") if isinstance(card_data.get("contact_info"), dict) else None,
             }
-            logger.error(f"[BLAST_SKIP] card_id={card_id} NO_PHONE - checked fields: {phone_fields}")
-            print(f"[BLAST_SKIP] card_id={card_id} NO_PHONE - checked fields: {phone_fields}", flush=True)
+            
+            for source, value in candidates.items():
+                if value and str(value).strip():
+                    logger.info(f"[PHONE_FOUND] source={source} value={value}", extra={"source": source, "value": str(value)})
+                    print(f"[PHONE_FOUND] source={source} value={value}", flush=True)
+                    return str(value).strip(), source
+            
+            logger.error(f"[PHONE_MISSING] checked={candidates}", extra={"checked": candidates})
+            print(f"[PHONE_MISSING] checked={candidates}", flush=True)
+            return None, None
         
-        # 🔥 CRITICAL: Normalize phone ONCE at the top, before ANY checks
+        raw_phone, phone_source = extract_phone_from_card(data)
+        
+        # 🔥 3️⃣ PHONE NORMALIZATION - logged and validated
         if not raw_phone:
-            skip_reason = "NO_PHONE"
-            logger.error(f"[BLAST_SKIP] card_id={card_id} phone=None reason={skip_reason}")
-            print(
-                f"[BLAST_SKIP] card_id={card_id} phone=None reason={skip_reason}",
-                flush=True,
-            )
+            skip_card("NO_PHONE", card_id, phone=None, checked_fields=list(data.keys()) if isinstance(data, dict) else [])
             skipped_count += 1
-            skip_result = {
-                "card_id": card_id,
-                "phone": None,
-                "status": "skipped",
-                "reason": "missing phone number",
-            }
-            results.append(skip_result)
-            logger.error(f"[BLAST_SKIP] Added to results: {skip_result}")
             continue
-
-        # Normalize phone immediately after validating it exists
-        phone_normalized = normalize_phone(raw_phone)
+        
+        try:
+            phone_normalized = normalize_phone(raw_phone)
+            logger.info(f"[PHONE_NORMALIZED] raw={raw_phone} normalized={phone_normalized}", extra={
+                "raw": raw_phone,
+                "normalized": phone_normalized,
+                "source": phone_source
+            })
+            print(f"[PHONE_NORMALIZED] raw={raw_phone} → normalized={phone_normalized}", flush=True)
+        except Exception as e:
+            skip_card("INVALID_PHONE", card_id, phone=raw_phone, error=str(e))
+            skipped_count += 1
+            continue
         
         # 🔥 SKIP CHECKS with explicit logging (only critical safety checks)
-        skip_reason = None
-        
         # Check 1: Invalid phone format (after normalization) - CRITICAL
         if not phone_normalized or not phone_normalized.startswith("+"):
-            skip_reason = "INVALID_PHONE"
-            logger.error(f"[BLAST_SKIP] card_id={card_id} phone={raw_phone} reason={skip_reason} (normalized={phone_normalized})")
-            print(
-                f"[BLAST_SKIP] card_id={card_id} phone={raw_phone} reason={skip_reason} "
-                f"(normalized={phone_normalized})",
-                flush=True,
-            )
+            skip_card("INVALID_PHONE", card_id, phone=phone_normalized or raw_phone, normalized=phone_normalized, raw=raw_phone)
+            skipped_count += 1
+            continue
         
         # Note: Test card detection and test phone blocking removed
         # Cards with "test" in name/id or known test numbers will now send
         # Only invalid phone format causes skip
-        
-        # If skip condition matched, skip this card
-        if skip_reason:
-            skipped_count += 1
-            skip_result = {
-                "card_id": card_id,
-                "phone": phone_normalized or raw_phone or "N/A",
-                "status": "skipped",
-                "reason": skip_reason.lower().replace("_", " "),
-            }
-            results.append(skip_result)
-            logger.error(f"[BLAST_SKIP] Added to results: {skip_result}")
-            continue
         
         # Log card details (no skip, will send)
         print(
@@ -676,32 +640,25 @@ def run_blast_for_cards(
             logger.error(f"📤 [BLAST_SENDING] card_id={card_id}")
             logger.error(f"[BLAST_SEND] 📤 Sending SMS to {phone} (card_id={card_id})")
             print(f"[BLAST_SEND] 📤 Sending SMS to {phone} (card_id={card_id})", flush=True)
-            # 🔥 CRITICAL: Conversation MUST exist before send_sms() - this is a hard precondition
-            # Verify conversation exists one more time right before send
-            with conn.cursor() as verify_cur:
-                verify_cur.execute("""
-                    SELECT phone, environment_id, card_id, state
-                    FROM conversations
-                    WHERE phone = %s AND environment_id = %s
-                """, (phone, environment_id))
-                pre_send_verify = verify_cur.fetchone()
-                if not pre_send_verify:
-                    error_msg = f"[BLAST] ❌ FATAL: Conversation missing before send_sms() - ABORTING"
-                    logger.error(error_msg)
-                    print(f"[BLAST] ❌ {error_msg}", flush=True)
-                    raise RuntimeError("Conversation anchor missing - cannot send SMS without conversation row")
-                print(f"[BLAST] ✅ Pre-send verification: conversation exists (phone={pre_send_verify[0]} env={pre_send_verify[1]} card_id={pre_send_verify[2]} state={pre_send_verify[3]})", flush=True)
+            # 🔥 6️⃣ GUARANTEED SEND LOG - prove send is reached
+            logger.info(f"[SEND_SMS_ATTEMPT] to={phone} from={TWILIO_PHONE_E164} card_id={card_id}", extra={
+                "to": phone,
+                "from": TWILIO_PHONE_E164,
+                "card_id": card_id,
+                "environment_id": environment_id
+            })
+            print(f"[SEND_SMS_ATTEMPT] to={phone} from={TWILIO_PHONE_E164} card_id={card_id}", flush=True)
             
-            print(f"[BLAST_SEND_ATTEMPT] Calling send_sms() NOW...", flush=True)
-            print(f"[BLAST_SEND_ATTEMPT] Request timestamp: {datetime.utcnow().isoformat()}", flush=True)
-            # send_sms() now always uses environment variables - no parameters needed
-            # BLAST MODE: Always send, no guards, no suppression (skip checks done above)
             try:
-                print(f"[BLAST_SEND_ATTEMPT] ✅ EXECUTING send_sms() - BLAST MODE", flush=True)
-                print(f"[BLAST_SEND_ATTEMPT] ✅ Card passed all skip checks - sending SMS", flush=True)
-                logger.error(f"[BLAST] SENDING TO {phone}")
-                logger.error("[SEND_SMS] FUNCTION ENTERED")
                 sms_result = send_sms(phone, message)
+                
+                logger.info(f"[SEND_SMS_SUCCESS] to={phone} card_id={card_id}", extra={
+                    "to": phone,
+                    "card_id": card_id,
+                    "twilio_sid": sms_result.get("sid"),
+                    "status": sms_result.get("status")
+                })
+                print(f"[SEND_SMS_SUCCESS] to={phone} card_id={card_id} sid={sms_result.get('sid')}", flush=True)
                 print(f"[BLAST_SEND_ATTEMPT] ✅ send_sms() returned successfully", flush=True)
                 print(f"[BLAST_SEND_ATTEMPT] SMS Result: {sms_result}", flush=True)
             except Exception as send_error:
@@ -954,25 +911,29 @@ def run_blast_for_cards(
                             rep_user_id_to_set,  # FORCE rep_user_id in UPDATE (never NULL for rep blasts)
                         ),
                     )
-                    # D) Verify write with RETURNING and runtime assertions
+                    # 🔥 4️⃣ CONVERSATION CREATION = HARD GATE
                     row = cur.fetchone()
                     if not row:
-                        # 🔥 CRITICAL: Conversation creation is MANDATORY - if upsert fails, abort send
-                        error_msg = f"[BLAST] ❌ FATAL: Conversation upsert returned no row - ABORTING SMS send"
-                        logger.error(error_msg)
-                        print(f"[BLAST] ❌ {error_msg}", flush=True)
+                        logger.critical(f"[CONVERSATION_CREATE_FAILED] card_id={card_id} phone={phone}", extra={
+                            "card_id": card_id,
+                            "phone": phone,
+                            "environment_id": environment_id
+                        })
+                        print(f"[CONVERSATION_CREATE_FAILED] card_id={card_id} phone={phone}", flush=True)
                         raise RuntimeError("Conversation creation failed - cannot send SMS without conversation anchor")
                     
                     returned_rep_user_id = row[0]
                     returned_state = row[1]
-                    logger.error(f"[BLAST] ✅ Conversation upsert RETURNING rep_user_id={returned_rep_user_id} state={returned_state}")
-                    print(f"[BLAST] ✅ Conversation recorded/updated: phone={phone}, env={environment_id}, rep_user_id={returned_rep_user_id}, state={returned_state}", flush=True)
-                    # 🔥 INVARIANT 1 VERIFICATION: Conversation exists and linked to card
-                    logger.error(f"[INVARIANT] ✅ Conversation created: card_id={card_id} phone={phone} state={returned_state} environment_id={environment_id}")
-                    print(f"[INVARIANT] ✅ Conversation created: card_id={card_id} phone={phone} state={returned_state}", flush=True)
+                    logger.info(f"[CONVERSATION_CREATED] card_id={card_id} phone={phone} state={returned_state}", extra={
+                        "card_id": card_id,
+                        "phone": phone,
+                        "state": returned_state,
+                        "rep_user_id": returned_rep_user_id,
+                        "environment_id": environment_id
+                    })
+                    print(f"[CONVERSATION_CREATED] card_id={card_id} phone={phone} state={returned_state}", flush=True)
                     
-                    # 🔥 CRITICAL: Conversation creation is now a HARD PRECONDITION
-                    # If we reach here, conversation MUST exist - verify it's queryable
+                    # Verify conversation is queryable
                     cur.execute("""
                         SELECT phone, environment_id, card_id, state, rep_user_id
                         FROM conversations
@@ -980,12 +941,14 @@ def run_blast_for_cards(
                     """, (phone, environment_id))
                     verify_row = cur.fetchone()
                     if not verify_row:
-                        error_msg = f"[BLAST] ❌ FATAL: Conversation not queryable after creation - ABORTING SMS send"
-                        logger.error(error_msg)
-                        print(f"[BLAST] ❌ {error_msg}", flush=True)
+                        logger.critical(f"[CONVERSATION_VERIFY_FAILED] card_id={card_id} phone={phone}", extra={
+                            "card_id": card_id,
+                            "phone": phone
+                        })
+                        print(f"[CONVERSATION_VERIFY_FAILED] card_id={card_id} phone={phone}", flush=True)
                         raise RuntimeError("Conversation verification failed - cannot send SMS without verifiable conversation")
                     
-                    print(f"[BLAST] ✅ Conversation verified queryable: phone={verify_row[0]} env={verify_row[1]} card_id={verify_row[2]} state={verify_row[3]}", flush=True)
+                    print(f"[CONVERSATION_VERIFIED] phone={verify_row[0]} env={verify_row[1]} card_id={verify_row[2]} state={verify_row[3]}", flush=True)
                     
                     # Runtime assertions to warn if state/rep_user_id not persisted correctly
                     # Log as warning instead of raising to avoid blocking blasts
@@ -1252,17 +1215,22 @@ def run_blast_for_cards(
     print(f"[BLAST_RUN] Results: {len(results)}", flush=True)
     print("=" * 80, flush=True)
     
-    # Extract skipped details for frontend visibility
-    skipped_details = [
-        {
-            "card_id": r.get("card_id", "unknown"),
-            "reason": r.get("reason", "unknown"),
-            "phone": r.get("phone", "N/A")
-        }
-        for r in results
-        if r.get("status") == "skipped"
-    ]
+    # 🔥 8️⃣ NUCLEAR INVARIANT - blast accounting must match
+    total_processed = sent_count + skipped_count
+    expected_total = len(card_ids)
+    if total_processed != expected_total:
+        error_msg = f"Blast accounting mismatch: sent={sent_count} skipped={skipped_count} total={total_processed} expected={expected_total}"
+        logger.critical(f"[BLAST_ACCOUNTING_ERROR] {error_msg}", extra={
+            "sent": sent_count,
+            "skipped": skipped_count,
+            "total_processed": total_processed,
+            "expected_total": expected_total,
+            "card_ids_count": len(card_ids)
+        })
+        print(f"[BLAST_ACCOUNTING_ERROR] {error_msg}", flush=True)
+        raise AssertionError(error_msg)
     
+    # Extract skipped details for frontend visibility (already collected in skip_card function)
     if skipped_details:
         print(f"[BLAST_RUN] Skipped details: {skipped_details}", flush=True)
         logger.error(f"[BLAST] Skipped cards: {skipped_details}")

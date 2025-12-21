@@ -932,27 +932,45 @@
         const skipped = data.skipped || 0;
         const skippedDetails = data.skipped_details || [];
         
-        // Build detailed message with skip reasons
-        let message = `Blast Complete:\nSent: ${sent}, Skipped: ${skipped}`;
-        
-        if (skippedDetails.length > 0) {
-          message += "\n\nSkipped cards:";
+        // 🔥 7️⃣ FRONTEND: Stop lying - show truth
+        if (sent === 0 && skipped > 0) {
+          // Blast was blocked - show skip reasons
+          let message = "Blast blocked.\n\n";
           skippedDetails.forEach((detail, idx) => {
             const cardIdShort = detail.card_id.length > 30 
               ? detail.card_id.substring(0, 30) + "..." 
               : detail.card_id;
-            message += `\n${idx + 1}. ${cardIdShort} — ${detail.reason}`;
+            message += `${cardIdShort}: ${detail.reason}\n`;
           });
+          alert(message);
+          console.error("[BLAST] Blocked - skipped details:", skippedDetails);
+        } else if (sent > 0) {
+          // Success - show summary
+          let message = `Blast Complete:\nSent: ${sent}`;
+          if (skipped > 0) {
+            message += `, Skipped: ${skipped}`;
+            if (skippedDetails.length > 0) {
+              message += "\n\nSkipped cards:";
+              skippedDetails.forEach((detail, idx) => {
+                const cardIdShort = detail.card_id.length > 30 
+                  ? detail.card_id.substring(0, 30) + "..." 
+                  : detail.card_id;
+                message += `\n${idx + 1}. ${cardIdShort} — ${detail.reason}`;
+              });
+            }
+          }
+          alert(message);
+          console.log("[BLAST] Success - response:", data);
+        } else {
+          // Edge case: sent=0, skipped=0 (shouldn't happen but handle it)
+          alert("Blast completed but no cards processed.");
+          console.warn("[BLAST] No cards processed:", data);
         }
         
-        alert(message);
-        console.log("[BLAST] Full response:", data);
-        if (skippedDetails.length > 0) {
-          console.warn("[BLAST] Skipped details:", skippedDetails);
-        }
         loadCards();
       } catch (parseErr) {
         alert("Blast OK but parse failed: " + text);
+        console.error("[BLAST] Parse error:", parseErr, "Response:", text);
       }
       
       btn.disabled = false;
