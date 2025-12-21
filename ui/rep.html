@@ -622,14 +622,37 @@
       fetch('http://127.0.0.1:7242/ingest/a5ef77db-cf0a-4573-b971-236b0aa12e72',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rep.html:blastBtn:CLICK',message:'Blast button clicked',data:{timestamp:Date.now()},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
       // #endregion
       
-      const selected = Array.from(document.querySelectorAll('.card-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
+      // 🔧 FIX: Get selected card IDs - query ALL checkboxes (including hidden/collapsed groups)
+      // Use querySelectorAll which works even on hidden elements
+      const allCheckboxes = document.querySelectorAll('.card-checkbox');
+      const checkedCheckboxes = document.querySelectorAll('.card-checkbox:checked');
+      const selected = Array.from(checkedCheckboxes).map(cb => {
+        const id = cb.getAttribute('data-id');
+        console.log('[BLAST] Found checked checkbox:', { id, checked: cb.checked, visible: cb.offsetParent !== null });
+        return id;
+      }).filter(id => id); // Filter out any null/undefined IDs
+      
+      // 🔥 NUCLEAR DEBUG: Log selection state
+      console.log('BLAST CLICKED', {
+        totalCheckboxes: allCheckboxes.length,
+        checkedCount: checkedCheckboxes.length,
+        selectedIds: selected,
+        selectedCount: selected.length
+      });
       
       // #region agent log - Cards selected
-      fetch('http://127.0.0.1:7242/ingest/a5ef77db-cf0a-4573-b971-236b0aa12e72',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rep.html:blastBtn:SELECTED',message:'Cards selected for blast',data:{selected_count:selected.length,selected_ids:selected},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/a5ef77db-cf0a-4573-b971-236b0aa12e72',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rep.html:blastBtn:SELECTED',message:'Cards selected for blast',data:{selected_count:selected.length,selected_ids:selected,total_checkboxes:allCheckboxes.length,checked_count:checkedCheckboxes.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
       // #endregion
       
       if (selected.length === 0) {
-        alert('No cards selected');
+        const debugInfo = {
+          totalCheckboxes: allCheckboxes.length,
+          checkedCount: checkedCheckboxes.length,
+          allCheckboxIds: Array.from(allCheckboxes).map(cb => cb.getAttribute('data-id')),
+          checkedIds: Array.from(checkedCheckboxes).map(cb => cb.getAttribute('data-id'))
+        };
+        console.error('[BLAST] No cards selected - debug info:', debugInfo);
+        alert(`No cards selected.\n\nDebug: Found ${allCheckboxes.length} total checkboxes, ${checkedCheckboxes.length} checked.\n\nCheck browser console for details.`);
         return;
       }
 
