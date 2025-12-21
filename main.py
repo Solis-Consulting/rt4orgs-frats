@@ -1463,16 +1463,20 @@ async def twilio_inbound(request: Request):
             print(f"[TWILIO_INBOUND]   Reason: Card {card_id} has no assignment and no rep_user_id to assign to", flush=True)
             reply_text = None
         elif result.get("next_state"):
+            next_state = result["next_state"]
+            previous_state = result.get("previous_state", "initial_outreach")
+            
             print("=" * 80, flush=True)
             print(f"[TWILIO_INBOUND] 🔄 MARKOV STATE TRANSITION DETECTED", flush=True)
             print("=" * 80, flush=True)
-            print(f"[TWILIO_INBOUND]   Previous state: {result.get('previous_state', 'unknown')}", flush=True)
-            print(f"[TWILIO_INBOUND]   Next state: {result.get('next_state')}", flush=True)
+            print(f"[TWILIO_INBOUND]   Inbound text: '{Body}'", flush=True)
+            print(f"[TWILIO_INBOUND]   Previous state: {previous_state}", flush=True)
+            print(f"[TWILIO_INBOUND]   Next state: {next_state}", flush=True)
             print(f"[TWILIO_INBOUND]   Intent category: {result.get('intent', {}).get('category', 'unknown')}", flush=True)
             print(f"[TWILIO_INBOUND]   Intent subcategory: {result.get('intent', {}).get('subcategory', 'unknown')}", flush=True)
+            print(f"[TWILIO_INBOUND]   Transition: {previous_state} → {next_state}", flush=True)
+            logger.info(f"[MARKOV] inbound='{Body}' → state='{next_state}' (previous='{previous_state}')")
             print("=" * 80, flush=True)
-            next_state = result["next_state"]
-            previous_state = result.get("previous_state", "initial_outreach")
             
             print("=" * 80, flush=True)
             print(f"[TWILIO_INBOUND] 🔄 STATE TRANSITION", flush=True)
@@ -1549,27 +1553,47 @@ async def twilio_inbound(request: Request):
                 print(f"[TWILIO_INBOUND]   Original response: {configured_response}", flush=True)
                 print(f"[TWILIO_INBOUND]   Response length: {len(configured_response)} chars", flush=True)
                 
-                # If we have a card, substitute template placeholders
-                if card and card.get("card_data"):
-                    print(f"[TWILIO_INBOUND] 📋 Card found, applying template substitution...", flush=True)
-                    from backend.blast import _substitute_template
-                    from archive_intelligence.message_processor.utils import load_sales_history, find_matching_fraternity
-                    
-                    data = card["card_data"]
-                    sales_history = load_sales_history()
-                    purchased_example = None
-                    if isinstance(sales_history, dict):
-                        purchased_example = find_matching_fraternity(data, sales_history)
-                    
-                    reply_text = _substitute_template(configured_response, data, purchased_example)
-                    print(f"[TWILIO_INBOUND] ✅ Template substitution complete", flush=True)
-                    print(f"[TWILIO_INBOUND]   Substituted response: {reply_text}", flush=True)
-                    print(f"[TWILIO_INBOUND]   Substituted length: {len(reply_text)} chars", flush=True)
+                # Check if response is empty after coercion (safety check)
+                if not configured_response or not configured_response.strip():
+                    print(f"[TWILIO_INBOUND] ⚠️ WARNING: Configured response is empty after processing", flush=True)
+                    logger.warning(f"[MARKOV] Empty response for state '{next_state}' - will use fallback")
+                    configured_response = None  # Trigger fallback
                 else:
-                    reply_text = configured_response
-                    print(f"[TWILIO_INBOUND] ✅ Using configured response as-is (no card for substitution)", flush=True)
-                    print(f"[TWILIO_INBOUND]   Final reply_text: {reply_text}", flush=True)
-            else:
+                    # If we have a card, substitute template placeholders
+                    if card and card.get("card_data"):
+                        print(f"[TWILIO_INBOUND] 📋 Card found, applying template substitution...", flush=True)
+                        from backend.blast import _substitute_template
+                        from archive_intelligence.message_processor.utils import load_sales_history, find_matching_fraternity
+                        
+                        data = card["card_data"]
+                        sales_history = load_sales_history()
+                        purchased_example = None
+                        if isinstance(sales_history, dict):
+                            purchased_example = find_matching_fraternity(data, sales_history)
+                        
+                        reply_text = _substitute_template(configured_response, data, purchased_example)
+                        
+                        # Check if substitution resulted in empty text
+                        if not reply_text or not reply_text.strip():
+                            print(f"[TWILIO_INBOUND] ⚠️ WARNING: Template substitution resulted in empty text", flush=True)
+                            logger.warning(f"[MARKOV] Empty text after substitution for state '{next_state}' - will use fallback")
+                            reply_text = None  # Trigger fallback
+                        else:
+                            print(f"[TWILIO_INBOUND] ✅ Template substitution complete", flush=True)
+                            print(f"[TWILIO_INBOUND]   Substituted response: {reply_text}", flush=True)
+                            print(f"[TWILIO_INBOUND]   Substituted length: {len(reply_text)} chars", flush=True)
+                            logger.info(f"[MARKOV] Generated reply for state '{next_state}': {reply_text[:50]}...")
+                    else:
+                        reply_text = configured_response
+                        print(f"[TWILIO_INBOUND] ✅ Using configured response as-is (no card for substitution)", flush=True)
+                        print(f"[TWILIO_INBOUND]   Final reply_text: {reply_text}", flush=True)
+                        logger.info(f"[MARKOV] Using configured response for state '{next_state}': {reply_text[:50]}...")
+                    
+                    # If reply_text is still None or empty, trigger fallback
+                    if not reply_text or not reply_text.strip():
+                        configured_response = None
+            # Handle case where configured_response is None or empty
+            if not configured_response or (isinstance(configured_response, str) and not configured_response.strip()):
                 # No configured response found (neither rep-specific nor global)
                 print("=" * 80, flush=True)
                 print(f"[TWILIO_INBOUND] ⚠️ NO MARKOV RESPONSE CONFIGURED", flush=True)
@@ -1578,6 +1602,7 @@ async def twilio_inbound(request: Request):
                 print(f"[TWILIO_INBOUND]   Rep user ID: {rep_user_id}", flush=True)
                 print(f"[TWILIO_INBOUND]   This means neither the rep nor the owner has configured a response for this state", flush=True)
                 print(f"[TWILIO_INBOUND]   💡 Action: Configure a response in Markov Editor for state '{next_state}'", flush=True)
+                logger.warning(f"[MARKOV] No response found for state '{next_state}' (rep_user_id={rep_user_id})")
                 print("=" * 80, flush=True)
                 
                 # FALLBACK: Send a generic acknowledgment if no response configured
@@ -1585,8 +1610,20 @@ async def twilio_inbound(request: Request):
                 if card_assigned:
                     print(f"[TWILIO_INBOUND] 🔄 Using fallback response (no configured response for state '{next_state}')", flush=True)
                     name = (card.get("card_data", {}) or {}).get("name", "there")
-                    reply_text = f"Thanks for your message, {name}! We'll get back to you soon."
+                    
+                    # Generate context-aware fallback based on state category
+                    intent_category = result.get("intent", {}).get("category", "")
+                    if intent_category == "interest" or "interest" in next_state.lower():
+                        reply_text = f"Got it, {name} — happy to explain pricing, volume, or delivery timing whenever you're ready."
+                    elif intent_category == "pricing":
+                        reply_text = f"Thanks for asking, {name}! I'll get you pricing details shortly."
+                    elif intent_category == "question":
+                        reply_text = f"Thanks for your question, {name}! I'll get back to you with details soon."
+                    else:
+                        reply_text = f"Thanks for your message, {name}! We'll get back to you soon."
+                    
                     print(f"[TWILIO_INBOUND]   Fallback response: {reply_text}", flush=True)
+                    logger.info(f"[MARKOV] Using fallback response for state '{next_state}' (category: {intent_category})")
                 else:
                     # Don't send a reply if card is unassigned
                     reply_text = None
