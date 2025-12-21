@@ -832,26 +832,33 @@
 
       console.log("🚨🚨🚨 BLAST CLICK DETECTED");
       console.log("🚨 BLAST CLICK — JS OWNS THIS EVENT");
-      alert("🚨 BLAST HANDLER FIRED - Check console!");
+      console.log("[BLAST] Button element:", btn);
+      console.log("[BLAST] Button disabled:", btn.disabled);
+      console.log("[BLAST] Button ID:", btn.id);
       
       // Check if button is disabled
       if (btn.disabled) {
-        console.warn("[BLAST] ⚠️ Button is disabled - cannot blast");
-        console.warn("[BLAST] Button disabled state:", btn.disabled);
-        alert("⚠️ Button is DISABLED - please select cards first");
+        const reason = "Button is disabled";
+        console.warn("[BLAST] ⚠️", reason);
+        alert(`⚠️ ${reason} - please select cards first\n\nCheck console for details.`);
         return;
       }
 
       const backend = window.BACKEND_URL;
+      console.log("[BLAST] Backend URL:", backend);
       if (!backend) {
-        alert("BACKEND_URL is missing");
-        console.error("❌ [BLAST] window.BACKEND_URL is:", window.BACKEND_URL);
+        const error = "BACKEND_URL is missing";
+        console.error("❌ [BLAST]", error);
+        alert(`❌ ${error}\n\nCheck console: window.BACKEND_URL = ${window.BACKEND_URL}`);
         return;
       }
 
       const token = sessionStorage.getItem("repApiToken") || sessionStorage.getItem("token");
+      console.log("[BLAST] Token found:", !!token);
       if (!token) {
-        alert("Missing token");
+        const error = "Missing token in sessionStorage";
+        console.error("❌ [BLAST]", error);
+        alert(`❌ ${error}\n\nPlease login again.`);
         return;
       }
 
@@ -859,10 +866,12 @@
       const cardIds = getSelectedCardIds();
       console.log("[BLAST] DOM-selected card IDs:", cardIds);
       console.log("[BLAST] Selected count:", cardIds.length);
+      console.log("[BLAST] Checkboxes checked:", document.querySelectorAll('input[type="checkbox"][data-card-id]:checked').length);
 
       if (cardIds.length === 0) {
-        alert("No cards selected — aborting blast");
-        console.warn("[BLAST] ❌ No cards selected in DOM - aborting");
+        const error = "No cards selected";
+        console.warn("[BLAST] ❌", error);
+        alert(`❌ ${error} — aborting blast\n\nPlease select at least one card checkbox.`);
         return;
       }
 
@@ -875,12 +884,18 @@
 
       const url = new URL("/rep/blast", backend).toString();
       const requestBody = { card_ids: cardIds };
-      console.log("🌐 [BLAST] POST →", url);
+      console.log("🌐 [BLAST] About to send POST request");
+      console.log("🌐 [BLAST] URL:", url);
       console.log("🌐 [BLAST] Request body:", JSON.stringify(requestBody));
       console.log("🌐 [BLAST] Card IDs being sent:", cardIds);
+      console.log("🌐 [BLAST] Headers:", {
+        "Authorization": `Bearer ${token.substring(0, 10)}...`,
+        "Content-Type": "application/json",
+      });
 
       let res;
       try {
+        console.log("🌐 [BLAST] Calling fetch() NOW...");
         res = await fetch(url, {
           method: "POST",
           mode: "cors",
@@ -892,6 +907,7 @@
           body: JSON.stringify(requestBody),
         });
         console.log("✅ [BLAST] Fetch completed - status:", res.status);
+        console.log("✅ [BLAST] Response OK:", res.ok);
       } catch (err) {
         console.error("❌ [BLAST] fetch threw", err);
         alert("Fetch threw: " + (err?.message || String(err)));
