@@ -104,11 +104,19 @@ def _fetch_cards_by_ids(conn: Any, card_ids: List[str]) -> List[Dict[str, Any]]:
 def _substitute_template(template: str, data: Dict[str, Any], purchased_example: Dict[str, Any] | None) -> str:
     """
     Substitute placeholders in template string with values from card data and purchased example.
+    Supports all vertical types (frats, faith, academic, government, cultural, sports).
     
     Supported placeholders:
-    - {name} - from data.get("name")
-    - {fraternity} - from data.get("fraternity")
-    - {faith_group} - from data.get("faith_group")
+    - {name} or {contact_name} - from data.get("name")
+    - {role} or {position} - from data.get("role")
+    - {fraternity} - from data.get("fraternity") (frats)
+    - {chapter} - from data.get("chapter") (frats)
+    - {faith_group} - from data.get("faith_group") (faith)
+    - {group} or {faith_group_or_org} - from data.get("group") (cultural)
+    - {team} or {team_or_club} - from data.get("team") (sports)
+    - {org} or {organization_name} - from data.get("org") (government)
+    - {program} or {program_name} - from data.get("program") (academic)
+    - {department} or {department_name} - from data.get("department") (academic)
     - {university} - from data.get("university")
     - {purchased_names} or {names_given} - from purchased_example (names given)
     - {purchased_chapter} or {matched_chapter} - from purchased_example (chapter)
@@ -120,12 +128,19 @@ def _substitute_template(template: str, data: Dict[str, Any], purchased_example:
     print(f"[SUBSTITUTE] Template: {template[:100]}...", flush=True)
     print(f"[SUBSTITUTE] Purchased example is None: {purchased_example is None}", flush=True)
     
-    # Extract values from card data
-    name = data.get("name") or ""
+    # Extract values from card data - support all vertical types
+    name = data.get("name") or data.get("contact_name") or ""
+    role = data.get("role") or data.get("position") or ""
     fraternity = data.get("fraternity") or ""
+    chapter = data.get("chapter") or ""
     faith_group = data.get("faith_group") or ""
+    group = data.get("group") or data.get("faith_group_or_org") or ""
+    team = data.get("team") or data.get("team_or_club") or ""
+    org = data.get("org") or data.get("organization_name") or ""
+    program = data.get("program") or data.get("program_name") or ""
+    department = data.get("department") or data.get("department_name") or ""
     university = data.get("university") or ""
-    print(f"[SUBSTITUTE] Card data - name: '{name}', fraternity: '{fraternity}', faith_group: '{faith_group}', university: '{university}'", flush=True)
+    print(f"[SUBSTITUTE] Card data - name: '{name}', role: '{role}', fraternity: '{fraternity}', chapter: '{chapter}', faith_group: '{faith_group}', group: '{group}', team: '{team}', org: '{org}', program: '{program}', department: '{department}', university: '{university}'", flush=True)
     
     # Extract values from purchased example (deal)
     purchased_names = ""
@@ -150,11 +165,26 @@ def _substitute_template(template: str, data: Dict[str, Any], purchased_example:
     
     # Perform substitution using .format() with safe defaults
     # Support both naming conventions for backward compatibility
+    # Include all vertical-specific fields
     try:
         result = template.format(
             name=name,
+            contact_name=name,  # Alias for backward compatibility
+            role=role,
+            position=role,  # Alias for backward compatibility
             fraternity=fraternity,
+            chapter=chapter,
             faith_group=faith_group,
+            group=group,
+            faith_group_or_org=group,  # Alias for backward compatibility
+            team=team,
+            team_or_club=team,  # Alias for backward compatibility
+            org=org,
+            organization_name=org,  # Alias for backward compatibility
+            program=program,
+            program_name=program,  # Alias for backward compatibility
+            department=department,
+            department_name=department,  # Alias for backward compatibility
             university=university,
             purchased_names=purchased_names,
             names_given=purchased_names,  # Alias for backward compatibility
@@ -169,11 +199,25 @@ def _substitute_template(template: str, data: Dict[str, Any], purchased_example:
     except KeyError as e:
         # If template has unknown placeholders, log and continue with what we have
         print(f"[SUBSTITUTE] ⚠️ Template substitution warning: unknown placeholder {e}", flush=True)
-        # Fallback: use replace for known placeholders
+        # Fallback: use replace for known placeholders (all vertical types)
         result = template
         result = result.replace("{name}", name)
+        result = result.replace("{contact_name}", name)
+        result = result.replace("{role}", role)
+        result = result.replace("{position}", role)
         result = result.replace("{fraternity}", fraternity)
+        result = result.replace("{chapter}", chapter)
         result = result.replace("{faith_group}", faith_group)
+        result = result.replace("{group}", group)
+        result = result.replace("{faith_group_or_org}", group)
+        result = result.replace("{team}", team)
+        result = result.replace("{team_or_club}", team)
+        result = result.replace("{org}", org)
+        result = result.replace("{organization_name}", org)
+        result = result.replace("{program}", program)
+        result = result.replace("{program_name}", program)
+        result = result.replace("{department}", department)
+        result = result.replace("{department_name}", department)
         result = result.replace("{university}", university)
         result = result.replace("{purchased_names}", purchased_names)
         result = result.replace("{names_given}", purchased_names)
