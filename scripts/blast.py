@@ -153,19 +153,19 @@ def find_unblasted_contacts(leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return unblasted
 
 
-def send_sms(to_number: str, body: str, force_direct: bool = False) -> Dict[str, Any]:
+def send_sms(to_number: str, body: str, force_direct: bool = True) -> Dict[str, Any]:
     """
     Send SMS via Twilio with comprehensive logging.
     Always uses system Twilio credentials from environment variables.
     
-    For blasts: ALWAYS uses Messaging Service when available (required for A2P 10DLC compliance).
-    Messaging Service handles carrier rules, compliance, and number rotation.
-    Direct phone number is only used as fallback if Messaging Service is not configured.
+    For blasts: ALWAYS uses direct phone number mode (force_direct=True by default).
+    Direct mode is simpler, more reliable, and works well for controlled blast traffic.
+    Messaging Service is ignored even if configured.
     
     Args:
         to_number: Recipient phone number
         body: Message body
-        force_direct: If True, force direct phone (ignored if Messaging Service is set)
+        force_direct: If True (default), use direct phone number (ignore Messaging Service)
     
     Returns:
         Dict with sid, status, and detailed response info
@@ -204,31 +204,31 @@ def send_sms(to_number: str, body: str, force_direct: bool = False) -> Dict[str,
     
     # 🔒 CRITICAL: For blasts, ALWAYS use direct phone number
     # Never use Messaging Service for blasts (ensures messages actually send)
-    # 🔥 CRITICAL: Always prefer Messaging Service for compliance and carrier rules
-    # Messaging Service is REQUIRED for A2P 10DLC and blast-style traffic
-    if messaging_service_sid:
-        print(f"[SEND_SMS] ✅ TWILIO_MESSAGING_SERVICE_SID is set - using Messaging Service mode (REQUIRED for blasts)", flush=True)
-        use_messaging_service = True
-        send_mode = "MESSAGING_SERVICE"
-        # Do NOT require phone_number when using Messaging Service
-        if force_direct:
-            print(f"[SEND_SMS] ⚠️ WARNING: force_direct=True but Messaging Service is set - ignoring force_direct for compliance", flush=True)
-    elif force_direct:
-        print(f"[SEND_SMS] ⚠️ FALLBACK: No Messaging Service - using direct phone number (NOT RECOMMENDED for blasts)", flush=True)
+    # 🔥 CRITICAL: FORCE DIRECT PHONE NUMBER MODE (ignore Messaging Service)
+    # Direct mode works reliably and is simpler for controlled blast traffic
+    # Messaging Service is ignored even if configured
+    if force_direct:
+        print(f"[SEND_SMS] ✅ FORCE DIRECT MODE: Using direct phone number (force_direct=True)", flush=True)
         if not phone_number:
-            error_msg = "TWILIO_PHONE_NUMBER not set and TWILIO_MESSAGING_SERVICE_SID not set - one must be configured"
+            error_msg = "TWILIO_PHONE_NUMBER not set in environment variables (REQUIRED for direct mode)"
             print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
             raise ValueError(error_msg)
         use_messaging_service = False
         send_mode = "DIRECT_NUMBER"
+        if messaging_service_sid:
+            print(f"[SEND_SMS] ⚠️ TWILIO_MESSAGING_SERVICE_SID is set but will be IGNORED (using direct phone)", flush=True)
     else:
-        # Default: Try Messaging Service, fallback to direct
-        if phone_number:
-            print(f"[SEND_SMS] ⚠️ TWILIO_MESSAGING_SERVICE_SID not set - falling back to direct phone number", flush=True)
+        # Fallback: Try Messaging Service only if force_direct=False
+        if messaging_service_sid:
+            print(f"[SEND_SMS] ⚠️ Messaging Service mode (force_direct=False) - but direct mode is preferred", flush=True)
+            use_messaging_service = True
+            send_mode = "MESSAGING_SERVICE"
+        elif phone_number:
+            print(f"[SEND_SMS] ⚠️ No Messaging Service - using direct phone number", flush=True)
             use_messaging_service = False
             send_mode = "DIRECT_NUMBER"
         else:
-            error_msg = "Neither TWILIO_MESSAGING_SERVICE_SID nor TWILIO_PHONE_NUMBER is set - one must be configured"
+            error_msg = "TWILIO_PHONE_NUMBER must be set (direct mode required)"
             print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
             raise ValueError(error_msg)
     
