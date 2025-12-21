@@ -5230,14 +5230,6 @@ async def rep_blast(
                 status_code=500,
                 content={"ok": False, "error": f"Blast failed: {str(outer_e)}", "sent": 0, "skipped": 0}
             )
-        # Outer try block exception handler
-        print("=" * 80, flush=True)
-        print(f"[BLAST_ENDPOINT] ❌ OUTER EXCEPTION CAUGHT", flush=True)
-        print(f"[BLAST_ENDPOINT] Error: {str(e)}", flush=True)
-        import traceback
-        traceback.print_exc()
-        print("=" * 80, flush=True)
-        raise HTTPException(status_code=500, detail=f"Blast failed: {str(e)}")
 
 
 @app.post("/rep/messages/send")
