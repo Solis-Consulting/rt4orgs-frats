@@ -95,11 +95,7 @@ def _fetch_cards_by_ids(conn: Any, card_ids: List[str]) -> List[Dict[str, Any]]:
             phone = (card["card_data"] or {}).get("phone")
             if not phone:
                 continue
-        # Note: Phone normalization happens in skip checks above
-        # Update card_data with normalized phone if needed
-        if isinstance(card["card_data"], dict) and phone_normalized:
-            card["card_data"]["phone"] = phone_normalized
-            phone = phone_normalized
+            # Phone normalization happens in blast loop - just collect cards here
             person_cards.append(card)
 
     return person_cards
@@ -411,7 +407,7 @@ def run_blast_for_cards(
     for card in cards:
         card_id = card["id"]
         data = card["card_data"] or {}
-        phone = data.get("phone")
+        raw_phone = data.get("phone")
 
         # Decision visibility: log what we know before eligibility checks
         print(
@@ -419,14 +415,15 @@ def run_blast_for_cards(
             {
                 "card_id": card_id,
                 "type": card.get("type"),
-                "phone": phone,
+                "phone": raw_phone,
                 "sales_state": card.get("sales_state"),
                 "owner": card.get("owner"),
             },
             flush=True,
         )
 
-        if not phone:
+        # 🔥 CRITICAL: Normalize phone ONCE at the top, before ANY checks
+        if not raw_phone:
             skip_reason = "NO_PHONE"
             print(
                 f"[BLAST_SKIP] card_id={card_id} phone=None reason={skip_reason}",
@@ -443,8 +440,8 @@ def run_blast_for_cards(
             )
             continue
 
-        # Normalize phone for checks
-        phone_normalized = normalize_phone(phone)
+        # Normalize phone immediately after validating it exists
+        phone_normalized = normalize_phone(raw_phone)
         
         # 🔥 COMPREHENSIVE SKIP CHECKS with explicit logging
         skip_reason = None
@@ -469,11 +466,11 @@ def run_blast_for_cards(
                 flush=True,
             )
         
-        # Check 3: Invalid phone format
+        # Check 3: Invalid phone format (after normalization)
         elif not phone_normalized or not phone_normalized.startswith("+"):
             skip_reason = "INVALID_PHONE"
             print(
-                f"[BLAST_SKIP] card_id={card_id} phone={phone} reason={skip_reason} "
+                f"[BLAST_SKIP] card_id={card_id} phone={raw_phone} reason={skip_reason} "
                 f"(normalized={phone_normalized})",
                 flush=True,
             )
