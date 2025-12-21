@@ -4780,6 +4780,9 @@ async def rep_blast(
     request: Request
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
+    # 🔥 KILL SHOT: This MUST crash if this function is being called
+    raise RuntimeError("🚨 BLAST FUNCTION ENTERED")
+    
     _logger = logging.getLogger(__name__)
     print("🚨🚨🚨 [BLAST] ROUTE ENTERED", flush=True)
     
