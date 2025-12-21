@@ -4813,10 +4813,10 @@ async def rep_blast(
     card_ids = payload.get("card_ids")
     print("🧠 [BLAST] card_ids:", card_ids, flush=True)
     
-    if not card_ids:
-        print("❌ [BLAST] NO CARD IDS — ABORTING", flush=True)
-        return {"ok": False, "error": "no card_ids"}
-    
+        if not card_ids:
+            print("❌ [BLAST] NO CARD IDS — ABORTING", flush=True)
+            return {"ok": False, "error": "no card_ids"}
+        
         print("🚀 [BLAST] BEGIN LOOP", flush=True)
         
         current_user = user
