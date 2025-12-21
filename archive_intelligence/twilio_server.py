@@ -115,6 +115,11 @@ def load_all():
 @app.post("/twilio")
 async def twilio_webhook(request: Request):
     """Twilio webhook endpoint - receives inbound SMS and processes with full message pipeline"""
+    # 🔥 ROUTE DETECTION: OLD/LEGACY HANDLER - This should NOT be used!
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.error(f"🚨🚨🚨 TWILIO ROUTE HIT: /twilio (OLD/LEGACY HANDLER - SHOULD NOT BE USED!)")
+    print(f"🚨🚨🚨 TWILIO ROUTE HIT: /twilio (OLD/LEGACY HANDLER - SHOULD NOT BE USED!) Path: {request.url.path}", flush=True)
     form = await request.form()
     from_number = form.get("From", "")
     body = form.get("Body", "").strip()
@@ -169,6 +174,11 @@ async def twilio_webhook(request: Request):
 @app.post("/sms")
 async def sms_webhook_legacy(request: Request):
     """Legacy Flask-compatible endpoint"""
+    # 🔥 ROUTE DETECTION: OLD/LEGACY HANDLER - This should NOT be used!
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.error(f"🚨🚨🚨 TWILIO ROUTE HIT: /sms (OLD/LEGACY HANDLER - SHOULD NOT BE USED!)")
+    print(f"🚨🚨🚨 TWILIO ROUTE HIT: /sms (OLD/LEGACY HANDLER - SHOULD NOT BE USED!) Path: {request.url.path}", flush=True)
     return await twilio_webhook(request)
 
 

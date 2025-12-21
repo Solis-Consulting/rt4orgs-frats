@@ -600,6 +600,9 @@ async def outbound(event: dict):
 
 @app.post("/events/inbound")
 async def inbound(event: dict):
+    # 🔥 ROUTE DETECTION: Log which route is handling the request
+    logger.error(f"🚨🚨🚨 TWILIO ROUTE HIT: /events/inbound (NOT the canonical inbound handler)")
+    print(f"🚨🚨🚨 TWILIO ROUTE HIT: /events/inbound (NOT the canonical inbound handler)", flush=True)
     conn = get_conn()
     # Normalize phone number for consistent matching
     phone = normalize_phone(event["phone"])
@@ -624,6 +627,9 @@ async def inbound_intelligent(event: dict):
     and updates the database.
     Auto-creates conversation if it doesn't exist.
     """
+    # 🔥 ROUTE DETECTION: Log which route is handling the request
+    logger.error(f"🚨🚨🚨 TWILIO ROUTE HIT: /events/inbound_intelligent (called from twilio_inbound, not directly)")
+    print(f"🚨🚨🚨 TWILIO ROUTE HIT: /events/inbound_intelligent", flush=True)
     conn = get_conn()
     phone_raw = event["phone"]
     # Normalize phone number for consistent matching
@@ -1081,6 +1087,10 @@ async def twilio_inbound(request: Request):
     Receives form-encoded data from Twilio and processes through intelligence layer.
     Gated by webhook configuration (enabled, mode, logging).
     """
+    # 🔥 ROUTE DETECTION: This is the CANONICAL inbound handler
+    logger.error(f"🚨🚨🚨 TWILIO ROUTE HIT: /twilio/inbound (CANONICAL HANDLER)")
+    print(f"🚨🚨🚨 TWILIO ROUTE HIT: /twilio/inbound (CANONICAL HANDLER) - Path: {request.url.path}", flush=True)
+    
     # 🔥 STEP 0: ABSOLUTE CANARY - First line, no conditionals, no guards
     logger.error("🚨🚨🚨 INBOUND WEBHOOK HIT — RAW REQUEST RECEIVED 🚨🚨🚨")
     print("🚨🚨🚨 INBOUND WEBHOOK HIT — RAW REQUEST RECEIVED 🚨🚨🚨", flush=True)
