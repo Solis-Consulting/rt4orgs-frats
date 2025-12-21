@@ -779,7 +779,7 @@
       
       blastBtn.addEventListener('click', async (e) => {
         // 🔥 CRITICAL: Log immediately when handler fires
-        console.log("🚨 [BLAST] CLICK HANDLER FIRED");
+        console.log("🚨🚨🚨 [BLAST] CLICK HANDLER FIRED 🚨🚨🚨");
         console.log("🌐 [BLAST] BACKEND_URL:", BACKEND_URL);
         console.log("🌐 [BLAST] BACKEND:", BACKEND);
         console.log("🌐 [BLAST] Full URL will be:", `${BACKEND}/rep/blast`);
@@ -789,11 +789,21 @@
           e.stopPropagation();
         }
         
+        // 🔥 CRITICAL: Check if selection store exists and log its state
+        if (!window.__SELECTED_CARD_IDS__) {
+          console.error("❌ [BLAST] window.__SELECTED_CARD_IDS__ is undefined!");
+          alert("Error: Selection store not initialized. Please refresh the page.");
+          return;
+        }
+        
         const ids = [...window.__SELECTED_CARD_IDS__];
-        console.log("🧠 [BLAST] selected ids:", ids);
+        console.log("🧠 [BLAST] Selection store size:", window.__SELECTED_CARD_IDS__.size);
+        console.log("🧠 [BLAST] Selected ids array:", ids);
+        console.log("🧠 [BLAST] IDs length:", ids.length);
         
         if (!ids.length) {
           console.error("❌ [BLAST] NO IDS — NOT SENDING");
+          alert("Please select at least one card to blast.");
           return;
         }
         
