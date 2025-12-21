@@ -1153,13 +1153,53 @@ async def twilio_inbound(request: Request):
             else:
                 print(f"[TWILIO_INBOUND] ⚠️ No card found by phone number: {normalized_phone}", flush=True)
         
+        # 🔥 CRITICAL: Find conversation by phone FIRST (across all environments)
+        # This prevents losing the conversation due to environment mismatch
+        print(f"[TWILIO_INBOUND] 🔍 Step 2: Finding conversation by phone (across environments)...", flush=True)
+        conversation_by_phone = None
+        with conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    SELECT environment_id, rep_user_id, card_id, state, last_outbound_source, last_outbound_at, updated_at
+                    FROM conversations
+                    WHERE phone = %s
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                """, (normalized_phone,))
+                conversation_by_phone = cur.fetchone()
+            except psycopg2.ProgrammingError:
+                # Fallback if environment_id column doesn't exist
+                cur.execute("""
+                    SELECT NULL as environment_id, rep_user_id, card_id, state, NULL as last_outbound_source, last_outbound_at, updated_at
+                    FROM conversations
+                    WHERE phone = %s
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                """, (normalized_phone,))
+                conversation_by_phone = cur.fetchone()
+        
+        if conversation_by_phone:
+            env_id_from_convo, rep_from_convo, card_id_from_convo, state_from_convo, last_source, last_outbound_at, updated_at = conversation_by_phone
+            print(f"[TWILIO_INBOUND] ✅ Found conversation by phone: env={env_id_from_convo}, rep={rep_from_convo}, state={state_from_convo}, last_source={last_source}", flush=True)
+            # Use conversation's environment_id if available
+            if env_id_from_convo:
+                environment_id = env_id_from_convo
+                print(f"[TWILIO_INBOUND] ✅ Using environment_id from conversation: {environment_id}", flush=True)
+            # Use conversation's card_id if we don't have one
+            if card_id_from_convo and not card_id:
+                card_id = card_id_from_convo
+                print(f"[TWILIO_INBOUND] ✅ Using card_id from conversation: {card_id}", flush=True)
+        else:
+            print(f"[TWILIO_INBOUND] ⚠️ No conversation found by phone - will route to environment", flush=True)
+        
         # 🔥 ENVIRONMENT ISOLATION: Route inbound to environment that last sent outbound
         # This is the critical fix - we must route to the correct environment, not just any conversation
-        print(f"[TWILIO_INBOUND] 🔍 Step 2: Routing to environment (last outbound wins)...", flush=True)
+        print(f"[TWILIO_INBOUND] 🔍 Step 2b: Routing to environment (last outbound wins)...", flush=True)
         from backend.environment import route_inbound_to_environment, get_or_create_environment, store_message_event
         
-        # Route to environment that last sent an outbound SMS
-        environment_id, routed_rep_id, routed_campaign_id = route_inbound_to_environment(conn, normalized_phone)
+        # Route to environment that last sent an outbound SMS (or use conversation's environment if found)
+        if not environment_id:
+            environment_id, routed_rep_id, routed_campaign_id = route_inbound_to_environment(conn, normalized_phone)
         
         # If no prior outbound, create new environment based on current context
         if not environment_id:
@@ -1188,7 +1228,9 @@ async def twilio_inbound(request: Request):
             routed_campaign_id = campaign_id
             print(f"[TWILIO_INBOUND] ✅ Created new environment: {environment_id} (rep={routed_rep_id}, campaign={routed_campaign_id})", flush=True)
         else:
-            print(f"[TWILIO_INBOUND] ✅ Routed to existing environment: {environment_id} (rep={routed_rep_id}, campaign={routed_campaign_id})", flush=True)
+            if conversation_by_phone:
+                routed_rep_id = rep_from_convo or routed_rep_id
+            print(f"[TWILIO_INBOUND] ✅ Using environment: {environment_id} (rep={routed_rep_id}, campaign={routed_campaign_id})", flush=True)
         
         # Step 3: Use helper function to resolve rep_user_id with repair capability
         # This replaces the previous complex resolution logic with a clean helper that:
@@ -1533,7 +1575,9 @@ async def twilio_inbound(request: Request):
             
             print(f"[TWILIO_INBOUND]   rep_user_id (final): {rep_user_id}", flush=True)
             print(f"[TWILIO_INBOUND]   Querying markov_responses table...", flush=True)
-            configured_response = get_markov_response(conn, next_state, rep_user_id)
+            
+            # Use trace wrapper for comprehensive logging
+            configured_response = get_markov_response_with_trace(conn, next_state, rep_user_id, phone=normalized_phone)
             logger.info(f"[MARKOV] lookup state={next_state} rep_user_id={rep_user_id} rep_specific_found={bool(configured_response)}")
             print("=" * 80, flush=True)
             if configured_response:
@@ -3690,6 +3734,50 @@ def classify_intent_simple(text: str) -> Dict[str, Any]:
         return {"category": "interest", "subcategory": "light_interest"}
     
     return {}
+
+
+def get_markov_response_with_trace(conn, next_state: str, rep_user_id: str | None, phone: str = None):
+    """
+    Wrapper around get_markov_response() with comprehensive logging like a ledger.
+    This makes the failure mode obvious in one inbound.
+    """
+    import logging
+    _logger = logging.getLogger(__name__)
+    
+    # 1) Check rep-specific existence
+    rep_count = 0
+    if rep_user_id:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM markov_responses WHERE state_key=%s AND user_id=%s",
+                (next_state, rep_user_id)
+            )
+            rep_count = cur.fetchone()[0]
+    
+    # 2) Check global existence
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM markov_responses WHERE state_key=%s AND (user_id IS NULL OR user_id='')",
+            (next_state,)
+        )
+        global_count = cur.fetchone()[0]
+    
+    _logger.error(
+        f"[MARKOV_TRACE] phone={phone} next_state={next_state} rep_user_id={rep_user_id} "
+        f"rep_count={rep_count} global_count={global_count}"
+    )
+    print(f"[MARKOV_TRACE] phone={phone} next_state={next_state} rep_user_id={rep_user_id} rep_count={rep_count} global_count={global_count}", flush=True)
+    
+    # 3) Call your existing function
+    resp = get_markov_response(conn, next_state, rep_user_id)
+    
+    _logger.error(
+        f"[MARKOV_TRACE] selected: phone={phone} rep_user_id_used={rep_user_id} "
+        f"resp_exists={bool(resp)} resp_preview={str(resp)[:120] if resp else 'None'}"
+    )
+    print(f"[MARKOV_TRACE] selected: phone={phone} rep_user_id_used={rep_user_id} resp_exists={bool(resp)} resp_preview={str(resp)[:120] if resp else 'None'}", flush=True)
+    
+    return resp
 
 
 def get_markov_response(conn: Any, state_key: str, user_id: Optional[str] = None) -> Optional[str]:

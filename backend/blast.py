@@ -770,28 +770,24 @@ def run_blast_for_cards(
                     ownership_changing = True
                     print(f"[BLAST] 🔄 First rep claim: NULL → {rep_user_id}", flush=True)
                 
-                # C) Force state to initial_outreach on rep blast (unconditional for rep blasts)
-                # For rep blasts, always set to initial_outreach to guarantee first inbound starts from correct state
+                # C) Force state to initial_outreach on rep blast (UNCONDITIONAL - no conditionals)
+                # For rep blasts, ALWAYS reset to initial_outreach to guarantee first inbound starts from correct state
                 if rep_user_id is not None:
                     new_state = 'initial_outreach'
-                    print(f"[BLAST] 🔄 Rep blast: forcing state to '{new_state}' (unconditional)", flush=True)
+                    print(f"[BLAST] 🔄 Rep blast: FORCING state to '{new_state}' (UNCONDITIONAL)", flush=True)
                 else:
                     # Owner blast: keep existing state or default to awaiting_response
                     new_state = existing_state if existing_state else 'awaiting_response'
                     print(f"[BLAST] 🔄 Owner blast: keeping state '{new_state}'", flush=True)
                 
                 # Add outbound message to history with correct state
-                # Use new_state (which is 'initial_outreach' if ownership changing, 'awaiting_response' otherwise)
-                # This ensures history reflects the actual conversation state, not always initial_outreach
                 outbound_msg = {
                     "direction": "outbound",
                     "text": message,
                     "timestamp": datetime.utcnow().isoformat(),
-                    "state": new_state  # Use actual state, not hardcoded "initial_outreach"
+                    "state": new_state
                 }
                 updated_history = existing_history + [outbound_msg]
-                if ownership_changing:
-                    print(f"[BLAST] 🔄 Resetting state to '{new_state}' for clean ownership transition", flush=True)
                 
                 # Insert or update conversation with history (scoped to environment_id)
                 # CRITICAL: Primary key is now (phone, environment_id) - each environment is isolated
@@ -799,6 +795,17 @@ def run_blast_for_cards(
                     # Try with environment_id (new schema)
                     # B) Use COALESCE to prevent nulling rep_user_id (prevents owner blasts from clearing existing rep ownership)
                     # D) Add RETURNING clause to verify rep_user_id was written
+                    # CRITICAL: For rep blasts, ALWAYS set state='initial_outreach' in SQL (unconditional)
+                    # This ensures state is reset even if Python variable logic has issues
+                    if rep_user_id is not None:
+                        # Rep blast: FORCE state to initial_outreach unconditionally in SQL
+                        state_to_set = 'initial_outreach'
+                        rep_user_id_to_set = rep_user_id  # Never NULL for rep blasts
+                    else:
+                        # Owner blast: use new_state (keep existing or default)
+                        state_to_set = new_state
+                        rep_user_id_to_set = rep_user_id  # Can be NULL for owner blasts
+                    
                     cur.execute(
                         """
                         INSERT INTO conversations
@@ -806,16 +813,15 @@ def run_blast_for_cards(
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
                         ON CONFLICT (phone, environment_id)
                         DO UPDATE SET
-                          last_outbound_at = EXCLUDED.last_outbound_at,
+                          last_outbound_at = NOW(),
                           owner = EXCLUDED.owner,
-                          state = EXCLUDED.state,
+                          state = %s,
                           source_batch_id = EXCLUDED.source_batch_id,
                           card_id = COALESCE(EXCLUDED.card_id, conversations.card_id),
                           history = EXCLUDED.history,
-                          -- POLICY A: Always enable auto-responses (routing_mode = 'ai')
                           routing_mode = 'ai',
-                          -- B) COALESCE prevents nulling existing rep_user_id (owner blasts won't clear rep ownership)
-                          rep_user_id = COALESCE(EXCLUDED.rep_user_id, conversations.rep_user_id)
+                          rep_user_id = %s,
+                          updated_at = NOW()
                         RETURNING rep_user_id, state;
                         """,
                         (
@@ -824,21 +830,33 @@ def run_blast_for_cards(
                             card_id,  # contact_id
                             card_id,
                             owner,
-                            new_state,  # Use new_state (initial_outreach for rep blasts)
+                            state_to_set,  # Use state_to_set (always initial_outreach for rep blasts)
                             blast_id,
                             datetime.utcnow(),
                             json.dumps(updated_history),
                             routing_mode,
-                            rep_user_id,
+                            rep_user_id_to_set,
+                            state_to_set,  # FORCE state in UPDATE (unconditional for rep blasts)
+                            rep_user_id_to_set,  # FORCE rep_user_id in UPDATE (never NULL for rep blasts)
                         ),
                     )
-                    # D) Verify write with RETURNING
+                    # D) Verify write with RETURNING and runtime assertions
                     row = cur.fetchone()
                     if row:
                         returned_rep_user_id = row[0]
                         returned_state = row[1]
-                        logger.info(f"[BLAST] Conversation upsert returned rep_user_id={returned_rep_user_id} state={returned_state}")
+                        logger.error(f"[BLAST] ✅ Conversation upsert RETURNING rep_user_id={returned_rep_user_id} state={returned_state}")
                         print(f"[BLAST] ✅ Conversation recorded/updated: phone={phone}, env={environment_id}, rep_user_id={returned_rep_user_id}, state={returned_state}", flush=True)
+                        
+                        # Runtime assertions to fail loud if state/rep_user_id not persisted correctly
+                        if rep_user_id is not None and returned_rep_user_id != rep_user_id:
+                            error_msg = f"[BLAST] FATAL: rep_user_id not persisted. expected={rep_user_id} got={returned_rep_user_id}"
+                            logger.error(error_msg)
+                            raise RuntimeError(error_msg)
+                        if rep_user_id is not None and returned_state != 'initial_outreach':
+                            error_msg = f"[BLAST] FATAL: state not reset. expected=initial_outreach got={returned_state}"
+                            logger.error(error_msg)
+                            raise RuntimeError(error_msg)
                     else:
                         logger.warning(f"[BLAST] No row returned from conversation upsert (unexpected)")
                         print(f"[BLAST] ✅ Conversation recorded/updated: phone={phone}, env={environment_id}, rep_user_id={rep_user_id}, state={new_state}", flush=True)
@@ -846,8 +864,14 @@ def run_blast_for_cards(
                     # Fallback if environment_id column or composite key doesn't exist yet
                     if 'environment_id' in str(e) or 'conversations_pkey' in str(e):
                         print(f"[BLAST] ⚠️ environment_id not available - using fallback schema", flush=True)
-                        # B) Use COALESCE to prevent nulling rep_user_id (fallback schema)
-                        # D) Add RETURNING clause to verify rep_user_id was written
+                        # CRITICAL: For rep blasts, ALWAYS set state='initial_outreach' in SQL (fallback schema)
+                        if rep_user_id is not None:
+                            state_to_set = 'initial_outreach'
+                            rep_user_id_to_set = rep_user_id
+                        else:
+                            state_to_set = new_state
+                            rep_user_id_to_set = rep_user_id
+                        
                         cur.execute(
                             """
                             INSERT INTO conversations
@@ -855,15 +879,15 @@ def run_blast_for_cards(
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
                             ON CONFLICT (phone)
                             DO UPDATE SET
-                              last_outbound_at = EXCLUDED.last_outbound_at,
+                              last_outbound_at = NOW(),
                               owner = EXCLUDED.owner,
-                              state = EXCLUDED.state,
+                              state = %s,
                               source_batch_id = EXCLUDED.source_batch_id,
                               card_id = COALESCE(EXCLUDED.card_id, conversations.card_id),
                               history = EXCLUDED.history,
                               routing_mode = 'ai',
-                              -- B) COALESCE prevents nulling existing rep_user_id
-                              rep_user_id = COALESCE(EXCLUDED.rep_user_id, conversations.rep_user_id)
+                              rep_user_id = %s,
+                              updated_at = NOW()
                             RETURNING rep_user_id, state;
                             """,
                             (
@@ -871,21 +895,33 @@ def run_blast_for_cards(
                                 card_id,  # contact_id
                                 card_id,
                                 owner,
-                                new_state,
+                                state_to_set,
                                 blast_id,
                                 datetime.utcnow(),
                                 json.dumps(updated_history),
                                 routing_mode,
-                                rep_user_id,
+                                rep_user_id_to_set,
+                                state_to_set,  # FORCE state in UPDATE
+                                rep_user_id_to_set,  # FORCE rep_user_id in UPDATE
                             ),
                         )
-                        # D) Verify write with RETURNING (fallback schema)
+                        # D) Verify write with RETURNING and runtime assertions (fallback schema)
                         row = cur.fetchone()
                         if row:
                             returned_rep_user_id = row[0]
                             returned_state = row[1]
-                            logger.info(f"[BLAST] Conversation upsert returned rep_user_id={returned_rep_user_id} state={returned_state} (fallback schema)")
+                            logger.error(f"[BLAST] ✅ Conversation upsert RETURNING rep_user_id={returned_rep_user_id} state={returned_state} (fallback schema)")
                             print(f"[BLAST] ✅ Conversation recorded/updated: phone={phone}, rep_user_id={returned_rep_user_id}, state={returned_state}", flush=True)
+                            
+                            # Runtime assertions
+                            if rep_user_id is not None and returned_rep_user_id != rep_user_id:
+                                error_msg = f"[BLAST] FATAL: rep_user_id not persisted (fallback). expected={rep_user_id} got={returned_rep_user_id}"
+                                logger.error(error_msg)
+                                raise RuntimeError(error_msg)
+                            if rep_user_id is not None and returned_state != 'initial_outreach':
+                                error_msg = f"[BLAST] FATAL: state not reset (fallback). expected=initial_outreach got={returned_state}"
+                                logger.error(error_msg)
+                                raise RuntimeError(error_msg)
                         else:
                             logger.warning(f"[BLAST] No row returned from conversation upsert (fallback schema, unexpected)")
                             print(f"[BLAST] ✅ Conversation recorded/updated: phone={phone}, rep_user_id={rep_user_id}, state={new_state}", flush=True)
