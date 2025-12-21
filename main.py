@@ -3496,8 +3496,13 @@ async def update_markov_responses(
                 elif not isinstance(response_text, str):
                     response_text = str(response_text)
                     logger.warning(f"⚠️ response_text was {type(response_text)} for {state_key} - coerced to string")
+                
                 description = config.get("description", "")
-                logger.debug(f"Response text length: {len(response_text)}")
+                # Ensure description is also a string
+                if not isinstance(description, str):
+                    description = str(description) if description else ""
+                
+                logger.debug(f"Response text type: {type(response_text)}, length: {len(response_text)}")
                 
                 try:
                     if user_id:
