@@ -4812,10 +4812,15 @@ async def rep_blast(
         print("❌ [BLAST] JSON parse failed:", e, flush=True)
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
     
+    # 🔥 CRITICAL DEBUG: Print JSON payload immediately after parsing
+    print("🧠 [BLAST] JSON:", payload, flush=True)
     print("🧠 [BLAST] parsed payload:", payload, flush=True)
     
-    card_ids = payload.get("card_ids")
-    print("🧠 [BLAST] card_ids:", card_ids, flush=True)
+    # Try both snake_case and camelCase for compatibility
+    card_ids = payload.get("card_ids") or payload.get("cardIds")
+    print("🧠 [BLAST] card_ids value:", card_ids, "type:", type(card_ids), flush=True)
+    if card_ids is not None:
+        print("🧠 [BLAST] card_ids length:", len(card_ids) if isinstance(card_ids, list) else "NOT A LIST", flush=True)
     
     if not card_ids:
         print("❌ [BLAST] NO CARD IDS — ABORTING", flush=True)
@@ -5114,9 +5119,16 @@ async def rep_blast(
             print(f"[BLAST_ENDPOINT]   owner: {current_user['id']}", flush=True)
             
             try:
+                # 🔥 CRITICAL DEBUG: Print card_ids right before the loop
+                print("🧠 [BLAST] card_ids value before loop:", card_ids, "type:", type(card_ids), flush=True)
+                if isinstance(card_ids, list):
+                    print("🧠 [BLAST] card_ids list length:", len(card_ids), flush=True)
+                else:
+                    print("🧠 [BLAST] WARNING: card_ids is NOT a list!", flush=True)
+                
                 # Loop through each card_id
                 for card_id in card_ids:
-                    print(f"📤 [BLAST] sending card_id={card_id}", flush=True)
+                    print(f"📤 [BLAST] SENDING card_id = {card_id}", flush=True)
                 
                 result = run_blast_for_cards(
                     conn=conn,
