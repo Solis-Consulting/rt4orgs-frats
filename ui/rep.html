@@ -151,6 +151,48 @@
   </script>
 
   <script type="module">
+    // 🔥 PHASE 1: Prove script loaded and button exists
+    console.log("[BOOT] rep.html script loaded at", new Date().toISOString());
+    
+    // Watchdog: Monitor button state every 2 seconds
+    setInterval(() => {
+      const btn = document.getElementById("blastBtn");
+      console.log("[WATCHDOG] blastBtn:", btn ? {
+        exists: true,
+        disabled: btn.disabled,
+        text: btn.innerText
+      } : "MISSING");
+    }, 2000);
+    
+    // 🔥 PHASE 2: Log EVERY click (hard proof of interaction)
+    document.addEventListener("click", (e) => {
+      console.log(
+        "[CLICK]",
+        "tag=", e.target.tagName,
+        "id=", e.target.id,
+        "class=", e.target.className,
+        "text=", e.target.innerText?.slice(0, 50)
+      );
+    }, true);
+    
+    // 🔥 PHASE 4: Prove selection store updates (checkbox truth)
+    document.addEventListener("change", (e) => {
+      const cb = e.target.closest('input[type="checkbox"]');
+      if (!cb) return;
+
+      console.log(
+        "[CHECKBOX]",
+        "id=", cb.dataset.cardId || cb.dataset.id,
+        "checked=", cb.checked
+      );
+
+      console.log(
+        "[STORE AFTER]",
+        window.__SELECTED_CARD_IDS__,
+        "size=", window.__SELECTED_CARD_IDS__?.size
+      );
+    }, true);
+    
     // 🔥 Use window.BACKEND_URL as source of truth (already set above)
     const BACKEND = window.BACKEND_URL;
     const BACKEND_URL = window.BACKEND_URL;
@@ -172,11 +214,6 @@
     // 🔥 GLOBAL SELECTION STORE - persists across re-renders (ensure it exists before any listeners)
     window.__SELECTED_CARD_IDS__ = window.__SELECTED_CARD_IDS__ || new Set();
     console.log("🌐 [INIT] Global selection store initialized, size:", window.__SELECTED_CARD_IDS__.size);
-    
-    // 🔥 TRIPWIRE: Log EVERY click on the document to debug handler binding
-    document.addEventListener("click", (e) => {
-      console.log("[CLICK]", e.target, "tag:", e.target.tagName, "id:", e.target.id, "class:", e.target.className);
-    }, true);
     
     // Check for existing rep token in sessionStorage on page load
     (async function checkExistingSession() {
@@ -775,21 +812,22 @@
       }
     });
     
-    // 🔥 BLAST HANDLER - Event delegation (survives DOM re-renders)
+    // 🔥 PHASE 3: Force blast handler to scream if it runs
     document.addEventListener("click", async (e) => {
       // Find blast button using closest (handles clicks on button or child elements)
       const btn = e.target.closest("#blastBtn");
       if (!btn) return;
 
-      console.log("🚨🚨🚨 [BLAST] HANDLER FIRED");
-      console.log("[BLAST] Button disabled?", btn.disabled);
-      console.log("[BLAST] Selected count:", window.__SELECTED_CARD_IDS__?.size || 0);
-      console.log("[BLAST] Selected IDs:", Array.from(window.__SELECTED_CARD_IDS__ || []));
+      console.log("🚨🚨🚨 BLAST CLICK DETECTED");
+      console.log("BTN.disabled =", btn.disabled);
+      console.log("STORE =", window.__SELECTED_CARD_IDS__);
+      console.log("STORE size =", window.__SELECTED_CARD_IDS__?.size);
 
+      alert("BLAST HANDLER FIRED — CHECK CONSOLE");
+      
       // Check if button is disabled
       if (btn.disabled) {
         console.warn("[BLAST] ⚠️ Button is disabled - cannot blast");
-        alert("Please select at least one card to blast");
         return;
       }
 
