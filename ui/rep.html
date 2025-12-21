@@ -338,24 +338,35 @@
     });
 
     // 🔥 CARD TOGGLE HANDLER - updates global selection store
-    window.handleCardToggle = function(cb) {
-      const id = cb.dataset.cardId || cb.dataset.id;
+    function handleCardToggle(checkbox) {
+      const id = checkbox.dataset.cardId || checkbox.dataset.id;
       if (!id) {
-        console.error('[SELECTION] Checkbox missing card ID:', cb);
+        console.error('[SELECTION] Checkbox missing card ID:', checkbox);
         return;
       }
 
-      if (cb.checked) {
+      if (checkbox.checked) {
         window.__SELECTED_CARD_IDS__.add(id);
       } else {
         window.__SELECTED_CARD_IDS__.delete(id);
       }
 
       console.log("[SELECTED IDS]", Array.from(window.__SELECTED_CARD_IDS__));
-      
+
       // 🔥 UPDATE BUTTON STATE IMMEDIATELY
       updateBlastButton();
-    };
+      updateSelectAllState();
+      updateGroupCheckboxState(checkbox);
+    }
+    
+    // 🔥 EVENT DELEGATION for card checkboxes (survives table re-renders)
+    document.addEventListener("change", (e) => {
+      // Check if change event is from a card checkbox
+      if (e.target.matches('.card-checkbox[data-card-id]') || e.target.matches('.card-checkbox[data-id]')) {
+        console.log("[SELECTION] Card checkbox changed via delegation:", e.target.dataset.cardId || e.target.dataset.id);
+        handleCardToggle(e.target);
+      }
+    });
 
     async function loadCards() {
       try {
@@ -509,7 +520,7 @@
           
           const isSelected = window.__SELECTED_CARD_IDS__.has(card.id);
           html += `<tr class="group-row group-rows" data-group-id="${groupId}">`;
-          html += `<td><input type="checkbox" class="card-checkbox" data-id="${card.id}" data-card-id="${card.id}" data-group-id="${groupId}" ${isSelected ? 'checked' : ''} onchange="handleCardToggle(this)"></td>`;
+          html += `<td><input type="checkbox" class="card-checkbox" data-id="${card.id}" data-card-id="${card.id}" data-group-id="${groupId}" ${isSelected ? 'checked' : ''}></td>`;
           html += `<td>${name}</td>`;
           html += `<td><span class='badge ${type}'>${type}</span></td>`;
           html += `<td><span class='badge gray'>${salesState}</span></td>`;
@@ -569,16 +580,8 @@
         });
       });
 
-      // Individual card checkbox functionality
-      // NOTE: Checkboxes already have onchange="handleCardToggle(this)" in HTML
-      // handleCardToggle() calls updateBlastButton(), so we just need to update UI state
-      document.querySelectorAll('.card-checkbox').forEach(cb => {
-        cb.addEventListener('change', () => {
-          // handleCardToggle() already called updateBlastButton() via onchange attribute
-          updateSelectAllState();
-          updateGroupCheckboxState(cb);
-        });
-      });
+      // Individual card checkbox functionality - now handled by event delegation above
+      // No need to attach listeners here - event delegation handles all checkboxes
 
       // Update group checkbox state when individual checkboxes change
       function updateGroupCheckboxState(cardCheckbox) {
