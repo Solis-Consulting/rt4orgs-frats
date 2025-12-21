@@ -403,6 +403,29 @@ def run_blast_for_cards(
     sent_count = 0
     skipped_count = 0
     results: List[Dict[str, Any]] = []
+    skipped_details = []  # Track skipped cards with reasons
+    
+    # 🔥 CRITICAL: Single skip function - all skips go through here
+    def skip_card(reason, card_id, phone=None, **details):
+        """Single skip funnel - ensures all skips are logged and tracked."""
+        nonlocal skipped_count, skipped_details
+        skip_result = {
+            "card_id": card_id,
+            "phone": phone or "N/A",
+            "status": "skipped",
+            "reason": reason.lower().replace("_", " "),
+            **details
+        }
+        logger.error(f"[BLAST_SKIP] card_id={card_id} reason={reason} phone={phone}", extra=skip_result)
+        print(f"[BLAST_SKIP] card_id={card_id} reason={reason} phone={phone}", flush=True)
+        skipped_count += 1
+        skipped_details.append({
+            "card_id": card_id,
+            "reason": skip_result["reason"],
+            "phone": phone or "N/A"
+        })
+        results.append(skip_result)
+        return skip_result
 
     for card in cards:
         card_id = card["id"]
