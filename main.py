@@ -311,9 +311,8 @@ print("📦 FASTAPI APP CREATED")
 print(f"📦 App instance: {app}")
 print("=" * 60)
 
-# Add CORS middleware to allow requests from Vercel
-# 🔥 CRITICAL: CORS configuration for production Vercel frontend
-# Must explicitly allow the Vercel origin for POST requests with Authorization header
+# 🔥 CRITICAL: CORS middleware MUST be added immediately after app creation
+# This handles preflight OPTIONS requests that browsers send before POST with Authorization headers
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -323,9 +322,9 @@ app.add_middleware(
         "http://127.0.0.1:3000",  # Local development
         "http://127.0.0.1:8000",  # Local development
     ],
-    allow_credentials=True,  # Allow cookies/auth headers
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],  # CRITICAL: Must include OPTIONS for preflight
-    allow_headers=["*"],  # CRITICAL: Must allow Authorization header
+    allow_credentials=True,  # Allow cookies/auth headers (required with specific origins)
+    allow_methods=["*"],  # CRITICAL: Allow all methods including OPTIONS for preflight
+    allow_headers=["*"],  # CRITICAL: Allow all headers including Authorization
     expose_headers=["*"],
     max_age=3600,  # Cache preflight for 1 hour
 )
