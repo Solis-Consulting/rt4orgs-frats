@@ -4719,22 +4719,33 @@ async def rep_blast(
             print(f"[BLAST_ENDPOINT] Assigned card IDs: {list(assigned_ids)[:5]}..." if len(assigned_ids) > 5 else f"[BLAST_ENDPOINT] Assigned card IDs: {list(assigned_ids)}", flush=True)
             
             if card_ids and isinstance(card_ids, list):
+                print(f"[BLAST_ENDPOINT] 🔍 Checking authorization for {len(card_ids)} card(s)...", flush=True)
+                print(f"[BLAST_ENDPOINT]   Requested card_ids: {card_ids}", flush=True)
+                print(f"[BLAST_ENDPOINT]   Assigned card_ids: {list(assigned_ids)[:10]}..." if len(assigned_ids) > 10 else f"[BLAST_ENDPOINT]   Assigned card_ids: {list(assigned_ids)}", flush=True)
+                
                 # Verify ALL specified cards are assigned to this rep
                 unauthorized = [cid for cid in card_ids if cid not in assigned_ids]
                 if unauthorized:
+                    print(f"[BLAST_ENDPOINT] ❌ EARLY EXIT: Unauthorized cards detected", flush=True)
+                    print(f"[BLAST_ENDPOINT]   Unauthorized: {unauthorized}", flush=True)
                     logger.warning(f"[BLAST] Rep {current_user['id']} attempted to blast unauthorized cards: {unauthorized}")
                     return {"ok": False, "error": f"Unauthorized: {len(unauthorized)} card(s) not assigned to you", "sent": 0, "skipped": 0}
                 
                 # Filter to only assigned cards (safety check)
                 card_ids = [cid for cid in card_ids if cid in assigned_ids]
+                print(f"[BLAST_ENDPOINT]   After filtering: {len(card_ids)} authorized card(s)", flush=True)
                 
                 if not card_ids:
+                    print(f"[BLAST_ENDPOINT] ❌ EARLY EXIT: No valid assigned cards after filtering", flush=True)
                     logger.warning(f"[BLAST] Rep {current_user['id']} - no valid assigned cards after filtering")
                     return {"ok": False, "error": "None of the specified cards are assigned to you", "sent": 0, "skipped": 0}
             else:
                 # Get rep's assigned cards (only uncontacted/active ones)
+                print(f"[BLAST_ENDPOINT] 🔍 Fetching assigned cards for rep {current_user['id']} with status={status_filter}...", flush=True)
                 cards = get_rep_assigned_cards(conn, current_user["id"], status=status_filter)
+                print(f"[BLAST_ENDPOINT]   Found {len(cards)} assigned cards", flush=True)
                 if not cards:
+                    print(f"[BLAST_ENDPOINT] ❌ EARLY EXIT: No assigned cards found", flush=True)
                     logger.info(f"[BLAST] Rep {current_user['id']} - no assigned cards found with status={status_filter}")
                     return {"ok": False, "error": "No assigned cards found", "sent": 0, "skipped": 0}
                 
@@ -4748,7 +4759,8 @@ async def rep_blast(
         
         print(f"[BLAST_ENDPOINT] Final card_ids count: {len(card_ids) if card_ids else 0}", flush=True)
         if not card_ids:
-            print(f"[BLAST_ENDPOINT] ❌ No cards to blast - returning error", flush=True)
+            print(f"[BLAST_ENDPOINT] ❌ EARLY EXIT: No cards to blast - returning error", flush=True)
+            logger.error(f"[BLAST] ❌ EARLY EXIT: No cards to blast")
             return {"ok": False, "error": "No cards to blast", "sent": 0, "skipped": 0}
         
         print(f"[BLAST_ENDPOINT] ✅ Card validation passed - {len(card_ids)} cards to blast", flush=True)
@@ -4823,8 +4835,14 @@ async def rep_blast(
             print(f"[BLAST_ENDPOINT]   source: {'owner_ui' if current_user.get('role') == 'admin' else 'rep_ui'}", flush=True)
             print(f"[BLAST_ENDPOINT]   rep_user_id: {rep_user_id}", flush=True)
             print(f"[BLAST_ENDPOINT] Calling run_blast_for_cards() NOW...", flush=True)
+            logger.error(f"[BLAST] 🔥🔥🔥 ABOUT TO EXECUTE BLAST for cards={card_ids} 🔥🔥🔥")
+            print(f"[BLAST_ENDPOINT] 🔥🔥🔥 ABOUT TO EXECUTE BLAST 🔥🔥🔥", flush=True)
+            print(f"[BLAST_ENDPOINT]   card_ids: {card_ids}", flush=True)
+            print(f"[BLAST_ENDPOINT]   rep_user_id: {rep_user_id}", flush=True)
+            print(f"[BLAST_ENDPOINT]   owner: {current_user['id']}", flush=True)
             
             try:
+                print(f"[BLAST_ENDPOINT] ✅ EXECUTING run_blast_for_cards() - NO GUARDS, UNCONDITIONAL SEND", flush=True)
                 result = run_blast_for_cards(
                     conn=conn,
                     card_ids=card_ids,
