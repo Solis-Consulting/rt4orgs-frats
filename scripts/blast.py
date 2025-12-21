@@ -48,6 +48,7 @@ from archive_intelligence.message_processor.utils import (
     ensure_parent_dir,
     save_json,
 )
+from intelligence.utils import normalize_phone
 from archive_intelligence.message_processor.generate_message import generate_message
 
 # ALWAYS use environment variables - no config file fallbacks
@@ -216,6 +217,14 @@ def send_sms(to_number: str, body: str, force_direct: bool = True) -> Dict[str, 
         error_msg = "TWILIO_PHONE_NUMBER not set in environment variables (REQUIRED for direct mode)"
         print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
         raise ValueError(error_msg)
+    
+    # 🔥 CRITICAL: Normalize phone_number to E.164 format (Twilio requires + prefix)
+    phone_number_normalized = normalize_phone(phone_number)
+    print(f"[SEND_SMS] 📞 Original phone_number from env: {phone_number}", flush=True)
+    print(f"[SEND_SMS] 📞 Normalized phone_number (E.164): {phone_number_normalized}", flush=True)
+    if phone_number_normalized != phone_number:
+        print(f"[SEND_SMS] ⚠️ Phone number normalized: {phone_number} → {phone_number_normalized}", flush=True)
+    
     use_messaging_service = False
     send_mode = "DIRECT_NUMBER"
     
@@ -238,8 +247,9 @@ def send_sms(to_number: str, body: str, force_direct: bool = True) -> Dict[str, 
     if use_messaging_service:
         print(f"[SEND_SMS] Messaging Service SID: {messaging_service_sid[:10]}...{messaging_service_sid[-4:]} (length: {len(messaging_service_sid)})", flush=True)
     else:
-        print(f"[SEND_SMS] Phone Number: {phone_number}", flush=True)
-        print(f"[SEND_SMS] ✅ Using direct phone number (from_={phone_number})", flush=True)
+        print(f"[SEND_SMS] Phone Number (original): {phone_number}", flush=True)
+        print(f"[SEND_SMS] Phone Number (normalized E.164): {phone_number_normalized}", flush=True)
+        print(f"[SEND_SMS] ✅ Using direct phone number (from_={phone_number_normalized})", flush=True)
     
     try:
         print(f"[SEND_SMS] Creating Twilio Client with Account SID: {sid_to_use[:10]}... and Token: {token_to_use[:15]}...", flush=True)
@@ -260,10 +270,11 @@ def send_sms(to_number: str, body: str, force_direct: bool = True) -> Dict[str, 
             assert "from_" not in message_params, "Cannot use from_ with Messaging Service"
         else:
             # Direct mode: Use from_ phone number (REQUIRED for blasts)
+            # 🔥 CRITICAL: Use normalized E.164 format (Twilio requires + prefix)
             message_params = {
                 "to": to_number,
                 "body": body,
-                "from_": phone_number
+                "from_": phone_number_normalized
             }
             # CRITICAL: Do NOT set messaging_service_sid when using direct phone
             assert "messaging_service_sid" not in message_params, "Cannot use messaging_service_sid with direct phone"
@@ -281,7 +292,7 @@ def send_sms(to_number: str, body: str, force_direct: bool = True) -> Dict[str, 
             print(f"[SEND_SMS]   messaging_service_sid: {messaging_service_sid[:10]}...{messaging_service_sid[-4:]}", flush=True)
             print(f"[SEND_SMS]   from_: NOT SET (using Messaging Service)", flush=True)
         else:
-            print(f"[SEND_SMS]   from_: {phone_number}", flush=True)
+            print(f"[SEND_SMS]   from_: {phone_number_normalized} (normalized from {phone_number})", flush=True)
             print(f"[SEND_SMS]   messaging_service_sid: NOT SET (using direct phone number)", flush=True)
         print(f"[SEND_SMS]   to: {message_params.get('to')}", flush=True)
         print(f"[SEND_SMS]   body: {message_params.get('body', '')[:100]}{'...' if len(message_params.get('body', '')) > 100 else ''}", flush=True)
