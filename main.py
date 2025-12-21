@@ -313,6 +313,7 @@ print("=" * 60)
 
 # 🔥 CRITICAL: CORS middleware MUST be added immediately after app creation
 # This handles preflight OPTIONS requests that browsers send before POST with Authorization headers
+# Using explicit headers instead of "*" wildcard for better browser compatibility
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -322,9 +323,14 @@ app.add_middleware(
         "http://127.0.0.1:3000",  # Local development
         "http://127.0.0.1:8000",  # Local development
     ],
-    allow_credentials=True,  # Allow cookies/auth headers (required with specific origins)
-    allow_methods=["*"],  # CRITICAL: Allow all methods including OPTIONS for preflight
-    allow_headers=["*"],  # CRITICAL: Allow all headers including Authorization
+    allow_credentials=False,  # Set to False since frontend uses credentials: "omit"
+    allow_methods=["GET", "POST", "OPTIONS"],  # Explicit methods (browsers are strict about wildcards)
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+    ],  # Explicit headers (browsers reject "*" with credentials)
     expose_headers=["*"],
     max_age=3600,  # Cache preflight for 1 hour
 )

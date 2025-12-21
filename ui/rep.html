@@ -830,6 +830,8 @@
           
           const res = await fetch(blastUrl, {
             method: "POST",
+            mode: "cors",
+            credentials: "omit",  // CRITICAL: Omit credentials to avoid CORS preflight issues
             headers: getHeaders(),
             body: JSON.stringify({ card_ids: ids }),
           });
