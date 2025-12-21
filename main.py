@@ -4780,23 +4780,6 @@ async def test_blast_ping(request: Request):
 # 🔥 MODULE LOAD CONFIRMATION: This proves the route is registered
 print("🔥🔥🔥 [MODULE_LOAD] /rep/blast route definition loaded in main.py", flush=True)
 
-@app.options("/rep/blast")
-async def rep_blast_options(request: Request):
-    """Handle CORS preflight for /rep/blast endpoint."""
-    origin = request.headers.get("Origin", "https://rt4orgs-frats.vercel.app")
-    print(f"🌐 [OPTIONS] /rep/blast preflight from origin: {origin}", flush=True)
-    return JSONResponse(
-        content={},
-        status_code=200,
-        headers={
-            "Access-Control-Allow-Origin": origin,
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Authorization, Content-Type",
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Max-Age": "3600",
-        }
-    )
-
 @app.post("/rep/blast")
 async def rep_blast(
     request: Request
