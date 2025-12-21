@@ -1666,8 +1666,16 @@ async def twilio_inbound(request: Request):
             print(f"[TWILIO_INBOUND]   rep_user_id (final): {rep_user_id}", flush=True)
             print(f"[TWILIO_INBOUND]   Querying markov_responses table...", flush=True)
             
-            # Use trace wrapper for comprehensive logging
-            configured_response = get_markov_response_with_trace(conn, next_state, rep_user_id, phone=normalized_phone, environment_id=environment_id)
+            # Use trace wrapper for comprehensive logging (inbound context - fail loud if empty)
+            configured_response = get_markov_response_with_trace(
+                conn, 
+                next_state, 
+                rep_user_id, 
+                phone=normalized_phone, 
+                environment_id=environment_id,
+                context="inbound",
+                allow_empty=False  # Fail loud for inbound if graph is empty
+            )
             logger.info(f"[MARKOV] lookup state={next_state} rep_user_id={rep_user_id} rep_specific_found={bool(configured_response)}")
             print("=" * 80, flush=True)
             if configured_response:
@@ -3826,13 +3834,30 @@ def classify_intent_simple(text: str) -> Dict[str, Any]:
     return {}
 
 
-def get_markov_response_with_trace(conn, next_state: str, rep_user_id: str | None, phone: str = None, environment_id: str = None):
+def get_markov_response_with_trace(conn, next_state: str, rep_user_id: str | None, phone: str = None, environment_id: str = None, context: str = "inbound", allow_empty: bool = False):
     """
     Wrapper around get_markov_response() with comprehensive logging like a ledger.
     This makes the failure mode obvious in one inbound.
+    
+    Args:
+        conn: Database connection
+        next_state: Markov state to look up
+        rep_user_id: Rep user ID (or None for global)
+        phone: Phone number (for logging)
+        environment_id: Environment ID (for logging)
+        context: Context where this is called - "inbound" or "blast" (default: "inbound")
+        allow_empty: If True, return None instead of raising RuntimeError when no responses found (default: False)
     """
     import logging
     _logger = logging.getLogger(__name__)
+    
+    # 🔒 CRITICAL: Assert Markov is never called during blast
+    # Blast must NEVER depend on Markov existence
+    if context == "blast":
+        _logger.error(f"[MARKOV] ERROR: Markov invoked during blast - this should never happen!")
+        print(f"[MARKOV] ❌❌❌ ERROR: Markov invoked during blast - this should never happen!", flush=True)
+        # Return None immediately - blast should not use Markov
+        return None
     
     # 1) Check rep-specific existence
     rep_count = 0
@@ -3853,13 +3878,13 @@ def get_markov_response_with_trace(conn, next_state: str, rep_user_id: str | Non
         global_count = cur.fetchone()[0]
     
     _logger.error(
-        f"[MARKOV_TRACE] phone={phone} next_state={next_state} rep_user_id={rep_user_id} env={environment_id} "
+        f"[MARKOV_TRACE] phone={phone} next_state={next_state} rep_user_id={rep_user_id} env={environment_id} context={context} "
         f"rep_count={rep_count} global_count={global_count}"
     )
-    print(f"[MARKOV_TRACE] phone={phone} next_state={next_state} rep_user_id={rep_user_id} env={environment_id} rep_count={rep_count} global_count={global_count}", flush=True)
+    print(f"[MARKOV_TRACE] phone={phone} next_state={next_state} rep_user_id={rep_user_id} env={environment_id} context={context} rep_count={rep_count} global_count={global_count}", flush=True)
     
-    # 🔧 FIX #3: Hard-fail when Markov finds 0 responses (never want silent "success")
-    # This prevents silent dead states forever - fail loud if graph is empty
+    # 🔧 FIX #3: Hard-fail when Markov finds 0 responses (inbound only, never during blast)
+    # This prevents silent dead states forever - fail loud if graph is empty (inbound context only)
     if rep_count == 0 and global_count == 0:
         error_msg = (
             f"Markov graph empty: env={environment_id}, state={next_state}, rep={rep_user_id}, phone={phone}. "
@@ -3868,17 +3893,23 @@ def get_markov_response_with_trace(conn, next_state: str, rep_user_id: str | Non
         )
         logger.error(f"[MARKOV_EMPTY] {error_msg}")
         print(f"[TWILIO_INBOUND] ❌❌❌ [MARKOV_EMPTY] {error_msg}", flush=True)
-        # Raise RuntimeError to prevent silent dead states
-        raise RuntimeError(error_msg)
+        
+        # Only raise RuntimeError for inbound context (never for blast)
+        if context == "inbound" and not allow_empty:
+            raise RuntimeError(error_msg)
+        else:
+            # For blast or when allow_empty=True, just return None
+            _logger.warning(f"[MARKOV] Empty graph but allow_empty=True or context={context} - returning None")
+            return None
     
     # 3) Call your existing function
     resp = get_markov_response(conn, next_state, rep_user_id)
     
     _logger.error(
-        f"[MARKOV_TRACE] selected: phone={phone} rep_user_id_used={rep_user_id} env={environment_id} "
+        f"[MARKOV_TRACE] selected: phone={phone} rep_user_id_used={rep_user_id} env={environment_id} context={context} "
         f"resp_exists={bool(resp)} resp_preview={str(resp)[:120] if resp else 'None'}"
     )
-    print(f"[MARKOV_TRACE] selected: phone={phone} rep_user_id_used={rep_user_id} env={environment_id} resp_exists={bool(resp)} resp_preview={str(resp)[:120] if resp else 'None'}", flush=True)
+    print(f"[MARKOV_TRACE] selected: phone={phone} rep_user_id_used={rep_user_id} env={environment_id} context={context} resp_exists={bool(resp)} resp_preview={str(resp)[:120] if resp else 'None'}", flush=True)
     
     return resp
 
