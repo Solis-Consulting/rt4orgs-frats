@@ -460,6 +460,8 @@ def run_blast_for_cards(
         
         # Generate environment_id for this blast (unconditionally, before any use)
         environment_id = generate_environment_id(rep_user_id, campaign_id)
+        logger.info(f"[ENV] environment_id={environment_id}", extra={"environment_id": environment_id, "rep": rep_user_id, "campaign": campaign_id})
+        print(f"[ENV] environment_id={environment_id} rep={rep_user_id} campaign={campaign_id}", flush=True)
         
         # 🔥 1️⃣ ABSOLUTE BLAST TRUTH LOG - single source of reality
         log_ctx = {
@@ -950,14 +952,15 @@ def run_blast_for_cards(
                     
                     returned_rep_user_id = row[0]
                     returned_state = row[1]
-                    logger.info(f"[CONVERSATION_CREATED] card_id={card_id} phone={phone} state={returned_state}", extra={
+                    logger.info(f"[CONVERSATION_OK] card_id={card_id} phone={phone} state={returned_state}", extra={
                         "card_id": card_id,
                         "phone": phone,
                         "state": returned_state,
                         "rep_user_id": returned_rep_user_id,
-                        "environment_id": environment_id
+                        "environment_id": environment_id,
+                        "conversation_id": f"{phone}:{environment_id}"
                     })
-                    print(f"[CONVERSATION_CREATED] card_id={card_id} phone={phone} state={returned_state}", flush=True)
+                    print(f"[CONVERSATION_OK] card_id={card_id} phone={phone} state={returned_state}", flush=True)
                     
                     # Verify conversation is queryable
                     cur.execute("""
@@ -973,8 +976,6 @@ def run_blast_for_cards(
                         })
                         print(f"[CONVERSATION_VERIFY_FAILED] card_id={card_id} phone={phone}", flush=True)
                         raise RuntimeError("Conversation verification failed - cannot send SMS without verifiable conversation")
-                    
-                    print(f"[CONVERSATION_VERIFIED] phone={verify_row[0]} env={verify_row[1]} card_id={verify_row[2]} state={verify_row[3]}", flush=True)
                     
                     # Runtime assertions to warn if state/rep_user_id not persisted correctly
                     # Log as warning instead of raising to avoid blocking blasts
