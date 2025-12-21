@@ -169,8 +169,9 @@
     let selectedPhone = null;
     let apiToken = null;
     
-    // 🔥 GLOBAL SELECTION STORE - persists across re-renders
-    window.__SELECTED_CARD_IDS__ = new Set();
+    // 🔥 GLOBAL SELECTION STORE - persists across re-renders (ensure it exists before any listeners)
+    window.__SELECTED_CARD_IDS__ = window.__SELECTED_CARD_IDS__ || new Set();
+    console.log("🌐 [INIT] Global selection store initialized, size:", window.__SELECTED_CARD_IDS__.size);
     
     // Check for existing rep token in sessionStorage on page load
     (async function checkExistingSession() {
@@ -337,46 +338,35 @@
       }, 500);
     });
 
-    // 🔥 CARD TOGGLE HANDLER - updates global selection store
-    function handleCardToggle(checkbox) {
-      const id = checkbox.dataset.cardId || checkbox.dataset.id;
-      if (!id) {
-        console.error('[SELECTION] Checkbox missing card ID:', checkbox);
+    // 🔥 EVENT DELEGATION for card checkboxes (survives table re-renders)
+    // Uses capture phase (true) and closest() to handle clicks on labels/tds
+    document.addEventListener("change", (e) => {
+      // Find the checkbox (handle cases where click lands on label/td/wrapper)
+      const cb = e.target.closest('input[type="checkbox"][data-card-id]');
+      if (!cb || !cb.classList.contains('card-checkbox')) return;
+
+      const cardId = cb.getAttribute("data-card-id");
+      if (!cardId) {
+        console.error("[SELECTION] ❌ Checkbox missing data-card-id:", cb);
         return;
       }
 
-      if (checkbox.checked) {
-        window.__SELECTED_CARD_IDS__.add(id);
+      // Update selection store
+      if (cb.checked) {
+        window.__SELECTED_CARD_IDS__.add(cardId);
       } else {
-        window.__SELECTED_CARD_IDS__.delete(id);
+        window.__SELECTED_CARD_IDS__.delete(cardId);
       }
 
-      console.log("[SELECTED IDS]", Array.from(window.__SELECTED_CARD_IDS__));
+      console.log("[SELECTION] changed:", cardId, "checked=", cb.checked);
+      console.log("[SELECTION] Store size:", window.__SELECTED_CARD_IDS__.size);
+      console.log("[SELECTION] Store contents:", Array.from(window.__SELECTED_CARD_IDS__));
 
-      // 🔥 UPDATE BUTTON STATE IMMEDIATELY
+      // Update UI state
       updateBlastButton();
       updateSelectAllState();
-      updateGroupCheckboxState(checkbox);
-    }
-    
-    // 🔥 EVENT DELEGATION for card checkboxes (survives table re-renders)
-    document.addEventListener("change", (e) => {
-      // Check if change event is from a card checkbox (not group checkbox or select-all)
-      const checkbox = e.target;
-      if (checkbox.type === 'checkbox' && checkbox.classList.contains('card-checkbox')) {
-        const cardId = checkbox.dataset.cardId || checkbox.dataset.id;
-        if (cardId) {
-          console.log("[SELECTION] ✅ Card checkbox changed via delegation:", cardId);
-          console.log("[SELECTION] Checkbox checked:", checkbox.checked);
-          console.log("[SELECTION] Before - store size:", window.__SELECTED_CARD_IDS__.size);
-          handleCardToggle(checkbox);
-          console.log("[SELECTION] After - store size:", window.__SELECTED_CARD_IDS__.size);
-          console.log("[SELECTION] Store contents:", Array.from(window.__SELECTED_CARD_IDS__));
-        } else {
-          console.error("[SELECTION] ❌ Card checkbox missing both data-card-id and data-id:", checkbox);
-        }
-      }
-    });
+      updateGroupCheckboxState(cb);
+    }, true); // true = capture phase for better reliability
 
     async function loadCards() {
       try {
@@ -668,11 +658,18 @@
 
     function updateBlastButton() {
       // 🔥 USE GLOBAL SELECTION STORE (not DOM queries)
-      const selectedCount = window.__SELECTED_CARD_IDS__ ? window.__SELECTED_CARD_IDS__.size : 0;
+      if (!window.__SELECTED_CARD_IDS__) {
+        window.__SELECTED_CARD_IDS__ = new Set();
+      }
+      const selectedCount = window.__SELECTED_CARD_IDS__.size;
       const btn = document.getElementById('blastBtn');
       if (btn) {
+        const wasDisabled = btn.disabled;
         btn.disabled = selectedCount === 0;
         console.log('[UPDATE_BLAST_BTN] Selected count:', selectedCount, 'Button disabled:', btn.disabled);
+        if (wasDisabled && !btn.disabled) {
+          console.log('[UPDATE_BLAST_BTN] ✅ Button ENABLED - ready to blast!');
+        }
       } else {
         console.error('[UPDATE_BLAST_BTN] ❌ Button not found!');
       }
