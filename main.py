@@ -251,7 +251,11 @@ async def lifespan(app: FastAPI):
     twilio_account_sid = os.getenv("TWILIO_ACCOUNT_SID")
     twilio_auth_token = os.getenv("TWILIO_AUTH_TOKEN")
     twilio_messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
-    twilio_phone_number = os.getenv("TWILIO_PHONE_NUMBER")
+    twilio_phone_number_raw = os.getenv("TWILIO_PHONE_NUMBER")
+    
+    # 🔥 CRITICAL: Normalize phone number to E.164 format at startup
+    # This ensures the normalized value is used everywhere and matches what blast.py uses
+    twilio_phone_number_e164 = normalize_phone(twilio_phone_number_raw) if twilio_phone_number_raw else ""
     
     print("=" * 60)
     print("🔍 TWILIO CONFIGURATION CHECK")
@@ -262,10 +266,12 @@ async def lifespan(app: FastAPI):
     print(f"TWILIO_AUTH_TOKEN: {'✅ SET' if twilio_auth_token else '❌ NOT SET'}")
     if twilio_auth_token:
         print(f"  Value: {twilio_auth_token[:10]}...{twilio_auth_token[-4:] if len(twilio_auth_token) > 14 else twilio_auth_token} (length: {len(twilio_auth_token)})")
-    print(f"TWILIO_PHONE_NUMBER: {'✅ SET' if twilio_phone_number else '❌ NOT SET'}")
-    if twilio_phone_number:
-        print(f"  Value: {twilio_phone_number}")
-        print(f"  ✅ Using DIRECT Twilio send mode (from_={twilio_phone_number})")
+    print(f"TWILIO_PHONE_NUMBER: {'✅ SET' if twilio_phone_number_raw else '❌ NOT SET'}")
+    if twilio_phone_number_raw:
+        print(f"  Raw value: {twilio_phone_number_raw}")
+        if twilio_phone_number_raw != twilio_phone_number_e164:
+            print(f"  Normalized (E.164): {twilio_phone_number_e164}")
+        print(f"  ✅ Using DIRECT Twilio send mode (from_={twilio_phone_number_e164})")
     else:
         print(f"  ❌ ERROR: TWILIO_PHONE_NUMBER must be set for direct mode")
     print(f"TWILIO_MESSAGING_SERVICE_SID: {'SET (IGNORED)' if twilio_messaging_service_sid else 'NOT SET'}")
