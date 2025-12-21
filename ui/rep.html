@@ -173,6 +173,11 @@
     window.__SELECTED_CARD_IDS__ = window.__SELECTED_CARD_IDS__ || new Set();
     console.log("🌐 [INIT] Global selection store initialized, size:", window.__SELECTED_CARD_IDS__.size);
     
+    // 🔥 TRIPWIRE: Log EVERY click on the document to debug handler binding
+    document.addEventListener("click", (e) => {
+      console.log("[CLICK]", e.target, "tag:", e.target.tagName, "id:", e.target.id, "class:", e.target.className);
+    }, true);
+    
     // Check for existing rep token in sessionStorage on page load
     (async function checkExistingSession() {
       const storedToken = sessionStorage.getItem('repApiToken');
@@ -770,12 +775,23 @@
       }
     });
     
-    // Blast selected cards - SIMPLIFIED WITH DEFINITIVE DEBUGGING
+    // 🔥 BLAST HANDLER - Event delegation (survives DOM re-renders)
     document.addEventListener("click", async (e) => {
+      // Find blast button using closest (handles clicks on button or child elements)
       const btn = e.target.closest("#blastBtn");
       if (!btn) return;
 
       console.log("🚨🚨🚨 [BLAST] HANDLER FIRED");
+      console.log("[BLAST] Button disabled?", btn.disabled);
+      console.log("[BLAST] Selected count:", window.__SELECTED_CARD_IDS__?.size || 0);
+      console.log("[BLAST] Selected IDs:", Array.from(window.__SELECTED_CARD_IDS__ || []));
+
+      // Check if button is disabled
+      if (btn.disabled) {
+        console.warn("[BLAST] ⚠️ Button is disabled - cannot blast");
+        alert("Please select at least one card to blast");
+        return;
+      }
 
       const backend = window.BACKEND_URL;
       if (!backend) {
@@ -791,8 +807,6 @@
       }
 
       const ids = Array.from(window.__SELECTED_CARD_IDS__ || []);
-      console.log("🔬 [BLAST] ids:", ids);
-
       if (!ids.length) {
         alert("Select at least one card");
         return;
@@ -807,22 +821,21 @@
 
       const url = new URL("/rep/blast", backend).toString();
       console.log("🌐 [BLAST] POST →", url);
-
-      // HARD proof you are about to call Railway:
-      alert("ABOUT TO POST: " + url);
+      console.log("🌐 [BLAST] Request body:", JSON.stringify({ card_ids: ids }));
 
       let res;
       try {
         res = await fetch(url, {
           method: "POST",
           mode: "cors",
-          credentials: "include",  // Match backend allow_credentials=True
+          credentials: "include",
           headers: {
             "Authorization": `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ card_ids: ids }),
         });
+        console.log("✅ [BLAST] Fetch completed - status:", res.status);
       } catch (err) {
         console.error("❌ [BLAST] fetch threw", err);
         alert("Fetch threw: " + (err?.message || String(err)));
@@ -831,10 +844,8 @@
         return;
       }
 
-      console.log("✅ [BLAST] res.status:", res.status);
-
       const text = await res.text();
-      console.log("✅ [BLAST] body:", text);
+      console.log("✅ [BLAST] Response body:", text);
 
       if (!res.ok) {
         alert(`Blast failed (${res.status}): ${text}`);
@@ -853,9 +864,9 @@
       
       btn.disabled = false;
       btn.textContent = 'Blast Selected Assigned Leads';
-    });
+    }, true); // Use capture phase for better reliability
     
-    console.log("✅ [BLAST] Event delegation handler attached to document");
+    console.log("✅ [BLAST] Event delegation handler attached to document (capture phase)");
 
     // Blast all functionality removed - reps should select specific leads to blast
 
