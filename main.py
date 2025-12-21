@@ -2217,15 +2217,17 @@ async def twilio_inbound(request: Request):
                     print(f"[TWILIO_QUEUE_BODY] sid={msg.sid} length={len(reply_text)} hash={body_hash}", flush=True)
                     
                     # A2P / compliance context (critical for diagnosis)
-                    campaign_id = routed_campaign_id if 'routed_campaign_id' in locals() else None
+                    # Use campaign_id from card metadata context (already defined above)
+                    compliance_campaign = campaign_id if 'campaign_id' in locals() else (routed_campaign_id if 'routed_campaign_id' in locals() else None)
+                    compliance_test = is_test_number if 'is_test_number' in locals() else False
                     logger.error(
                         f"[TWILIO_COMPLIANCE] "
-                        f"is_test_number={is_test_number if 'is_test_number' in locals() else False} "
-                        f"campaign_id={campaign_id} "
+                        f"is_test_number={compliance_test} "
+                        f"campaign_id={compliance_campaign} "
                         f"send_mode=DIRECT_NUMBER "
                         f"a2p_profile_present={bool(os.getenv('TWILIO_A2P_PROFILE_SID'))}"
                     )
-                    print(f"[TWILIO_COMPLIANCE] is_test_number={is_test_number if 'is_test_number' in locals() else False} campaign_id={campaign_id} send_mode=DIRECT_NUMBER", flush=True)
+                    print(f"[TWILIO_COMPLIANCE] is_test_number={compliance_test} campaign_id={compliance_campaign} send_mode=DIRECT_NUMBER", flush=True)
 
                     # 🔥 STEP 5: Outbound-from-inbound send confirmation
                     logger.error(f"📤 INBOUND_REPLY_SENT to={normalized_phone} sid={msg.sid}")
