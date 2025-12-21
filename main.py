@@ -4819,13 +4819,10 @@ async def rep_blast(
     
     print("🚀 [BLAST] BEGIN LOOP", flush=True)
     
-    current_user = user
-    
-    # Wrap rest of handler in try-except to catch any errors
-    try:
-    
-    # Now continue with the rest of the handler logic
-    try:
+        current_user = user
+        
+        # Now continue with the rest of the handler logic
+        try:
         # CRITICAL: Log immediately when endpoint is hit - BEFORE anything else
         import sys
         sys.stdout.flush()
