@@ -600,24 +600,58 @@ async def inbound_intelligent(event: dict):
     # Intent can be provided in request, or defaults to empty dict
     intent = event.get("intent", {})
     
-    # Fetch conversation by phone
+    # Fetch conversation by phone (scoped to environment_id if provided)
+    environment_id = event.get("environment_id")
+    current_state = event.get("current_state")  # Use provided state if available
+    
     with conn.cursor() as cur:
-        # Try to fetch with history column, fallback to without if column doesn't exist
-        try:
-            cur.execute("""
-                SELECT phone, state, COALESCE(history::text, '[]') as history
-                FROM conversations
-                WHERE phone = %s;
-            """, (phone,))
-        except psycopg2.ProgrammingError:
-            # History column might not exist, fetch without it
-            cur.execute("""
-                SELECT phone, state
-                FROM conversations
-                WHERE phone = %s;
-            """, (phone,))
-        
-        row = cur.fetchone()
+        # Try to fetch with environment_id scoping if provided
+        if environment_id:
+            try:
+                cur.execute("""
+                    SELECT phone, state, COALESCE(history::text, '[]') as history
+                    FROM conversations
+                    WHERE phone = %s AND environment_id = %s;
+                """, (phone, environment_id))
+                row = cur.fetchone()
+                if row:
+                    print(f"[INBOUND_INTELLIGENT] ✅ Found conversation scoped to environment {environment_id}", flush=True)
+                else:
+                    print(f"[INBOUND_INTELLIGENT] ⚠️ No conversation found for environment {environment_id}, trying phone-only lookup", flush=True)
+                    # Fallback to phone-only if environment-scoped lookup fails
+                    cur.execute("""
+                        SELECT phone, state, COALESCE(history::text, '[]') as history
+                        FROM conversations
+                        WHERE phone = %s
+                        ORDER BY updated_at DESC
+                        LIMIT 1;
+                    """, (phone,))
+                    row = cur.fetchone()
+            except psycopg2.ProgrammingError:
+                # environment_id column doesn't exist, fall back to phone-only
+                cur.execute("""
+                    SELECT phone, state, COALESCE(history::text, '[]') as history
+                    FROM conversations
+                    WHERE phone = %s;
+                """, (phone,))
+                row = cur.fetchone()
+        else:
+            # No environment_id provided, use phone-only lookup
+            try:
+                cur.execute("""
+                    SELECT phone, state, COALESCE(history::text, '[]') as history
+                    FROM conversations
+                    WHERE phone = %s;
+                """, (phone,))
+            except psycopg2.ProgrammingError:
+                # History column might not exist, fetch without it
+                cur.execute("""
+                    SELECT phone, state
+                    FROM conversations
+                    WHERE phone = %s;
+                """, (phone,))
+            
+            row = cur.fetchone()
         
         # Find card by phone number to link conversation
         # Try multiple phone formats for matching
@@ -745,14 +779,27 @@ async def inbound_intelligent(event: dict):
                 # Already in new format
                 normalized_history.append(item)
         
+        # Use provided current_state if available (from webhook handler), otherwise use DB state
+        conversation_state = current_state if current_state else row[1]
+        
         conversation_row = {
             "phone": row[0],
-            "state": row[1],
+            "state": conversation_state,  # Use provided state or DB state
             "history": [item.get("text") if isinstance(item, dict) else item for item in normalized_history],  # Pass text only to handler
         }
         
+        print(f"[INBOUND_INTELLIGENT] 🔍 Markov evaluation:", flush=True)
+        print(f"[INBOUND_INTELLIGENT]   Current state: {conversation_state}", flush=True)
+        print(f"[INBOUND_INTELLIGENT]   Intent: {json.dumps(intent, indent=2)}", flush=True)
+        print(f"[INBOUND_INTELLIGENT]   Inbound text: '{inbound_text}'", flush=True)
+        
         # Call intelligence handler
         result = handle_inbound(conversation_row, inbound_text, intent)
+        
+        print(f"[INBOUND_INTELLIGENT] ✅ Markov result:", flush=True)
+        print(f"[INBOUND_INTELLIGENT]   Previous state: {result.get('previous_state')}", flush=True)
+        print(f"[INBOUND_INTELLIGENT]   Next state: {result.get('next_state')}", flush=True)
+        print(f"[INBOUND_INTELLIGENT]   Intent: {json.dumps(result.get('intent'), indent=2)}", flush=True)
         
         # Add new inbound message as object to history
         inbound_msg = {
@@ -764,36 +811,102 @@ async def inbound_intelligent(event: dict):
         updated_history = normalized_history + [inbound_msg]
         
         # Update conversations table with new state, history, and card_id
-        # Try to update history if column exists
+        # Scope update to environment_id if provided
         try:
-            cur.execute("""
-                UPDATE conversations
-                SET state = %s,
-                    last_inbound_at = %s,
-                    history = %s::jsonb,
-                    card_id = COALESCE(%s, card_id)
-                WHERE phone = %s;
-            """, (
-                result["next_state"],
-                datetime.utcnow(),
-                json.dumps(updated_history),
-                card_id,  # Link to card if found
-                phone,
-            ))
+            if environment_id:
+                # Try to update scoped to environment
+                try:
+                    cur.execute("""
+                        UPDATE conversations
+                        SET state = %s,
+                            last_inbound_at = %s,
+                            history = %s::jsonb,
+                            card_id = COALESCE(%s, card_id)
+                        WHERE phone = %s AND environment_id = %s;
+                    """, (
+                        result["next_state"],
+                        datetime.utcnow(),
+                        json.dumps(updated_history),
+                        card_id,  # Link to card if found
+                        phone,
+                        environment_id,
+                    ))
+                    print(f"[INBOUND_INTELLIGENT] ✅ Updated conversation scoped to environment {environment_id}", flush=True)
+                except psycopg2.ProgrammingError:
+                    # environment_id column doesn't exist, fall back to phone-only
+                    cur.execute("""
+                        UPDATE conversations
+                        SET state = %s,
+                            last_inbound_at = %s,
+                            history = %s::jsonb,
+                            card_id = COALESCE(%s, card_id)
+                        WHERE phone = %s;
+                    """, (
+                        result["next_state"],
+                        datetime.utcnow(),
+                        json.dumps(updated_history),
+                        card_id,
+                        phone,
+                    ))
+            else:
+                # No environment_id, use phone-only update
+                cur.execute("""
+                    UPDATE conversations
+                    SET state = %s,
+                        last_inbound_at = %s,
+                        history = %s::jsonb,
+                        card_id = COALESCE(%s, card_id)
+                    WHERE phone = %s;
+                """, (
+                    result["next_state"],
+                    datetime.utcnow(),
+                    json.dumps(updated_history),
+                    card_id,  # Link to card if found
+                    phone,
+                ))
         except psycopg2.ProgrammingError:
             # History column doesn't exist, update without it
-            cur.execute("""
-                UPDATE conversations
-                SET state = %s,
-                    last_inbound_at = %s,
-                    card_id = COALESCE(%s, card_id)
-                WHERE phone = %s;
-            """, (
-                result["next_state"],
-                datetime.utcnow(),
-                card_id,  # Link to card if found
-                phone,
-            ))
+            if environment_id:
+                try:
+                    cur.execute("""
+                        UPDATE conversations
+                        SET state = %s,
+                            last_inbound_at = %s,
+                            card_id = COALESCE(%s, card_id)
+                        WHERE phone = %s AND environment_id = %s;
+                    """, (
+                        result["next_state"],
+                        datetime.utcnow(),
+                        card_id,
+                        phone,
+                        environment_id,
+                    ))
+                except psycopg2.ProgrammingError:
+                    cur.execute("""
+                        UPDATE conversations
+                        SET state = %s,
+                            last_inbound_at = %s,
+                            card_id = COALESCE(%s, card_id)
+                        WHERE phone = %s;
+                    """, (
+                        result["next_state"],
+                        datetime.utcnow(),
+                        card_id,
+                        phone,
+                    ))
+            else:
+                cur.execute("""
+                    UPDATE conversations
+                    SET state = %s,
+                        last_inbound_at = %s,
+                        card_id = COALESCE(%s, card_id)
+                    WHERE phone = %s;
+                """, (
+                    result["next_state"],
+                    datetime.utcnow(),
+                    card_id,  # Link to card if found
+                    phone,
+                ))
     
     return {
         "ok": True,
@@ -1178,16 +1291,21 @@ async def twilio_inbound(request: Request):
         print("=" * 80, flush=True)
         
         # Prepare event payload for inbound_intelligent
+        # Include environment_id and conversation state for proper scoping
         event = {
             "phone": normalized_phone,
             "text": Body,
             "body": Body,
-            "intent": intent
+            "intent": intent,
+            "environment_id": environment_id,  # Pass environment for proper scoping
+            "current_state": conversation_state,  # Pass current state to avoid re-lookup
+            "rep_user_id": rep_user_id,  # Pass rep_user_id for context
         }
         
         print(f"[TWILIO_INBOUND] 📞 Calling inbound_intelligent for {normalized_phone}", flush=True)
         print(f"[TWILIO_INBOUND]   Event payload: {json.dumps(event, indent=2)}", flush=True)
         print(f"[TWILIO_INBOUND]   Current conversation state: {conversation_state}", flush=True)
+        print(f"[TWILIO_INBOUND]   Environment ID: {environment_id}", flush=True)
         print(f"[TWILIO_INBOUND]   Rep user ID: {rep_user_id}", flush=True)
         print(f"[TWILIO_INBOUND]   Card ID: {card_id}", flush=True)
         
