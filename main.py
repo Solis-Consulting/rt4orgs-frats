@@ -4777,22 +4777,14 @@ async def rep_blast(
     request: Request
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
-    # 🔥🔥🔥 NUCLEAR LOG - This proves the endpoint was hit
-    print("🔥🔥🔥 BLAST ENDPOINT HIT 🔥🔥🔥", flush=True)
-    print("🔥🔥🔥 BLAST ENDPOINT HIT 🔥🔥🔥", flush=True)
-    print("🔥🔥🔥 BLAST ENDPOINT HIT 🔥🔥🔥", flush=True)
+    # 2️⃣ At route ENTRY (first line of handler)
+    print("🚨🚨🚨 [BLAST_ROUTE_ENTERED]", flush=True)
     import sys
     sys.stdout.flush()
     sys.stderr.flush()
-    
-    # ✅ CRITICAL: Ensure logger is available - import at function level if needed
-    # This must happen BEFORE any logger.error() calls
     import logging
     _logger = logging.getLogger(__name__)
-    _logger.error("🔥🔥🔥 BLAST ENDPOINT HIT 🔥🔥🔥")
-    
-    # 1️⃣ At the very top of /rep/blast
-    print("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast", flush=True)
+    _logger.error("🚨🚨🚨 [BLAST_ROUTE_ENTERED]")
     try:
         _logger.error("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast")
     except Exception as log_err:
@@ -4802,10 +4794,22 @@ async def rep_blast(
     print(f"[REP_BLAST] Request path: {request.url.path}", flush=True)
     print(f"[REP_BLAST] Request headers: {dict(request.headers)}", flush=True)
     
+    # 4️⃣ Log raw request body (CRITICAL) - BEFORE parsing
+    try:
+        body = await request.body()
+        print("📦 [BLAST_RAW_BODY]", body.decode('utf-8', errors='replace'), flush=True)
+        _logger.error(f"📦 [BLAST_RAW_BODY] {body.decode('utf-8', errors='replace')}")
+    except Exception as body_err:
+        print(f"📦 [BLAST_RAW_BODY] ERROR: {body_err}", flush=True)
+        body = b''
+    
     # Authenticate user manually
     try:
         print(f"[REP_BLAST] Attempting authentication...", flush=True)
         user = await get_current_owner_or_rep(request)
+        # 3️⃣ Log auth resolution
+        print(f"👤 [BLAST_AUTH] user={user.get('username', 'unknown')} role={user.get('role', 'unknown')}", flush=True)
+        _logger.error(f"👤 [BLAST_AUTH] user={user.get('username', 'unknown')} role={user.get('role', 'unknown')}")
         print(f"[REP_BLAST] ✅ Authentication successful: {user.get('id')} (role: {user.get('role')})", flush=True)
     except HTTPException as auth_exc:
         print(f"[REP_BLAST] ❌ Auth HTTPException: {auth_exc.status_code} - {auth_exc.detail}", flush=True)
@@ -4820,11 +4824,18 @@ async def rep_blast(
     
     # Parse JSON directly - bypasses all FastAPI validation
     try:
-        payload = await request.json()
-        # 2️⃣ Immediately after parsing payload
+        # Need to recreate request body since we already read it
+        import json
+        if body:
+            payload = json.loads(body.decode('utf-8'))
+        else:
+            payload = await request.json()
+        # 5️⃣ Log parsed payload
         card_ids = payload.get("card_ids", [])
-        _logger.error(f"[BLAST_ENDPOINT] Payload card_ids = {card_ids}")
-        print(f"[BLAST_ENDPOINT] Payload card_ids = {card_ids}", flush=True)
+        print("🧠 [BLAST_PARSED_IDS]", card_ids, flush=True)
+        print("🧠 [BLAST_COUNT]", len(card_ids), flush=True)
+        _logger.error(f"🧠 [BLAST_PARSED_IDS] {card_ids}")
+        _logger.error(f"🧠 [BLAST_COUNT] {len(card_ids)}")
         _logger.error(f"🔥 BLAST PAYLOAD: {payload}")
         print(f"🔥 BLAST PAYLOAD: {payload}", flush=True)
     except Exception as json_err:
@@ -5130,6 +5141,9 @@ async def rep_blast(
             print(f"[BLAST_ENDPOINT]   owner: {current_user['id']}", flush=True)
             
             try:
+                # 6️⃣ Log blast execution boundary
+                print("🚀 [BLAST_EXECUTION_START]", flush=True)
+                _logger.error("🚀 [BLAST_EXECUTION_START]")
                 print(f"[BLAST_ENDPOINT] ✅ EXECUTING run_blast_for_cards() - NO GUARDS, UNCONDITIONAL SEND", flush=True)
                 result = run_blast_for_cards(
                     conn=conn,
@@ -5139,6 +5153,9 @@ async def rep_blast(
                     source="owner_ui" if current_user.get("role") == "admin" else "rep_ui",
                     rep_user_id=rep_user_id,
                 )
+                # 7️⃣ After loop
+                print("✅ [BLAST_COMPLETE]", flush=True)
+                _logger.error("✅ [BLAST_COMPLETE]")
                 print(f"[BLAST_ENDPOINT] ✅ run_blast_for_cards() returned successfully", flush=True)
             except Exception as run_error:
                 print("=" * 80, flush=True)

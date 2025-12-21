@@ -579,6 +579,9 @@ def run_blast_for_cards(
             print(f"[BLAST_SEND_ATTEMPT] send_sms() will use system Twilio credentials from environment variables", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] ⚠️ BLAST MODE: No reply suppression, no state checks, no guards - sending unconditionally", flush=True)
             # 9️⃣ Right before Twilio send
+            # 6️⃣ Inside loop
+            print(f"📤 [BLAST_SENDING] card_id={card_id}", flush=True)
+            logger.error(f"📤 [BLAST_SENDING] card_id={card_id}")
             logger.error(f"[BLAST_SEND] 📤 Sending SMS to {phone} (card_id={card_id})")
             print(f"[BLAST_SEND] 📤 Sending SMS to {phone} (card_id={card_id})", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Calling send_sms() NOW...", flush=True)
