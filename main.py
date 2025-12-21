@@ -1148,8 +1148,12 @@ async def twilio_inbound(request: Request):
             print("[TWILIO_INBOUND] ERROR: Missing From field")
             return PlainTextResponse("Missing From field", status_code=400)
         
-        # Normalize phone number from Twilio (E.164 format)
-        normalized_phone = normalize_phone(From)
+        # 🔥 STEP 1: Normalize inbound `From` BEFORE any lookup (CRITICAL)
+        # This ensures conversation lookup uses the same format as blast (E.164)
+        raw_from = From
+        normalized_phone = normalize_phone(raw_from)
+        logger.error(f"[INBOUND] From raw={raw_from} normalized={normalized_phone}")
+        print(f"[INBOUND] From raw={raw_from} normalized={normalized_phone}", flush=True)
         
         # 🔧 FIX #2: STOP must short-circuit before Markov (compliance requirement)
         # Twilio STOP messages must never enter Markov pipeline
@@ -1250,6 +1254,10 @@ async def twilio_inbound(request: Request):
         # 🔥 CRITICAL: Find conversation by phone FIRST (across all environments)
         # This prevents losing the conversation due to environment mismatch
         print(f"[TWILIO_INBOUND] 🔍 Step 2: Finding conversation by phone (across environments)...", flush=True)
+        # 🔥 STEP 2: Use ONLY normalized phone for conversation lookup (CRITICAL)
+        # This ensures lookup matches blast-created conversations (which use normalized E.164)
+        logger.error(f"[INBOUND] Using normalized phone for lookup: {normalized_phone} (original={From})")
+        print(f"[INBOUND] Using normalized phone for lookup: {normalized_phone} (original={From})", flush=True)
         # 🔥 INVARIANT VERIFICATION: Log lookup parameters BEFORE query
         logger.error(f"[INVARIANT] [CONVERSATION_LOOKUP] Looking for conversation: phone={normalized_phone} (original={From})")
         print(f"[INVARIANT] [CONVERSATION_LOOKUP] phone={normalized_phone} (original={From})", flush=True)
@@ -1360,10 +1368,12 @@ async def twilio_inbound(request: Request):
             # 🔥 CRITICAL: Conversation MUST exist (created during blast) - no fallback guessing
             print(f"[TWILIO_INBOUND] ❌ FATAL: No conversation found by phone - ABORTING inbound processing", flush=True)
             # 🔥 INVARIANT VERIFICATION: Conversation NOT found - this is the failure point
+            logger.error(f"[INBOUND_DROP] ❌ Conversation NOT FOUND - inbound ABORTED (no fallback) reason=NO_CONVERSATION")
             logger.error(f"[INVARIANT] ❌ Conversation NOT FOUND - inbound ABORTED (no fallback)")
-            logger.error(f"[INVARIANT] ❌ CAUSE: No conversation row exists for phone={normalized_phone}")
+            logger.error(f"[INVARIANT] ❌ CAUSE: No conversation row exists for phone={normalized_phone} (original={From})")
             logger.error(f"[INVARIANT] ❌ REQUIRED: Conversation must be created during blast BEFORE SMS send")
             logger.error(f"[INVARIANT] ❌ Check: Did blast create conversation? Is phone normalization consistent?")
+            logger.error(f"[INVARIANT] ❌ DIAGNOSTIC: raw_from={From} normalized={normalized_phone}")
             # 🔥 CRITICAL: Do NOT route or create - conversation must exist from blast
             # Return early - do not process inbound without conversation anchor
             print(f"[TWILIO_INBOUND] ❌ Inbound message from {From} (Body: '{Body}') - NO CONVERSATION FOUND", flush=True)
@@ -1524,9 +1534,14 @@ async def twilio_inbound(request: Request):
         print(f"[TWILIO_INBOUND]   Card ID: {card_id}", flush=True)
         
         # Call the intelligence handler directly (no HTTP overhead)
+        # 🔥 STEP 3: Ensure Markov is called for inbound context (CRITICAL ASSERT)
+        logger.error(f"[MARKOV_ENTER] 🔥 MARKOV INVOKED - Context=inbound Current state={conversation_state} Rep={rep_user_id} phone={normalized_phone}")
+        print(f"[MARKOV_ENTER] 🔥 MARKOV INVOKED - Context=inbound Current state={conversation_state} Rep={rep_user_id}", flush=True)
         # 🔥 INVARIANT 3 VERIFICATION: Markov evaluation
         logger.error(f"[INVARIANT] [MARKOV] Context=inbound Current state={conversation_state} Rep={rep_user_id}")
         result = await inbound_intelligent(event)
+        logger.error(f"[MARKOV_EXIT] ✅ MARKOV COMPLETED - Next state={result.get('next_state')} Response length={len(result.get('response_text', ''))}")
+        print(f"[MARKOV_EXIT] ✅ MARKOV COMPLETED - Next state={result.get('next_state')}", flush=True)
         
         print("=" * 80, flush=True)
         print(f"[TWILIO_INBOUND] ✅ MARKOV INTELLIGENCE RESULT", flush=True)
