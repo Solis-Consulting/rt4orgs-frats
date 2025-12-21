@@ -95,11 +95,11 @@ def _fetch_cards_by_ids(conn: Any, card_ids: List[str]) -> List[Dict[str, Any]]:
             phone = (card["card_data"] or {}).get("phone")
             if not phone:
                 continue
-            # Normalize phone to E.164 format for consistency
-            phone = normalize_phone(phone)
-            # Update card_data with normalized phone
-            if isinstance(card["card_data"], dict):
-                card["card_data"]["phone"] = phone
+        # Note: Phone normalization happens in skip checks above
+        # Update card_data with normalized phone if needed
+        if isinstance(card["card_data"], dict) and phone_normalized:
+            card["card_data"]["phone"] = phone_normalized
+            phone = phone_normalized
             person_cards.append(card)
 
     return person_cards
@@ -427,8 +427,9 @@ def run_blast_for_cards(
         )
 
         if not phone:
+            skip_reason = "NO_PHONE"
             print(
-                f"[BLAST_SKIP] card_id={card_id} reason=NO_PHONE",
+                f"[BLAST_SKIP] card_id={card_id} phone=None reason={skip_reason}",
                 flush=True,
             )
             skipped_count += 1
@@ -438,6 +439,67 @@ def run_blast_for_cards(
                     "phone": None,
                     "status": "skipped",
                     "reason": "missing phone number",
+                }
+            )
+            continue
+
+        # Normalize phone for checks
+        phone_normalized = normalize_phone(phone)
+        
+        # 🔥 COMPREHENSIVE SKIP CHECKS with explicit logging
+        skip_reason = None
+        
+        # Check 1: Test card detection (name contains test/test markers)
+        card_name = (data.get("name") or "").lower()
+        card_id_lower = card_id.lower()
+        if "test" in card_name or "_test" in card_id_lower or "test_" in card_id_lower:
+            skip_reason = "TEST_CARD"
+            print(
+                f"[BLAST_SKIP] card_id={card_id} phone={phone_normalized} reason={skip_reason} "
+                f"(name='{data.get('name')}' or id contains 'test')",
+                flush=True,
+            )
+        
+        # Check 2: Self-send prevention (if rep_user_id matches card owner)
+        elif rep_user_id and card.get("owner") == rep_user_id:
+            skip_reason = "REP_OWNED_CARD"
+            print(
+                f"[BLAST_SKIP] card_id={card_id} phone={phone_normalized} reason={skip_reason} "
+                f"(owner={card.get('owner')} matches rep_user_id={rep_user_id})",
+                flush=True,
+            )
+        
+        # Check 3: Invalid phone format
+        elif not phone_normalized or not phone_normalized.startswith("+"):
+            skip_reason = "INVALID_PHONE"
+            print(
+                f"[BLAST_SKIP] card_id={card_id} phone={phone} reason={skip_reason} "
+                f"(normalized={phone_normalized})",
+                flush=True,
+            )
+        
+        # Check 4: Known test/internal phone numbers
+        test_numbers = [
+            "+19843695080",  # Alan's test number
+            "+19194436288",  # System phone
+        ]
+        if phone_normalized in test_numbers:
+            skip_reason = "TEST_PHONE_NUMBER"
+            print(
+                f"[BLAST_SKIP] card_id={card_id} phone={phone_normalized} reason={skip_reason} "
+                f"(known test number)",
+                flush=True,
+            )
+        
+        # If any skip condition matched, skip this card
+        if skip_reason:
+            skipped_count += 1
+            results.append(
+                {
+                    "card_id": card_id,
+                    "phone": phone_normalized,
+                    "status": "skipped",
+                    "reason": skip_reason.lower().replace("_", " "),
                 }
             )
             continue
@@ -587,9 +649,10 @@ def run_blast_for_cards(
             print(f"[BLAST_SEND_ATTEMPT] Calling send_sms() NOW...", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Request timestamp: {datetime.utcnow().isoformat()}", flush=True)
             # send_sms() now always uses environment variables - no parameters needed
-            # BLAST MODE: Always send, no guards, no suppression
+            # BLAST MODE: Always send, no guards, no suppression (skip checks done above)
             try:
-                print(f"[BLAST_SEND_ATTEMPT] ✅ EXECUTING send_sms() - BLAST MODE (no guards)", flush=True)
+                print(f"[BLAST_SEND_ATTEMPT] ✅ EXECUTING send_sms() - BLAST MODE", flush=True)
+                print(f"[BLAST_SEND_ATTEMPT] ✅ Card passed all skip checks - sending SMS", flush=True)
                 sms_result = send_sms(phone, message)
                 print(f"[BLAST_SEND_ATTEMPT] ✅ send_sms() returned successfully", flush=True)
                 print(f"[BLAST_SEND_ATTEMPT] SMS Result: {sms_result}", flush=True)
