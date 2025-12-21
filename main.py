@@ -2187,6 +2187,46 @@ async def twilio_inbound(request: Request):
                     
                     msg = client.messages.create(**message_params)
 
+                    # 🔥 CRITICAL INSTRUMENTATION: Log complete Twilio response (queue-level truth)
+                    # This answers: Was it queued vs sent? A2P-routed? Did Twilio know it would fail?
+                    import hashlib
+                    body_hash = hashlib.sha256(reply_text.encode("utf-8")).hexdigest()[:12]
+                    
+                    logger.error(
+                        f"[TWILIO_QUEUE] "
+                        f"sid={msg.sid} "
+                        f"status={msg.status} "
+                        f"to={msg.to} "
+                        f"from={msg.from_} "
+                        f"messaging_service_sid={getattr(msg, 'messaging_service_sid', None)} "
+                        f"direction={getattr(msg, 'direction', None)} "
+                        f"num_segments={getattr(msg, 'num_segments', None)} "
+                        f"error_code={getattr(msg, 'error_code', None)} "
+                        f"error_message={getattr(msg, 'error_message', None)}"
+                    )
+                    print(f"[TWILIO_QUEUE] sid={msg.sid} status={msg.status} to={msg.to} from={msg.from_}", flush=True)
+                    
+                    # Body fingerprint (prove content integrity)
+                    logger.error(
+                        f"[TWILIO_QUEUE_BODY] "
+                        f"sid={msg.sid} "
+                        f"length={len(reply_text)} "
+                        f"hash={body_hash} "
+                        f"preview={reply_text[:60]}"
+                    )
+                    print(f"[TWILIO_QUEUE_BODY] sid={msg.sid} length={len(reply_text)} hash={body_hash}", flush=True)
+                    
+                    # A2P / compliance context (critical for diagnosis)
+                    campaign_id = routed_campaign_id if 'routed_campaign_id' in locals() else None
+                    logger.error(
+                        f"[TWILIO_COMPLIANCE] "
+                        f"is_test_number={is_test_number if 'is_test_number' in locals() else False} "
+                        f"campaign_id={campaign_id} "
+                        f"send_mode=DIRECT_NUMBER "
+                        f"a2p_profile_present={bool(os.getenv('TWILIO_A2P_PROFILE_SID'))}"
+                    )
+                    print(f"[TWILIO_COMPLIANCE] is_test_number={is_test_number if 'is_test_number' in locals() else False} campaign_id={campaign_id} send_mode=DIRECT_NUMBER", flush=True)
+
                     # 🔥 STEP 5: Outbound-from-inbound send confirmation
                     logger.error(f"📤 INBOUND_REPLY_SENT to={normalized_phone} sid={msg.sid}")
                     print("=" * 80, flush=True)
