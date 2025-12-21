@@ -312,14 +312,20 @@ print(f"📦 App instance: {app}")
 print("=" * 60)
 
 # Add CORS middleware to allow requests from Vercel
-# Note: allow_credentials=True cannot be used with allow_origins=["*"]
-# Use allow_credentials=False when allowing all origins
+# 🔥 CRITICAL: CORS configuration for production Vercel frontend
+# Must explicitly allow the Vercel origin for POST requests with Authorization header
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific Vercel domain if needed
-    allow_credentials=False,  # Must be False when using allow_origins=["*"]
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],  # Explicitly include OPTIONS
-    allow_headers=["*"],
+    allow_origins=[
+        "https://rt4orgs-frats.vercel.app",
+        "http://localhost:3000",  # Local development
+        "http://localhost:8000",  # Local development
+        "http://127.0.0.1:3000",  # Local development
+        "http://127.0.0.1:8000",  # Local development
+    ],
+    allow_credentials=True,  # Allow cookies/auth headers
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],  # CRITICAL: Must include OPTIONS for preflight
+    allow_headers=["*"],  # CRITICAL: Must allow Authorization header
     expose_headers=["*"],
     max_age=3600,  # Cache preflight for 1 hour
 )
