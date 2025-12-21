@@ -158,13 +158,14 @@ def send_sms(to_number: str, body: str, force_direct: bool = False) -> Dict[str,
     Send SMS via Twilio with comprehensive logging.
     Always uses system Twilio credentials from environment variables.
     
-    For blasts: ALWAYS uses direct phone number (force_direct=True by default).
-    Never uses Messaging Service for blasts to ensure messages actually send.
+    For blasts: ALWAYS uses Messaging Service when available (required for A2P 10DLC compliance).
+    Messaging Service handles carrier rules, compliance, and number rotation.
+    Direct phone number is only used as fallback if Messaging Service is not configured.
     
     Args:
         to_number: Recipient phone number
         body: Message body
-        force_direct: If True (default), always use direct from_ phone number, never Messaging Service
+        force_direct: If True, force direct phone (ignored if Messaging Service is set)
     
     Returns:
         Dict with sid, status, and detailed response info
