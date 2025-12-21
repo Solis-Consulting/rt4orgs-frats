@@ -1517,12 +1517,16 @@ async def twilio_inbound(request: Request):
                 else:
                     print(f"[TWILIO_INBOUND] ⚠️ No conversation found in DB for re-read, using current rep_user_id: {rep_user_id}", flush=True)
             
-            print(f"[TWILIO_INBOUND] 🔍 Looking up Markov response:", flush=True)
+            print("=" * 80, flush=True)
+            print(f"[TWILIO_INBOUND] 🔍 MARKOV RESPONSE LOOKUP", flush=True)
+            print("=" * 80, flush=True)
             print(f"[TWILIO_INBOUND]   state_key: '{next_state}'", flush=True)
             print(f"[TWILIO_INBOUND]   rep_user_id (final): {rep_user_id}", flush=True)
             print(f"[TWILIO_INBOUND]   phone: {normalized_phone}", flush=True)
             print(f"[TWILIO_INBOUND]   routing_mode: {routing_mode}", flush=True)
+            print(f"[TWILIO_INBOUND]   Querying markov_responses table...", flush=True)
             configured_response = get_markov_response(conn, next_state, rep_user_id)
+            print("=" * 80, flush=True)
             if configured_response:
                 print("=" * 80, flush=True)
                 print(f"[TWILIO_INBOUND] ✅ RESPONSE FOUND", flush=True)
@@ -1749,12 +1753,36 @@ async def twilio_inbound(request: Request):
                         raise
         
         if should_suppress and not force_send:
-            print(f"[TWILIO_INBOUND] 🚫 SUPPRESSING SEND: {suppression_reason}", flush=True)
+            print("=" * 80, flush=True)
+            print(f"[TWILIO_INBOUND] 🚫 SUPPRESSING SEND", flush=True)
+            print("=" * 80, flush=True)
+            print(f"[TWILIO_INBOUND]   Reason: {suppression_reason}", flush=True)
             print(f"[TWILIO_INBOUND]   Use force_send=true in card metadata to override", flush=True)
             print(f"[TWILIO_INBOUND]   Or use different campaign_id to send to same number in different vertical", flush=True)
+            print("=" * 80, flush=True)
             reply_text = None
+        elif should_suppress and force_send:
+            print(f"[TWILIO_INBOUND] ⚠️ Duplicate detected but force_send=true - sending anyway", flush=True)
         
+        # Final check before send - log all conditions
+        print("=" * 80, flush=True)
+        print(f"[TWILIO_INBOUND] 🔍 FINAL SEND CHECK", flush=True)
+        print("=" * 80, flush=True)
+        print(f"[TWILIO_INBOUND]   reply_text exists: {reply_text is not None}", flush=True)
         if reply_text:
+            print(f"[TWILIO_INBOUND]   reply_text length: {len(reply_text)} chars", flush=True)
+            print(f"[TWILIO_INBOUND]   reply_text preview: {reply_text[:100]}...", flush=True)
+        print(f"[TWILIO_INBOUND]   should_suppress: {should_suppress}", flush=True)
+        if should_suppress:
+            print(f"[TWILIO_INBOUND]   suppression_reason: {suppression_reason}", flush=True)
+        print(f"[TWILIO_INBOUND]   is_test_number: {is_test_number}", flush=True)
+        print(f"[TWILIO_INBOUND]   force_send: {force_send}", flush=True)
+        print(f"[TWILIO_INBOUND]   routing_mode: {routing_mode}", flush=True)
+        will_actually_send = reply_text and not (should_suppress and not force_send)
+        print(f"[TWILIO_INBOUND]   WILL ACTUALLY SEND: {will_actually_send}", flush=True)
+        print("=" * 80, flush=True)
+        
+        if reply_text and will_actually_send:
             print("=" * 80, flush=True)
             print(f"[TWILIO_INBOUND] 🚀 SENDING REPLY VIA TWILIO", flush=True)
             print("=" * 80, flush=True)
