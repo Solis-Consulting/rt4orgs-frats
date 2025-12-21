@@ -105,7 +105,7 @@
       <!-- Leads View -->
       <div id="leadsView" style="display: none;">
         <div class="toolbar">
-          <input id="leadsSearch" placeholder="Search leads by name or phone" oninput="renderLeads()">
+          <input id="leadsSearch" placeholder="Search leads by name or phone">
         </div>
         <div id="leadsTableWrap"></div>
       </div>
@@ -669,12 +669,18 @@
         text: btn.textContent
       });
       
-      // Check if event listener is attached
-      const listeners = getEventListeners ? getEventListeners(btn) : null;
-      if (listeners && listeners.click) {
-        console.log('🔬 [DIAG] ✅ Click listener attached:', listeners.click.length, 'listener(s)');
-      } else {
-        console.warn('🔬 [DIAG] ⚠️ Cannot verify click listener (getEventListeners not available or no listeners)');
+      // Check if event listener is attached (getEventListeners is Chrome DevTools only)
+      try {
+        if (typeof getEventListeners !== 'undefined') {
+          const listeners = getEventListeners(btn);
+          if (listeners && listeners.click) {
+            console.log('🔬 [DIAG] ✅ Click listener attached:', listeners.click.length, 'listener(s)');
+          }
+        } else {
+          console.warn('🔬 [DIAG] ⚠️ getEventListeners not available (Chrome DevTools only)');
+        }
+      } catch (e) {
+        console.warn('🔬 [DIAG] ⚠️ Cannot verify click listener:', e.message);
       }
       
       // Check global store
@@ -694,6 +700,7 @@
 
     document.getElementById('cardSearch').addEventListener('input', renderCards);
     document.getElementById('statusFilter').addEventListener('change', loadCards);
+    document.getElementById('leadsSearch')?.addEventListener('input', renderLeads);
     
     // Check All & Assign button
     document.getElementById('checkAllAssignBtn')?.addEventListener('click', async () => {
