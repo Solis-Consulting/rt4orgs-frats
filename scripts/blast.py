@@ -298,9 +298,18 @@ def send_sms(to_number: str, body: str, force_direct: bool = True) -> Dict[str, 
         # Make the API call
         print(f"[SEND_SMS] 🚀 Calling client.messages.create() NOW...", flush=True)
         print(f"[SEND_SMS] Request timestamp: {datetime.now().isoformat()}", flush=True)
+        
+        # 🔥 CRITICAL DEBUG: Log before Twilio API call
+        logger.warning(f"📤 TWILIO SEND ATTEMPT → to={to_number} from={message_params.get('from_', 'N/A')} body_len={len(body) if body else 'NONE'}")
+        print(f"📤 [TWILIO_SEND] SEND ATTEMPT → to={to_number} from={message_params.get('from_', 'N/A')} body_len={len(body) if body else 'NONE'}", flush=True)
+        
         try:
             msg = client.messages.create(**message_params)
             print(f"[SEND_SMS] ✅ API call completed successfully", flush=True)
+            
+            # 🔥 CRITICAL DEBUG: Log after successful Twilio API call
+            logger.warning(f"✅ TWILIO SENT SID={msg.sid}")
+            print(f"✅ [TWILIO_SEND] SENT SID={msg.sid}", flush=True)
         except Exception as api_error:
             print("=" * 80, flush=True)
             print(f"[SEND_SMS] ❌ TWILIO API CALL EXCEPTION", flush=True)
