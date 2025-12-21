@@ -928,7 +928,28 @@
 
       try {
         const data = JSON.parse(text);
-        alert("Blast OK: Sent: " + (data.sent || 0) + ", Skipped: " + (data.skipped || 0));
+        const sent = data.sent || 0;
+        const skipped = data.skipped || 0;
+        const skippedDetails = data.skipped_details || [];
+        
+        // Build detailed message with skip reasons
+        let message = `Blast Complete:\nSent: ${sent}, Skipped: ${skipped}`;
+        
+        if (skippedDetails.length > 0) {
+          message += "\n\nSkipped cards:";
+          skippedDetails.forEach((detail, idx) => {
+            const cardIdShort = detail.card_id.length > 30 
+              ? detail.card_id.substring(0, 30) + "..." 
+              : detail.card_id;
+            message += `\n${idx + 1}. ${cardIdShort} — ${detail.reason}`;
+          });
+        }
+        
+        alert(message);
+        console.log("[BLAST] Full response:", data);
+        if (skippedDetails.length > 0) {
+          console.warn("[BLAST] Skipped details:", skippedDetails);
+        }
         loadCards();
       } catch (parseErr) {
         alert("Blast OK but parse failed: " + text);

@@ -425,19 +425,20 @@ def run_blast_for_cards(
         # 🔥 CRITICAL: Normalize phone ONCE at the top, before ANY checks
         if not raw_phone:
             skip_reason = "NO_PHONE"
+            logger.error(f"[BLAST_SKIP] card_id={card_id} phone=None reason={skip_reason}")
             print(
                 f"[BLAST_SKIP] card_id={card_id} phone=None reason={skip_reason}",
                 flush=True,
             )
             skipped_count += 1
-            results.append(
-                {
-                    "card_id": card_id,
-                    "phone": None,
-                    "status": "skipped",
-                    "reason": "missing phone number",
-                }
-            )
+            skip_result = {
+                "card_id": card_id,
+                "phone": None,
+                "status": "skipped",
+                "reason": "missing phone number",
+            }
+            results.append(skip_result)
+            logger.error(f"[BLAST_SKIP] Added to results: {skip_result}")
             continue
 
         # Normalize phone immediately after validating it exists
@@ -449,6 +450,7 @@ def run_blast_for_cards(
         # Check 1: Invalid phone format (after normalization) - CRITICAL
         if not phone_normalized or not phone_normalized.startswith("+"):
             skip_reason = "INVALID_PHONE"
+            logger.error(f"[BLAST_SKIP] card_id={card_id} phone={raw_phone} reason={skip_reason} (normalized={phone_normalized})")
             print(
                 f"[BLAST_SKIP] card_id={card_id} phone={raw_phone} reason={skip_reason} "
                 f"(normalized={phone_normalized})",
@@ -462,14 +464,14 @@ def run_blast_for_cards(
         # If skip condition matched, skip this card
         if skip_reason:
             skipped_count += 1
-            results.append(
-                {
-                    "card_id": card_id,
-                    "phone": phone_normalized,
-                    "status": "skipped",
-                    "reason": skip_reason.lower().replace("_", " "),
-                }
-            )
+            skip_result = {
+                "card_id": card_id,
+                "phone": phone_normalized or raw_phone or "N/A",
+                "status": "skipped",
+                "reason": skip_reason.lower().replace("_", " "),
+            }
+            results.append(skip_result)
+            logger.error(f"[BLAST_SKIP] Added to results: {skip_result}")
             continue
         
         # Log card details (no skip, will send)
@@ -1202,10 +1204,28 @@ def run_blast_for_cards(
     print(f"[BLAST_RUN] Results: {len(results)}", flush=True)
     print("=" * 80, flush=True)
     
+    # Extract skipped details for frontend visibility
+    skipped_details = [
+        {
+            "card_id": r.get("card_id", "unknown"),
+            "reason": r.get("reason", "unknown"),
+            "phone": r.get("phone", "N/A")
+        }
+        for r in results
+        if r.get("status") == "skipped"
+    ]
+    
+    if skipped_details:
+        print(f"[BLAST_RUN] Skipped details: {skipped_details}", flush=True)
+        logger.error(f"[BLAST] Skipped cards: {skipped_details}")
+        for detail in skipped_details:
+            print(f"[BLAST_SKIP_DETAIL] card_id={detail['card_id']} reason={detail['reason']} phone={detail['phone']}", flush=True)
+    
     return {
         "ok": True,
         "blast_run_id": blast_id,
         "sent": sent_count,
         "skipped": skipped_count,
+        "skipped_details": skipped_details,  # 🔥 CRITICAL: Include skip reasons for frontend
         "results": results,
     }
