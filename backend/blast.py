@@ -407,7 +407,6 @@ def run_blast_for_cards(
     for card in cards:
         card_id = card["id"]
         data = card["card_data"] or {}
-        raw_phone = data.get("phone")
 
         # Decision visibility: log what we know before eligibility checks
         print(
@@ -415,7 +414,6 @@ def run_blast_for_cards(
             {
                 "card_id": card_id,
                 "type": card.get("type"),
-                "phone": raw_phone,
                 "sales_state": card.get("sales_state"),
                 "owner": card.get("owner"),
             },
