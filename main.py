@@ -4537,19 +4537,13 @@ async def rep_blast(
     request: Request
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
-    # Ensure logger is available (defensive check)
-    if 'logger' not in globals():
-        import logging
-        logger = logging.getLogger(__name__)
+    # ✅ CRITICAL: Ensure logger is available - import at function level if needed
+    # This must happen BEFORE any logger.error() calls
+    import logging
+    _logger = logging.getLogger(__name__)
     
     # 1️⃣ At the very top of /rep/blast
-    try:
-        logger.error("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast")
-    except NameError:
-        # Fallback if logger still not available
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast")
+    _logger.error("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast")
     print("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast", flush=True)
     print(f"[REP_BLAST] Request method: {request.method}", flush=True)
     print(f"[REP_BLAST] Request path: {request.url.path}", flush=True)
@@ -4576,7 +4570,7 @@ async def rep_blast(
         payload = await request.json()
         # 2️⃣ Immediately after parsing payload
         card_ids = payload.get("card_ids", [])
-        logger.error(f"[BLAST_ENDPOINT] Payload card_ids = {card_ids}")
+        _logger.error(f"[BLAST_ENDPOINT] Payload card_ids = {card_ids}")
         print(f"[BLAST_ENDPOINT] Payload card_ids = {card_ids}", flush=True)
         logger.error(f"🔥 BLAST PAYLOAD: {payload}")
         print(f"🔥 BLAST PAYLOAD: {payload}", flush=True)
@@ -4591,7 +4585,7 @@ async def rep_blast(
     current_user = user
     
     # 3️⃣ Right after authentication
-    logger.error(f"[BLAST_ENDPOINT] Authenticated user id={current_user.get('id')} role={current_user.get('role')}")
+    _logger.error(f"[BLAST_ENDPOINT] Authenticated user id={current_user.get('id')} role={current_user.get('role')}")
     print(f"[BLAST_ENDPOINT] Authenticated user id={current_user.get('id')} role={current_user.get('role')}", flush=True)
     
     # Now continue with the rest of the handler logic
@@ -4735,7 +4729,7 @@ async def rep_blast(
             print(f"[BLAST_ENDPOINT] Fetching assigned cards for rep {current_user['id']}...", flush=True)
             all_assigned = get_rep_assigned_cards(conn, current_user["id"])
             # 4️⃣ After fetching assigned cards (THIS IS THE LIKELY KILLER)
-            logger.error(
+            _logger.error(
                 f"[BLAST_ENDPOINT] Assigned cards count = {len(all_assigned)}; "
                 f"first_ids={[c['id'] for c in all_assigned[:5]]}"
             )
@@ -4752,7 +4746,7 @@ async def rep_blast(
                 unauthorized = [cid for cid in card_ids if cid not in assigned_ids]
                 if unauthorized:
                     # 6️⃣ Before EVERY early return (non-negotiable)
-                    logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: unauthorized card_ids")
+                    _logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: unauthorized card_ids")
                     print(f"[BLAST_ENDPOINT] ❌ EARLY EXIT: Unauthorized cards detected", flush=True)
                     print(f"[BLAST_ENDPOINT]   Unauthorized: {unauthorized}", flush=True)
                     logger.warning(f"[BLAST] Rep {current_user['id']} attempted to blast unauthorized cards: {unauthorized}")
@@ -4761,7 +4755,7 @@ async def rep_blast(
                 # Filter to only assigned cards (safety check)
                 card_ids = [cid for cid in card_ids if cid in assigned_ids]
                 # 5️⃣ After filtering requested cards against assigned cards
-                logger.error(
+                _logger.error(
                     f"[BLAST_ENDPOINT] Cards after assignment filter = {len(card_ids)}; "
                     f"ids={card_ids}"
                 )
@@ -4769,7 +4763,7 @@ async def rep_blast(
                 
                 if not card_ids:
                     # 6️⃣ Before EVERY early return (non-negotiable)
-                    logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: no valid cards after filtering")
+                    _logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: no valid cards after filtering")
                     print(f"[BLAST_ENDPOINT] ❌ EARLY EXIT: No valid assigned cards after filtering", flush=True)
                     logger.warning(f"[BLAST] Rep {current_user['id']} - no valid assigned cards after filtering")
                     return {"ok": False, "error": "None of the specified cards are assigned to you", "sent": 0, "skipped": 0}
@@ -4780,7 +4774,7 @@ async def rep_blast(
                 print(f"[BLAST_ENDPOINT]   Found {len(cards)} assigned cards", flush=True)
                 if not cards:
                     # 6️⃣ Before EVERY early return (non-negotiable)
-                    logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: no assigned cards found")
+                    _logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: no assigned cards found")
                     print(f"[BLAST_ENDPOINT] ❌ EARLY EXIT: No assigned cards found", flush=True)
                     logger.info(f"[BLAST] Rep {current_user['id']} - no assigned cards found with status={status_filter}")
                     return {"ok": False, "error": "No assigned cards found", "sent": 0, "skipped": 0}
@@ -4796,7 +4790,7 @@ async def rep_blast(
         print(f"[BLAST_ENDPOINT] Final card_ids count: {len(card_ids) if card_ids else 0}", flush=True)
         if not card_ids:
             # 6️⃣ Before EVERY early return (non-negotiable)
-            logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: no card_ids provided")
+            _logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: no card_ids provided")
             print(f"[BLAST_ENDPOINT] ❌ EARLY EXIT: No cards to blast - returning error", flush=True)
             return {"ok": False, "error": "No cards to blast", "sent": 0, "skipped": 0}
         
@@ -4815,7 +4809,7 @@ async def rep_blast(
             phone_number = os.getenv("TWILIO_PHONE_NUMBER")
             if not phone_number:
                 # 6️⃣ Before EVERY early return (non-negotiable)
-                logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: missing Twilio config (PHONE_NUMBER)")
+                _logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: missing Twilio config (PHONE_NUMBER)")
                 error_msg = "TWILIO_PHONE_NUMBER is not set in environment variables. Blast cannot proceed."
                 print(f"[BLAST_ENDPOINT] ❌ {error_msg}", flush=True)
                 return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
@@ -4828,7 +4822,7 @@ async def rep_blast(
             
             if not account_sid:
                 # 6️⃣ Before EVERY early return (non-negotiable)
-                logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: missing Twilio config (ACCOUNT_SID)")
+                _logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: missing Twilio config (ACCOUNT_SID)")
                 error_msg = "TWILIO_ACCOUNT_SID is not set in environment variables. Blast cannot proceed."
                 print(f"[BLAST_ENDPOINT] ❌ {error_msg}", flush=True)
                 return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
@@ -4836,7 +4830,7 @@ async def rep_blast(
             
             if not auth_token:
                 # 6️⃣ Before EVERY early return (non-negotiable)
-                logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: missing Twilio config (AUTH_TOKEN)")
+                _logger.error("[BLAST_ENDPOINT] ❌ EARLY EXIT: missing Twilio config (AUTH_TOKEN)")
                 error_msg = "TWILIO_AUTH_TOKEN is not set in environment variables. Blast cannot proceed."
                 print(f"[BLAST_ENDPOINT] ❌ {error_msg}", flush=True)
                 return {"ok": False, "error": error_msg, "sent": 0, "skipped": 0}
@@ -4875,7 +4869,7 @@ async def rep_blast(
             print(f"[BLAST_ENDPOINT]   source: {'owner_ui' if current_user.get('role') == 'admin' else 'rep_ui'}", flush=True)
             print(f"[BLAST_ENDPOINT]   rep_user_id: {rep_user_id}", flush=True)
             # 7️⃣ Immediately before blast execution (the goal)
-            logger.error(f"[BLAST_ENDPOINT] 🔥🔥🔥 ABOUT TO EXECUTE BLAST for cards={card_ids}")
+            _logger.error(f"[BLAST_ENDPOINT] 🔥🔥🔥 ABOUT TO EXECUTE BLAST for cards={card_ids}")
             print(f"[BLAST_ENDPOINT] Calling run_blast_for_cards() NOW...", flush=True)
             print(f"[BLAST_ENDPOINT] 🔥🔥🔥 ABOUT TO EXECUTE BLAST 🔥🔥🔥", flush=True)
             print(f"[BLAST_ENDPOINT]   card_ids: {card_ids}", flush=True)
