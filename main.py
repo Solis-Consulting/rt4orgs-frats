@@ -5169,9 +5169,23 @@ async def rep_blast(
             # #endregion
             
             return result
-        except Exception as e:
-            # #region agent log - Blast exception
-            try:
+    except HTTPException:
+        # Re-raise HTTP exceptions (auth errors, etc.)
+        raise
+    except Exception as e:
+        # Catch any other errors and log them
+        print("=" * 80, flush=True)
+        print(f"❌ [BLAST] UNHANDLED EXCEPTION", flush=True)
+        print("=" * 80, flush=True)
+        print(f"❌ [BLAST] Error type: {type(e).__name__}", flush=True)
+        print(f"❌ [BLAST] Error message: {str(e)}", flush=True)
+        import traceback
+        print(f"❌ [BLAST] Full traceback:", flush=True)
+        traceback.print_exc()
+        print("=" * 80, flush=True)
+        
+        # #region agent log - Blast exception
+        try:
                 import json as _json
                 from datetime import datetime
                 import traceback
