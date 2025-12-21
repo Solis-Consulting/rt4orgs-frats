@@ -250,7 +250,8 @@ async def lifespan(app: FastAPI):
     import os
     twilio_account_sid = os.getenv("TWILIO_ACCOUNT_SID")
     twilio_auth_token = os.getenv("TWILIO_AUTH_TOKEN")
-    twilio_phone_number = os.getenv("TWILIO_PHONE_NUMBER")  # Send directly from phone number
+    twilio_messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
+    twilio_phone_number = os.getenv("TWILIO_PHONE_NUMBER")
     
     print("=" * 60)
     print("🔍 TWILIO CONFIGURATION CHECK")
@@ -261,13 +262,19 @@ async def lifespan(app: FastAPI):
     print(f"TWILIO_AUTH_TOKEN: {'✅ SET' if twilio_auth_token else '❌ NOT SET'}")
     if twilio_auth_token:
         print(f"  Value: {twilio_auth_token[:10]}...{twilio_auth_token[-4:] if len(twilio_auth_token) > 14 else twilio_auth_token} (length: {len(twilio_auth_token)})")
-    print(f"TWILIO_PHONE_NUMBER: {'✅ SET' if twilio_phone_number else '❌ NOT SET - BLAST WILL FAIL!'}")
+    print(f"TWILIO_MESSAGING_SERVICE_SID: {'✅ SET' if twilio_messaging_service_sid else '❌ NOT SET'}")
+    if twilio_messaging_service_sid:
+        print(f"  Value: {twilio_messaging_service_sid[:10]}...{twilio_messaging_service_sid[-4:] if len(twilio_messaging_service_sid) > 14 else twilio_messaging_service_sid} (length: {len(twilio_messaging_service_sid)})")
+        print(f"  ✅ Using Messaging Service (REQUIRED for A2P 10DLC and blast traffic)")
+        if twilio_phone_number:
+            print(f"  ⚠️  WARNING: TWILIO_PHONE_NUMBER is also set - it will be IGNORED when Messaging Service is used")
+    else:
+        print(f"  ⚠️  WARNING: Messaging Service not set - using direct phone number (NOT RECOMMENDED)")
+    print(f"TWILIO_PHONE_NUMBER: {'✅ SET' if twilio_phone_number else '⚠️  NOT SET'}")
     if twilio_phone_number:
         print(f"  Value: {twilio_phone_number}")
-        print(f"  Note: Sending directly from phone number (avoids Messaging Service filtering)")
-    else:
-        print(f"  ⚠️  WARNING: Phone number not configured!")
-        print(f"  ⚠️  All blast operations will fail until TWILIO_PHONE_NUMBER is set in Railway environment variables")
+        if not twilio_messaging_service_sid:
+            print(f"  ⚠️  NOTE: Using direct phone number (Messaging Service is preferred for blasts)")
     print("=" * 60)
     print("✅ LIFESPAN STARTUP COMPLETE")
     print("=" * 60)

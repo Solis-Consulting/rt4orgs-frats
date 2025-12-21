@@ -153,7 +153,7 @@ def find_unblasted_contacts(leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return unblasted
 
 
-def send_sms(to_number: str, body: str, force_direct: bool = True) -> Dict[str, Any]:
+def send_sms(to_number: str, body: str, force_direct: bool = False) -> Dict[str, Any]:
     """
     Send SMS via Twilio with comprehensive logging.
     Always uses system Twilio credentials from environment variables.
@@ -203,28 +203,33 @@ def send_sms(to_number: str, body: str, force_direct: bool = True) -> Dict[str, 
     
     # 🔒 CRITICAL: For blasts, ALWAYS use direct phone number
     # Never use Messaging Service for blasts (ensures messages actually send)
-    if force_direct:
-        print(f"[SEND_SMS] ✅ FORCE DIRECT MODE: Using direct phone number (blast mode)", flush=True)
+    # 🔥 CRITICAL: Always prefer Messaging Service for compliance and carrier rules
+    # Messaging Service is REQUIRED for A2P 10DLC and blast-style traffic
+    if messaging_service_sid:
+        print(f"[SEND_SMS] ✅ TWILIO_MESSAGING_SERVICE_SID is set - using Messaging Service mode (REQUIRED for blasts)", flush=True)
+        use_messaging_service = True
+        send_mode = "MESSAGING_SERVICE"
+        # Do NOT require phone_number when using Messaging Service
+        if force_direct:
+            print(f"[SEND_SMS] ⚠️ WARNING: force_direct=True but Messaging Service is set - ignoring force_direct for compliance", flush=True)
+    elif force_direct:
+        print(f"[SEND_SMS] ⚠️ FALLBACK: No Messaging Service - using direct phone number (NOT RECOMMENDED for blasts)", flush=True)
         if not phone_number:
-            error_msg = "TWILIO_PHONE_NUMBER not set in environment variables (REQUIRED for blasts)"
+            error_msg = "TWILIO_PHONE_NUMBER not set and TWILIO_MESSAGING_SERVICE_SID not set - one must be configured"
             print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
             raise ValueError(error_msg)
         use_messaging_service = False
         send_mode = "DIRECT_NUMBER"
     else:
-        # Legacy mode: Messaging Service takes precedence if set
-        if messaging_service_sid:
-            print(f"[SEND_SMS] ✅ TWILIO_MESSAGING_SERVICE_SID is set - using Messaging Service mode", flush=True)
-            use_messaging_service = True
-            send_mode = "MESSAGING_SERVICE"
-        else:
-            print(f"[SEND_SMS] ⚠️ TWILIO_MESSAGING_SERVICE_SID not set - using direct phone number", flush=True)
-            if not phone_number:
-                error_msg = "TWILIO_PHONE_NUMBER not set in environment variables (required when Messaging Service not set)"
-                print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
-                raise ValueError(error_msg)
+        # Default: Try Messaging Service, fallback to direct
+        if phone_number:
+            print(f"[SEND_SMS] ⚠️ TWILIO_MESSAGING_SERVICE_SID not set - falling back to direct phone number", flush=True)
             use_messaging_service = False
             send_mode = "DIRECT_NUMBER"
+        else:
+            error_msg = "Neither TWILIO_MESSAGING_SERVICE_SID nor TWILIO_PHONE_NUMBER is set - one must be configured"
+            print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
+            raise ValueError(error_msg)
     
     # Validate Account SID format
     if not sid_to_use.startswith('AC'):
