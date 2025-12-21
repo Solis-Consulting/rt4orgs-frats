@@ -294,7 +294,37 @@
           window.location.href = 'markov_responses.html';
         }
       });
-    });
+      
+      // 🔬 DIAGNOSTIC: Log that handler was attached
+      console.log('✅ [BLAST] Click handler attached successfully');
+    }
+    
+    // 🔬 DIAGNOSTIC: Run on page load to verify setup
+    window.addEventListener('DOMContentLoaded', () => {
+      console.log('🔬 [DIAG] Page loaded, running blast button diagnostics...');
+      setTimeout(() => {
+        diagnoseBlastButton();
+        
+        // Test if button is clickable
+        const btn = document.getElementById('blastBtn');
+        if (btn) {
+          console.log('🔬 [DIAG] Testing button clickability...');
+          console.log('🔬 [DIAG] Button disabled:', btn.disabled);
+          console.log('🔬 [DIAG] Button type:', btn.type);
+          console.log('🔬 [DIAG] Global store size:', window.__SELECTED_CARD_IDS__?.size || 0);
+          
+          // Try to manually trigger click to test
+          console.log('🔬 [DIAG] Attempting to verify click handler...');
+          try {
+            // Don't actually click, just verify the handler exists
+            const hasHandler = btn.onclick !== null || btn.getAttribute('onclick') !== null;
+            console.log('🔬 [DIAG] Button has onclick attribute:', hasHandler);
+          } catch (e) {
+            console.error('🔬 [DIAG] Error checking button:', e);
+          }
+        }
+      }, 500);
+    }););
 
     // 🔥 CARD TOGGLE HANDLER - updates global selection store
     window.handleCardToggle = function(cb) {
@@ -619,6 +649,46 @@
       if (btn) {
         btn.disabled = selectedCount === 0;
         console.log('[UPDATE_BLAST_BTN] Selected count:', selectedCount, 'Button disabled:', btn.disabled);
+      } else {
+        console.error('[UPDATE_BLAST_BTN] ❌ Button not found!');
+      }
+    }
+    
+    // 🔬 DIAGNOSTIC: Verify button and handler are wired on page load
+    function diagnoseBlastButton() {
+      const btn = document.getElementById('blastBtn');
+      if (!btn) {
+        console.error('🔬 [DIAG] ❌ blastBtn element not found in DOM');
+        return;
+      }
+      console.log('🔬 [DIAG] ✅ blastBtn found:', {
+        id: btn.id,
+        disabled: btn.disabled,
+        type: btn.type,
+        hasOnclick: btn.onclick !== null,
+        text: btn.textContent
+      });
+      
+      // Check if event listener is attached
+      const listeners = getEventListeners ? getEventListeners(btn) : null;
+      if (listeners && listeners.click) {
+        console.log('🔬 [DIAG] ✅ Click listener attached:', listeners.click.length, 'listener(s)');
+      } else {
+        console.warn('🔬 [DIAG] ⚠️ Cannot verify click listener (getEventListeners not available or no listeners)');
+      }
+      
+      // Check global store
+      if (window.__SELECTED_CARD_IDS__) {
+        console.log('🔬 [DIAG] ✅ Global selection store exists, size:', window.__SELECTED_CARD_IDS__.size);
+      } else {
+        console.error('🔬 [DIAG] ❌ Global selection store NOT initialized!');
+      }
+      
+      // Check handleCardToggle
+      if (window.handleCardToggle) {
+        console.log('🔬 [DIAG] ✅ handleCardToggle function exists');
+      } else {
+        console.error('🔬 [DIAG] ❌ handleCardToggle function NOT found!');
       }
     }
 
@@ -673,9 +743,24 @@
     });
     
     // Blast selected cards
-    document.getElementById('blastBtn').addEventListener('click', async (e) => {
-      // 🧪 Frontend: Nuclear Click Confirmation
-      console.log("🚨 BLAST CLICKED");
+    const blastBtn = document.getElementById('blastBtn');
+    if (!blastBtn) {
+      console.error('❌ [BLAST] blastBtn element not found - cannot attach handler!');
+      console.error('❌ [BLAST] This means the button HTML is missing or ID is wrong');
+    } else {
+      console.log('✅ [BLAST] blastBtn found, attaching click handler');
+      console.log('🔬 [BLAST_DIAG] Button state:', {
+        id: blastBtn.id,
+        disabled: blastBtn.disabled,
+        type: blastBtn.type,
+        text: blastBtn.textContent
+      });
+      
+      blastBtn.addEventListener('click', async (e) => {
+        // 🧪 Frontend: Nuclear Click Confirmation
+        console.log("🚨 BLAST CLICKED");
+        console.error("🚨 BLAST CLICKED"); // Also log to error level for visibility
+        alert("🚨 BLAST BUTTON CLICKED - Check console for logs");
       
       // 🔥 PREVENT DEFAULT FORM SUBMIT BEHAVIOR
       if (e) {
