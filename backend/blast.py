@@ -626,6 +626,22 @@ def run_blast_for_cards(
             logger.error(f"📤 [BLAST_SENDING] card_id={card_id}")
             logger.error(f"[BLAST_SEND] 📤 Sending SMS to {phone} (card_id={card_id})")
             print(f"[BLAST_SEND] 📤 Sending SMS to {phone} (card_id={card_id})", flush=True)
+            # 🔥 CRITICAL: Conversation MUST exist before send_sms() - this is a hard precondition
+            # Verify conversation exists one more time right before send
+            with conn.cursor() as verify_cur:
+                verify_cur.execute("""
+                    SELECT phone, environment_id, card_id, state
+                    FROM conversations
+                    WHERE phone = %s AND environment_id = %s
+                """, (phone, environment_id))
+                pre_send_verify = verify_cur.fetchone()
+                if not pre_send_verify:
+                    error_msg = f"[BLAST] ❌ FATAL: Conversation missing before send_sms() - ABORTING"
+                    logger.error(error_msg)
+                    print(f"[BLAST] ❌ {error_msg}", flush=True)
+                    raise RuntimeError("Conversation anchor missing - cannot send SMS without conversation row")
+                print(f"[BLAST] ✅ Pre-send verification: conversation exists (phone={pre_send_verify[0]} env={pre_send_verify[1]} card_id={pre_send_verify[2]} state={pre_send_verify[3]})", flush=True)
+            
             print(f"[BLAST_SEND_ATTEMPT] Calling send_sms() NOW...", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Request timestamp: {datetime.utcnow().isoformat()}", flush=True)
             # send_sms() now always uses environment variables - no parameters needed
@@ -890,30 +906,49 @@ def run_blast_for_cards(
                     )
                     # D) Verify write with RETURNING and runtime assertions
                     row = cur.fetchone()
-                    if row:
-                        returned_rep_user_id = row[0]
-                        returned_state = row[1]
-                        logger.error(f"[BLAST] ✅ Conversation upsert RETURNING rep_user_id={returned_rep_user_id} state={returned_state}")
-                        print(f"[BLAST] ✅ Conversation recorded/updated: phone={phone}, env={environment_id}, rep_user_id={returned_rep_user_id}, state={returned_state}", flush=True)
-                        # 🔥 INVARIANT 1 VERIFICATION: Conversation exists and linked to card
-                        logger.error(f"[INVARIANT] ✅ Conversation created: card_id={card_id} phone={phone} state={returned_state} environment_id={environment_id}")
-                        print(f"[INVARIANT] ✅ Conversation created: card_id={card_id} phone={phone} state={returned_state}", flush=True)
-                        
-                        # Runtime assertions to warn if state/rep_user_id not persisted correctly
-                        # Log as warning instead of raising to avoid blocking blasts
-                        if rep_user_id is not None and returned_rep_user_id != rep_user_id:
-                            error_msg = f"[BLAST] WARNING: rep_user_id mismatch. expected={rep_user_id} got={returned_rep_user_id}"
-                            logger.warning(error_msg)
-                            print(f"[BLAST] ⚠️ {error_msg}", flush=True)
-                            # Don't raise - log and continue (might be a race condition or edge case)
-                        if rep_user_id is not None and returned_state != 'initial_outreach':
-                            error_msg = f"[BLAST] WARNING: state not reset. expected=initial_outreach got={returned_state}"
-                            logger.warning(error_msg)
-                            print(f"[BLAST] ⚠️ {error_msg}", flush=True)
-                            # Don't raise - log and continue (might be a race condition or edge case)
-                    else:
-                        logger.warning(f"[BLAST] No row returned from conversation upsert (unexpected)")
-                        print(f"[BLAST] ✅ Conversation recorded/updated: phone={phone}, env={environment_id}, rep_user_id={rep_user_id}, state={new_state}", flush=True)
+                    if not row:
+                        # 🔥 CRITICAL: Conversation creation is MANDATORY - if upsert fails, abort send
+                        error_msg = f"[BLAST] ❌ FATAL: Conversation upsert returned no row - ABORTING SMS send"
+                        logger.error(error_msg)
+                        print(f"[BLAST] ❌ {error_msg}", flush=True)
+                        raise RuntimeError("Conversation creation failed - cannot send SMS without conversation anchor")
+                    
+                    returned_rep_user_id = row[0]
+                    returned_state = row[1]
+                    logger.error(f"[BLAST] ✅ Conversation upsert RETURNING rep_user_id={returned_rep_user_id} state={returned_state}")
+                    print(f"[BLAST] ✅ Conversation recorded/updated: phone={phone}, env={environment_id}, rep_user_id={returned_rep_user_id}, state={returned_state}", flush=True)
+                    # 🔥 INVARIANT 1 VERIFICATION: Conversation exists and linked to card
+                    logger.error(f"[INVARIANT] ✅ Conversation created: card_id={card_id} phone={phone} state={returned_state} environment_id={environment_id}")
+                    print(f"[INVARIANT] ✅ Conversation created: card_id={card_id} phone={phone} state={returned_state}", flush=True)
+                    
+                    # 🔥 CRITICAL: Conversation creation is now a HARD PRECONDITION
+                    # If we reach here, conversation MUST exist - verify it's queryable
+                    cur.execute("""
+                        SELECT phone, environment_id, card_id, state, rep_user_id
+                        FROM conversations
+                        WHERE phone = %s AND environment_id = %s
+                    """, (phone, environment_id))
+                    verify_row = cur.fetchone()
+                    if not verify_row:
+                        error_msg = f"[BLAST] ❌ FATAL: Conversation not queryable after creation - ABORTING SMS send"
+                        logger.error(error_msg)
+                        print(f"[BLAST] ❌ {error_msg}", flush=True)
+                        raise RuntimeError("Conversation verification failed - cannot send SMS without verifiable conversation")
+                    
+                    print(f"[BLAST] ✅ Conversation verified queryable: phone={verify_row[0]} env={verify_row[1]} card_id={verify_row[2]} state={verify_row[3]}", flush=True)
+                    
+                    # Runtime assertions to warn if state/rep_user_id not persisted correctly
+                    # Log as warning instead of raising to avoid blocking blasts
+                    if rep_user_id is not None and returned_rep_user_id != rep_user_id:
+                        error_msg = f"[BLAST] WARNING: rep_user_id mismatch. expected={rep_user_id} got={returned_rep_user_id}"
+                        logger.warning(error_msg)
+                        print(f"[BLAST] ⚠️ {error_msg}", flush=True)
+                        # Don't raise - log and continue (might be a race condition or edge case)
+                    if rep_user_id is not None and returned_state != 'initial_outreach':
+                        error_msg = f"[BLAST] WARNING: state not reset. expected=initial_outreach got={returned_state}"
+                        logger.warning(error_msg)
+                        print(f"[BLAST] ⚠️ {error_msg}", flush=True)
+                        # Don't raise - log and continue (might be a race condition or edge case)
                 except psycopg2.ProgrammingError as e:
                     # Fallback if environment_id column or composite key doesn't exist yet
                     if 'environment_id' in str(e) or 'conversations_pkey' in str(e):
