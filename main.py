@@ -2132,7 +2132,6 @@ async def twilio_inbound(request: Request):
             print(f"[TWILIO_INBOUND] 🚀 SENDING REPLY VIA TWILIO", flush=True)
             print("=" * 80, flush=True)
             print(f"[TWILIO_INBOUND]   To: {normalized_phone}", flush=True)
-            print(f"[TWILIO_INBOUND]   From: {twilio_phone}", flush=True)
             print(f"[TWILIO_INBOUND]   Message: {reply_text}", flush=True)
             print(f"[TWILIO_INBOUND]   Message length: {len(reply_text)} chars", flush=True)
             try:
@@ -2141,26 +2140,29 @@ async def twilio_inbound(request: Request):
                 messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
                 # twilio_phone already initialized at top of function (fallback if Messaging Service not set)
                 
+                # 🔥 CRITICAL: FORCE DIRECT MODE - ignore Messaging Service entirely
+                # This ensures immediate delivery and replies stay in the same thread
+                # Messaging Service is ignored even if configured (matches blast path behavior)
+                use_messaging_service = False
+                
+                # Normalize phone number to E.164 format (required for from_ parameter)
+                twilio_phone_raw = twilio_phone or os.getenv("TWILIO_PHONE_NUMBER", "")
+                twilio_phone_e164 = normalize_phone(twilio_phone_raw) if twilio_phone_raw else ""
+                
+                send_mode = "DIRECT_NUMBER"
+                
                 print(f"[TWILIO_INBOUND] 🔑 Twilio credentials:", flush=True)
                 print(f"[TWILIO_INBOUND]   Account SID: {twilio_sid[:10]}... (length: {len(twilio_sid) if twilio_sid else 0})", flush=True)
                 print(f"[TWILIO_INBOUND]   Auth Token: {'✅ SET' if twilio_token else '❌ NOT SET'} (length: {len(twilio_token) if twilio_token else 0})", flush=True)
                 
-                # 🔒 ENFORCE: Messaging Service takes precedence if set
-                use_messaging_service = bool(messaging_service_sid)
-                send_mode = "MESSAGING_SERVICE" if use_messaging_service else "DIRECT_NUMBER"
+                if messaging_service_sid:
+                    print(f"[TWILIO_INBOUND]   ⚠️ TWILIO_MESSAGING_SERVICE_SID is set but will be IGNORED (force direct mode)", flush=True)
                 
-                if use_messaging_service:
-                    print(f"[TWILIO_INBOUND]   Messaging Service SID: {messaging_service_sid[:10]}...{messaging_service_sid[-4:]} (length: {len(messaging_service_sid)})", flush=True)
-                    print(f"[TWILIO_INBOUND]   Phone Number: NOT REQUIRED (using Messaging Service)", flush=True)
-                else:
-                    print(f"[TWILIO_INBOUND]   Phone Number: {twilio_phone}", flush=True)
-                    print(f"[TWILIO_INBOUND]   ⚠️ Messaging Service not set - using direct phone number", flush=True)
+                print(f"[TWILIO_INBOUND]   Phone Number: {twilio_phone_e164}", flush=True)
+                print(f"[TWILIO_INBOUND]   ✅ Using DIRECT mode (from_={twilio_phone_e164})", flush=True)
                 
-                # Validate credentials based on send mode
-                if use_messaging_service:
-                    valid = twilio_sid and twilio_token and messaging_service_sid
-                else:
-                    valid = twilio_sid and twilio_token and twilio_phone
+                # Validate credentials for direct mode only
+                valid = twilio_sid and twilio_token and twilio_phone_e164
                 
                 if valid:
                     print(f"[TWILIO_INBOUND] 🔑 Twilio credentials validated", flush=True)
@@ -2169,27 +2171,16 @@ async def twilio_inbound(request: Request):
                     
                     client = Client(twilio_sid, twilio_token)
                     
-                    # 🔒 PREPARE MESSAGE PARAMETERS: Use Messaging Service if available
+                    # 🔒 PREPARE MESSAGE PARAMETERS: Always use direct mode (from_ parameter)
                     message_params = {
                         "to": From,  # Use original From, not normalized
-                        "body": reply_text
+                        "body": reply_text,
+                        "from_": twilio_phone_e164  # Always use normalized E.164 format
                     }
                     
-                    if use_messaging_service:
-                        message_params["messaging_service_sid"] = messaging_service_sid
-                        # CRITICAL: Do NOT set from_ when using Messaging Service
-                        assert "from_" not in message_params, "Cannot use from_ with Messaging Service"
-                        print(f"[TWILIO_INBOUND] 📨 Creating message (Messaging Service):", flush=True)
-                        print(f"[TWILIO_INBOUND]   to: {From} (original Twilio From)", flush=True)
-                        print(f"[TWILIO_INBOUND]   messaging_service_sid: {messaging_service_sid[:10]}...{messaging_service_sid[-4:]}", flush=True)
-                        print(f"[TWILIO_INBOUND]   from_: NOT SET (using Messaging Service)", flush=True)
-                    else:
-                        message_params["from_"] = twilio_phone
-                        # CRITICAL: Do NOT set messaging_service_sid when using direct phone
-                        assert "messaging_service_sid" not in message_params, "Cannot use messaging_service_sid with direct phone"
-                        print(f"[TWILIO_INBOUND] 📨 Creating message (Direct Phone):", flush=True)
-                        print(f"[TWILIO_INBOUND]   to: {From} (original Twilio From)", flush=True)
-                        print(f"[TWILIO_INBOUND]   from_: {twilio_phone}", flush=True)
+                    print(f"[TWILIO_INBOUND] 📨 Creating message (Direct Phone):", flush=True)
+                    print(f"[TWILIO_INBOUND]   to: {From} (original Twilio From)", flush=True)
+                    print(f"[TWILIO_INBOUND]   from_: {twilio_phone_e164}", flush=True)
                     
                     print(f"[TWILIO_INBOUND]   body: {reply_text}", flush=True)
                     print(f"[TWILIO_INBOUND]   body length: {len(reply_text)} chars", flush=True)
@@ -2206,11 +2197,7 @@ async def twilio_inbound(request: Request):
                     print(f"[TWILIO_INBOUND]   Status: {msg.status}", flush=True)
                     print(f"[TWILIO_INBOUND]   To: {msg.to}", flush=True)
                     print(f"[TWILIO_INBOUND]   From: {msg.from_}", flush=True)
-                    actual_messaging_service = getattr(msg, 'messaging_service_sid', None)
-                    print(f"[TWILIO_INBOUND]   Messaging Service SID: {actual_messaging_service or 'N/A'}", flush=True)
-                    print(f"[TWILIO_INBOUND]   🔒 Send Mode Used: {send_mode}", flush=True)
-                    if use_messaging_service and not actual_messaging_service:
-                        print(f"[TWILIO_INBOUND] ⚠️⚠️⚠️ WARNING: Expected Messaging Service but response shows N/A!", flush=True)
+                    print(f"[TWILIO_INBOUND]   🔒 Send Mode Used: {send_mode} (from_={twilio_phone_e164})", flush=True)
                     print(f"[TWILIO_INBOUND]   Body: {msg.body}", flush=True)
                     print(f"[TWILIO_INBOUND]   Date Created: {msg.date_created}", flush=True)
                     print("=" * 80, flush=True)
