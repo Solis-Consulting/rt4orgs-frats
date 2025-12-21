@@ -4777,75 +4777,48 @@ async def rep_blast(
     request: Request
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
-    # 2️⃣ At route ENTRY (first line of handler)
-    print("🚨🚨🚨 [BLAST_ROUTE_ENTERED]", flush=True)
-    import sys
-    sys.stdout.flush()
-    sys.stderr.flush()
-    import logging
-    _logger = logging.getLogger(__name__)
-    _logger.error("🚨🚨🚨 [BLAST_ROUTE_ENTERED]")
-    try:
-        _logger.error("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast")
-    except Exception as log_err:
-        # If logging fails, at least print
-        print(f"[BLAST_ENDPOINT] Logger error (non-fatal): {log_err}", flush=True)
-    print(f"[REP_BLAST] Request method: {request.method}", flush=True)
-    print(f"[REP_BLAST] Request path: {request.url.path}", flush=True)
-    print(f"[REP_BLAST] Request headers: {dict(request.headers)}", flush=True)
+    print("🚨🚨🚨 [BLAST] ROUTE ENTERED", flush=True)
     
-    # 4️⃣ Log raw request body (CRITICAL) - BEFORE parsing
+    # Authenticate user
     try:
-        body = await request.body()
-        print("📦 [BLAST_RAW_BODY]", body.decode('utf-8', errors='replace'), flush=True)
-        _logger.error(f"📦 [BLAST_RAW_BODY] {body.decode('utf-8', errors='replace')}")
-    except Exception as body_err:
-        print(f"📦 [BLAST_RAW_BODY] ERROR: {body_err}", flush=True)
-        body = b''
-    
-    # Authenticate user manually
-    try:
-        print(f"[REP_BLAST] Attempting authentication...", flush=True)
         user = await get_current_owner_or_rep(request)
-        # 3️⃣ Log auth resolution
-        print(f"👤 [BLAST_AUTH] user={user.get('username', 'unknown')} role={user.get('role', 'unknown')}", flush=True)
-        _logger.error(f"👤 [BLAST_AUTH] user={user.get('username', 'unknown')} role={user.get('role', 'unknown')}")
-        print(f"[REP_BLAST] ✅ Authentication successful: {user.get('id')} (role: {user.get('role')})", flush=True)
+        print("👤 [BLAST] user:", {
+            "id": user.get("id"),
+            "username": user.get("username"),
+            "role": user.get("role"),
+        }, flush=True)
     except HTTPException as auth_exc:
-        print(f"[REP_BLAST] ❌ Auth HTTPException: {auth_exc.status_code} - {auth_exc.detail}", flush=True)
-        _logger.error(f"[REP_BLAST] Auth HTTPException: {auth_exc.status_code} - {auth_exc.detail}")
+        print(f"❌ [BLAST] Auth HTTPException: {auth_exc.status_code} - {auth_exc.detail}", flush=True)
         raise
     except Exception as e:
-        print(f"[REP_BLAST] ❌ Auth error: {type(e).__name__}: {str(e)}", flush=True)
-        _logger.error(f"[REP_BLAST] Auth error: {e}")
+        print(f"❌ [BLAST] Auth error: {type(e).__name__}: {str(e)}", flush=True)
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=401, detail="Authentication required")
     
-    # Parse JSON directly - bypasses all FastAPI validation
-    try:
-        # Need to recreate request body since we already read it
-        import json
-        if body:
-            payload = json.loads(body.decode('utf-8'))
-        else:
-            payload = await request.json()
-        # 5️⃣ Log parsed payload
-        card_ids = payload.get("card_ids", [])
-        print("🧠 [BLAST_PARSED_IDS]", card_ids, flush=True)
-        print("🧠 [BLAST_COUNT]", len(card_ids), flush=True)
-        _logger.error(f"🧠 [BLAST_PARSED_IDS] {card_ids}")
-        _logger.error(f"🧠 [BLAST_COUNT] {len(card_ids)}")
-        _logger.error(f"🔥 BLAST PAYLOAD: {payload}")
-        print(f"🔥 BLAST PAYLOAD: {payload}", flush=True)
-    except Exception as json_err:
-        _logger.error(f"🔥 BLAST PAYLOAD PARSE ERROR: {json_err}")
-        print(f"🔥 BLAST PAYLOAD PARSE ERROR: {json_err}", flush=True)
-        import traceback
-        traceback.print_exc()
-        payload = {}
+    # Get raw body
+    raw = await request.body()
+    print("📦 [BLAST] raw body:", raw, flush=True)
     
-    # Use 'user' instead of 'current_user' to match dependency name
+    # Parse JSON
+    try:
+        import json
+        payload = json.loads(raw.decode('utf-8'))
+    except Exception as e:
+        print("❌ [BLAST] JSON parse failed:", e, flush=True)
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
+    
+    print("🧠 [BLAST] parsed payload:", payload, flush=True)
+    
+    card_ids = payload.get("card_ids")
+    print("🧠 [BLAST] card_ids:", card_ids, flush=True)
+    
+    if not card_ids:
+        print("❌ [BLAST] NO CARD IDS — ABORTING", flush=True)
+        return {"ok": False, "error": "no card_ids"}
+    
+    print("🚀 [BLAST] BEGIN LOOP", flush=True)
+    
     current_user = user
     
     # 3️⃣ Right after authentication
@@ -5141,10 +5114,10 @@ async def rep_blast(
             print(f"[BLAST_ENDPOINT]   owner: {current_user['id']}", flush=True)
             
             try:
-                # 6️⃣ Log blast execution boundary
-                print("🚀 [BLAST_EXECUTION_START]", flush=True)
-                _logger.error("🚀 [BLAST_EXECUTION_START]")
-                print(f"[BLAST_ENDPOINT] ✅ EXECUTING run_blast_for_cards() - NO GUARDS, UNCONDITIONAL SEND", flush=True)
+                # Loop through each card_id
+                for card_id in card_ids:
+                    print(f"📤 [BLAST] sending card_id={card_id}", flush=True)
+                
                 result = run_blast_for_cards(
                     conn=conn,
                     card_ids=card_ids,
@@ -5153,10 +5126,8 @@ async def rep_blast(
                     source="owner_ui" if current_user.get("role") == "admin" else "rep_ui",
                     rep_user_id=rep_user_id,
                 )
-                # 7️⃣ After loop
-                print("✅ [BLAST_COMPLETE]", flush=True)
-                _logger.error("✅ [BLAST_COMPLETE]")
-                print(f"[BLAST_ENDPOINT] ✅ run_blast_for_cards() returned successfully", flush=True)
+                
+                print("✅ [BLAST] COMPLETE", flush=True)
             except Exception as run_error:
                 print("=" * 80, flush=True)
                 print(f"[BLAST_ENDPOINT] ❌ EXCEPTION in run_blast_for_cards()", flush=True)

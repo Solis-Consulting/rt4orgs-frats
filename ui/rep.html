@@ -757,56 +757,63 @@
       });
       
       blastBtn.addEventListener('click', async (e) => {
-        // 🧪 Frontend: Nuclear Click Confirmation
-        console.log("🚨 BLAST CLICKED");
-        console.error("🚨 BLAST CLICKED"); // Also log to error level for visibility
-        alert("🚨 BLAST BUTTON CLICKED - Check console for logs");
+        console.log("🚨 [BLAST] CLICK HANDLER FIRED");
         
-        // 🔬 DIAGNOSTIC: Log that handler was attached
-        console.log('✅ [BLAST] Click handler attached successfully');
-        
-        // 🔥 PREVENT DEFAULT FORM SUBMIT BEHAVIOR
         if (e) {
           e.preventDefault();
           e.stopPropagation();
         }
         
-        // 🔥 USE GLOBAL SELECTION STORE (not DOM queries)
-        const selected = Array.from(window.__SELECTED_CARD_IDS__ || []);
-        console.log("🧠 SELECTED IDS", selected);
-      
-      // #region agent log - Cards selected
-      fetch('http://127.0.0.1:7242/ingest/a5ef77db-cf0a-4573-b971-236b0aa12e72',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rep.html:blastBtn:SELECTED',message:'Cards selected for blast',data:{selected_count:selected.length,selected_ids:selected},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-      // #endregion
-      
-      if (selected.length === 0) {
-        alert("No cards selected");
-        return;
-      }
-
-      if (!confirm(`Blast ${selected.length} assigned lead(s)?`)) {
-        // #region agent log - User cancelled
-        fetch('http://127.0.0.1:7242/ingest/a5ef77db-cf0a-4573-b971-236b0aa12e72',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rep.html:blastBtn:CANCELLED',message:'User cancelled blast',data:{},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-        // #endregion
-        return;
-      }
-
-      const btn = document.getElementById('blastBtn');
-      btn.disabled = true;
-      btn.textContent = 'Blasting...';
-
-      try {
-        // Right before fetch
-        console.log("📡 SENDING POST /rep/blast");
+        const ids = [...window.__SELECTED_CARD_IDS__];
+        console.log("🧠 [BLAST] selected ids:", ids);
         
-        const res = await fetch(`${BACKEND}/rep/blast`, {
-          method: 'POST',
-          headers: getHeaders(),
-          body: JSON.stringify({ card_ids: selected })
-        });
+        if (!ids.length) {
+          console.error("❌ [BLAST] NO IDS — NOT SENDING");
+          return;
+        }
         
-        // Immediately after fetch
-        console.log("📬 BLAST RESPONSE", res.status);
+        if (!confirm(`Blast ${ids.length} assigned lead(s)?`)) {
+          return;
+        }
+        
+        const btn = document.getElementById('blastBtn');
+        btn.disabled = true;
+        btn.textContent = 'Blasting...';
+        
+        console.log("📡 [BLAST] sending POST /rep/blast");
+        
+        try {
+          const res = await fetch(`${BACKEND}/rep/blast`, {
+            method: "POST",
+            headers: getHeaders(),
+            body: JSON.stringify({ card_ids: ids }),
+          });
+          
+          console.log("📬 [BLAST] response status:", res.status);
+          const t = await res.text();
+          console.log("📬 [BLAST] response body:", t);
+          
+          if (!res.ok) {
+            console.error("❌ [BLAST] Response not OK:", res.status, t);
+            alert(`Error ${res.status}: ${t.substring(0, 200)}`);
+            return;
+          }
+          
+          try {
+            const data = JSON.parse(t);
+            console.log("✅ [BLAST] Success:", data);
+            alert(`Blast complete. Sent: ${data.sent || 0}, Skipped: ${data.skipped || 0}`);
+            loadCards();
+          } catch (parseErr) {
+            console.error("❌ [BLAST] JSON parse failed:", parseErr);
+          }
+        } catch (fetchErr) {
+          console.error("🔥 [BLAST] fetch failed:", fetchErr);
+          alert(`Error: ${fetchErr.message}`);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Blast Selected Assigned Leads';
+        }
         
         // #region agent log - After fetch response
         fetch('http://127.0.0.1:7242/ingest/a5ef77db-cf0a-4573-b971-236b0aa12e72',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rep.html:blastBtn:AFTER_FETCH',message:'Received blast response',data:{status:res.status,ok:res.ok},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
