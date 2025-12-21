@@ -15,8 +15,12 @@ from typing import Any, Dict, List, Tuple, Optional
 from datetime import datetime
 from pathlib import Path
 import json
+import logging
 
 import psycopg2
+
+# ✅ CRITICAL: Define logger at module level (required for all logger.error() calls)
+logger = logging.getLogger(__name__)
 
 from scripts.blast import send_sms, write_initial_state, write_initial_message  # reuse existing engine pieces
 
