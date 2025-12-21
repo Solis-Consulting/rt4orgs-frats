@@ -925,7 +925,10 @@
           const lastInbound = lead.last_inbound_at ? new Date(lead.last_inbound_at).toLocaleString() : '-';
           const lastOutbound = lead.last_outbound_at ? new Date(lead.last_outbound_at).toLocaleString() : '-';
           const stateBadge = lead.state ? `<span class="badge gray">${lead.state}</span>` : '-';
-          const salesStateBadge = lead.sales_state ? `<span class="badge ${lead.sales_state === 'hot' ? 'red' : lead.sales_state === 'warm' ? 'amber' : 'gray'}">${lead.sales_state}</span>` : '-';
+          let badgeClass = 'gray';
+          if (lead.sales_state === 'hot') badgeClass = 'red';
+          else if (lead.sales_state === 'warm') badgeClass = 'amber';
+          const salesStateBadge = lead.sales_state ? `<span class="badge ${badgeClass}">${lead.sales_state}</span>` : '-';
           
           html += '<tr>';
           html += `<td>${lead.name || lead.card_id || '-'}</td>`;
