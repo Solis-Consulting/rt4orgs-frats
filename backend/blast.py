@@ -46,6 +46,16 @@ from intelligence.utils import (
     normalize_phone,
 )
 
+# 🔥 CRITICAL: Define TWILIO_PHONE_E164 at module level (required for logging)
+# This matches the definition in scripts/blast.py
+# Must be defined AFTER normalize_phone import
+import os
+_RAW_TWILIO_PHONE = os.getenv("TWILIO_PHONE_NUMBER", "")
+if _RAW_TWILIO_PHONE:
+    TWILIO_PHONE_E164 = normalize_phone(_RAW_TWILIO_PHONE)
+else:
+    TWILIO_PHONE_E164 = ""
+
 
 def _fetch_cards_by_ids(conn: Any, card_ids: List[str]) -> List[Dict[str, Any]]:
     """Fetch person cards by IDs from cards table."""
@@ -690,13 +700,15 @@ def run_blast_for_cards(
             logger.error(f"[BLAST_SEND] 📤 Sending SMS to {phone} (card_id={card_id})")
             print(f"[BLAST_SEND] 📤 Sending SMS to {phone} (card_id={card_id})", flush=True)
             # 🔥 6️⃣ GUARANTEED SEND LOG - prove send is reached
-            logger.info(f"[SEND_SMS_ATTEMPT] to={phone} from={TWILIO_PHONE_E164} card_id={card_id}", extra={
+            # Safely get from_number for logging (may not be set if env var missing)
+            from_number = TWILIO_PHONE_E164 if TWILIO_PHONE_E164 else os.getenv("TWILIO_PHONE_NUMBER", "N/A")
+            logger.info(f"[SEND_SMS_ATTEMPT] to={phone} from={from_number} card_id={card_id}", extra={
                 "to": phone,
-                "from": TWILIO_PHONE_E164,
+                "from": from_number,
                 "card_id": card_id,
                 "environment_id": environment_id
             })
-            print(f"[SEND_SMS_ATTEMPT] to={phone} from={TWILIO_PHONE_E164} card_id={card_id}", flush=True)
+            print(f"[SEND_SMS_ATTEMPT] to={phone} from={from_number} card_id={card_id}", flush=True)
             
             try:
                 sms_result = send_sms(phone, message)
@@ -711,6 +723,12 @@ def run_blast_for_cards(
                 print(f"[BLAST_SEND_ATTEMPT] ✅ send_sms() returned successfully", flush=True)
                 print(f"[BLAST_SEND_ATTEMPT] SMS Result: {sms_result}", flush=True)
             except Exception as send_error:
+                # 🔥 Mandatory hardening: Never let send errors crash silently
+                logger.error(
+                    f"[BLAST_ERROR] Send failed for card_id={card_id} phone={phone}",
+                    exc_info=True,
+                    extra={"card_id": card_id, "phone": phone, "error": str(send_error)}
+                )
                 print("=" * 80, flush=True)
                 print(f"[BLAST_SEND_ATTEMPT] ❌ EXCEPTION in send_sms()", flush=True)
                 print("=" * 80, flush=True)
@@ -720,7 +738,9 @@ def run_blast_for_cards(
                 print(f"[BLAST_SEND_ATTEMPT] Full traceback:", flush=True)
                 traceback.print_exc()
                 print("=" * 80, flush=True)
-                raise
+                # Skip this card instead of crashing the entire blast
+                skip_card("SEND_ERROR", card_id, phone=phone, error=str(send_error))
+                continue
             
             print(f"[BLAST_SEND_ATTEMPT] send_sms() returned, processing result...", flush=True)
             print(f"[BLAST_SEND_ATTEMPT] Response timestamp: {datetime.utcnow().isoformat()}", flush=True)
