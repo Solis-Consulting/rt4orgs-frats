@@ -754,149 +754,90 @@
       }
     });
     
-    // Blast selected cards - USE EVENT DELEGATION (survives DOM replacement)
-    async function handleBlastClick(e) {
-      // 🔥 DEFINITIVE TEST: This MUST log if handler fires
-      console.log("🚨🚨🚨 [BLAST] HANDLER FIRED (DELEGATED) 🚨🚨🚨");
-      
-      // Only proceed if clicked element is or is inside the blast button
+    // Blast selected cards - SIMPLIFIED WITH DEFINITIVE DEBUGGING
+    document.addEventListener("click", async (e) => {
       const btn = e.target.closest("#blastBtn");
-      if (!btn) return; // Click wasn't on blast button
-      
-      // Prevent any default behavior
-      if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-      
-      // 🔥 CRITICAL: Check if selection store exists
-      if (!window.__SELECTED_CARD_IDS__) {
-        console.error("❌ [BLAST] window.__SELECTED_CARD_IDS__ is undefined!");
-        alert("Error: Selection store not initialized. Please refresh the page.");
+      if (!btn) return;
+
+      console.log("🚨🚨🚨 [BLAST] HANDLER FIRED");
+
+      const backend = window.BACKEND_URL || window.BACKEND;
+      if (!backend) {
+        alert("BACKEND is missing");
         return;
       }
-      
-      const ids = [...window.__SELECTED_CARD_IDS__];
-      console.log("🧠 [BLAST] Selection store size:", window.__SELECTED_CARD_IDS__.size);
-      console.log("🧠 [BLAST] Selected ids:", ids);
-      console.log("🧠 [BLAST] IDs length:", ids.length);
-      
+
+      const token = sessionStorage.getItem("repApiToken") || sessionStorage.getItem("token");
+      if (!token) {
+        alert("Missing token");
+        return;
+      }
+
+      const ids = Array.from(window.__SELECTED_CARD_IDS__ || []);
+      console.log("🔬 [BLAST] ids:", ids);
+
       if (!ids.length) {
-        console.error("❌ [BLAST] NO IDS — NOT SENDING");
-        alert("Please select at least one card to blast.");
+        alert("Select at least one card");
         return;
       }
-      
+
       if (!confirm(`Blast ${ids.length} assigned lead(s)?`)) {
         return;
       }
-      
+
       btn.disabled = true;
       btn.textContent = 'Blasting...';
-      
-      // 🔥 CRITICAL: Validate backend URL before fetch
-      const blastUrl = `${BACKEND}/rep/blast`;
-      console.log("📡 [BLAST] ABOUT TO FETCH");
-      console.log("📡 [BLAST] Backend URL:", BACKEND);
-      console.log("📡 [BLAST] Full fetch URL:", blastUrl);
-      console.log("📡 [BLAST] Selected IDs:", ids);
-      console.log("📡 [BLAST] Headers:", getHeaders());
-      
-      // Check for mixed content
-      if (window.location.protocol === 'https:' && blastUrl.startsWith('http://')) {
-        const errorMsg = `🚨 MIXED CONTENT BLOCK: Page is HTTPS but backend URL is HTTP: ${blastUrl}`;
-        console.error(errorMsg);
-        alert(errorMsg);
-        btn.disabled = false;
-        btn.textContent = 'Blast Selected Assigned Leads';
-        return;
-      }
-      
-      // Check if BACKEND is undefined or invalid
-      if (!BACKEND || BACKEND === 'undefined' || BACKEND.startsWith('undefined')) {
-        const errorMsg = `🚨 BACKEND URL IS UNDEFINED: ${BACKEND}`;
-        console.error(errorMsg);
-        alert(errorMsg);
-        btn.disabled = false;
-        btn.textContent = 'Blast Selected Assigned Leads';
-        return;
-      }
-      
-      // 🔥 CRITICAL: NO SUCCESS UI UNLESS BACKEND CONFIRMS
+
+      const url = new URL("/rep/blast", backend).toString();
+      console.log("🌐 [BLAST] POST →", url);
+
+      // HARD proof you are about to call Railway:
+      alert("ABOUT TO POST: " + url);
+
       let res;
       try {
-        console.log("📡 [BLAST] Starting fetch NOW...");
-        res = await fetch(blastUrl, {
+        res = await fetch(url, {
           method: "POST",
           mode: "cors",
           credentials: "omit",
-          headers: getHeaders(),
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({ card_ids: ids }),
         });
-        
-        console.log("📬 [BLAST] Response received - status:", res.status);
-      } catch (fetchErr) {
-        // 🔥 NETWORK ERROR - NO SUCCESS UI
-        console.error("🔥 [BLAST] FETCH FAILED:", fetchErr);
-        console.error("🔥 [BLAST] Error name:", fetchErr.name);
-        console.error("🔥 [BLAST] Error message:", fetchErr.message);
-        console.error("🔥 [BLAST] Error stack:", fetchErr.stack);
-        console.error("🔥 [BLAST] URL that failed:", blastUrl);
-        
-        let errorMsg = `Network error: ${fetchErr.message}`;
-        if (fetchErr.name === 'TypeError' && fetchErr.message.includes('fetch')) {
-          errorMsg = `Network error: Failed to fetch. This usually means:\n1. Backend URL is wrong: ${blastUrl}\n2. CORS is blocking the request\n3. Mixed content (HTTPS page calling HTTP backend)\n4. Network is unreachable`;
-        }
-        alert(errorMsg);
-        btn.disabled = false;
-        btn.textContent = 'Blast Selected Assigned Leads';
-        return; // 🔥 EARLY RETURN - NO SUCCESS UI
-      }
-      
-      // 🔥 CRITICAL: Check response status BEFORE any success UI
-      if (!res || !res.ok) {
-        const errorText = res ? await res.text() : 'No response';
-        console.error("❌ [BLAST] Response not OK:", res?.status || 'NO_RESPONSE', errorText);
-        alert(`Blast failed: HTTP ${res?.status || 'NO_RESPONSE'} - ${errorText.substring(0, 200)}`);
-        btn.disabled = false;
-        btn.textContent = 'Blast Selected Assigned Leads';
-        return; // 🔥 EARLY RETURN - NO SUCCESS UI
-      }
-      
-      // 🔥 ONLY REACH HERE IF res.ok === true
-      let data;
-      try {
-        const responseText = await res.text();
-        console.log("📬 [BLAST] Response body:", responseText);
-        data = JSON.parse(responseText);
-        console.log("✅ [BLAST] Parsed response data:", data);
-      } catch (parseErr) {
-        console.error("❌ [BLAST] JSON parse failed:", parseErr);
-        alert(`Error: Could not parse backend response - ${parseErr.message}`);
-        btn.disabled = false;
-        btn.textContent = 'Blast Selected Assigned Leads';
-        return; // 🔥 EARLY RETURN - NO SUCCESS UI
-      }
-      
-      // 🔥 CRITICAL: SUCCESS UI ONLY HERE - AFTER CONFIRMED BACKEND RESPONSE
-      if (!data || typeof data.sent === 'undefined') {
-        console.error("❌ [BLAST] Invalid response data:", data);
-        alert("Error: Backend returned invalid response format");
+      } catch (err) {
+        console.error("❌ [BLAST] fetch threw", err);
+        alert("Fetch threw: " + (err?.message || String(err)));
         btn.disabled = false;
         btn.textContent = 'Blast Selected Assigned Leads';
         return;
       }
+
+      console.log("✅ [BLAST] res.status:", res.status);
+
+      const text = await res.text();
+      console.log("✅ [BLAST] body:", text);
+
+      if (!res.ok) {
+        alert(`Blast failed (${res.status}): ${text}`);
+        btn.disabled = false;
+        btn.textContent = 'Blast Selected Assigned Leads';
+        return;
+      }
+
+      try {
+        const data = JSON.parse(text);
+        alert("Blast OK: Sent: " + (data.sent || 0) + ", Skipped: " + (data.skipped || 0));
+        loadCards();
+      } catch (parseErr) {
+        alert("Blast OK but parse failed: " + text);
+      }
       
-      // 🔥 THIS IS THE ONLY PLACE SUCCESS CAN BE SHOWN
-      console.log("✅ [BLAST] SUCCESS - Backend confirmed:", data);
-      alert(`Blast complete. Sent: ${data.sent || 0}, Skipped: ${data.skipped || 0}`);
-      loadCards();
       btn.disabled = false;
       btn.textContent = 'Blast Selected Assigned Leads';
-    }
+    });
     
-    // 🔥 EVENT DELEGATION: Attach ONCE to document, survives all DOM changes
-    document.addEventListener("click", handleBlastClick);
     console.log("✅ [BLAST] Event delegation handler attached to document");
 
     // Blast all functionality removed - reps should select specific leads to blast

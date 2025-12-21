@@ -4792,7 +4792,7 @@ async def rep_blast(
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
     _logger = logging.getLogger(__name__)
-    print("🚨🚨🚨 [BLAST] ROUTE ENTERED", flush=True)
+    print("🚀🚀🚀 /rep/blast HIT", flush=True)
     
     # Authenticate user
     try:
