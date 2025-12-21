@@ -274,9 +274,11 @@ async def lifespan(app: FastAPI):
         print(f"  ✅ Using DIRECT Twilio send mode (from_={twilio_phone_number_e164})")
     else:
         print(f"  ❌ ERROR: TWILIO_PHONE_NUMBER must be set for direct mode")
-    print(f"TWILIO_MESSAGING_SERVICE_SID: {'SET (IGNORED)' if twilio_messaging_service_sid else 'NOT SET'}")
+    print(f"TWILIO_MESSAGING_SERVICE_SID: {'✅ SET (WILL USE)' if twilio_messaging_service_sid else '❌ NOT SET'}")
     if twilio_messaging_service_sid:
-        print(f"  ⚠️  Messaging Service is configured but will be IGNORED (using direct phone)")
+        print(f"  ✅ Messaging Service will be used (campaign metadata attached)")
+    else:
+        print(f"  ⚠️  No Messaging Service - will fall back to direct phone number")
     print("=" * 60)
     print("✅ LIFESPAN STARTUP COMPLETE")
     print("=" * 60)

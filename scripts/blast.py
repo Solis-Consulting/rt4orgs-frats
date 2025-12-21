@@ -170,19 +170,21 @@ def find_unblasted_contacts(leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return unblasted
 
 
-def send_sms(to_number: str, body: str, force_direct: bool = True) -> Dict[str, Any]:
+def send_sms(to_number: str, body: str, force_direct: bool = False) -> Dict[str, Any]:
     """
     Send SMS via Twilio with comprehensive logging.
     Always uses system Twilio credentials from environment variables.
     
-    For blasts: ALWAYS uses direct phone number mode (force_direct=True by default).
-    Direct mode is simpler, more reliable, and works well for controlled blast traffic.
-    Messaging Service is ignored even if configured.
+    Routing logic:
+    - If TWILIO_MESSAGING_SERVICE_SID is set: Use Messaging Service (includes campaign/brand metadata)
+    - Otherwise: Use direct phone number (TWILIO_PHONE_NUMBER)
+    
+    This ensures carriers see approved traffic with proper campaign context when available.
     
     Args:
         to_number: Recipient phone number
         body: Message body
-        force_direct: If True (default), use direct phone number (ignore Messaging Service)
+        force_direct: DEPRECATED - ignored. Routing is determined by env vars.
     
     Returns:
         Dict with sid, status, and detailed response info
@@ -200,7 +202,7 @@ def send_sms(to_number: str, body: str, force_direct: bool = True) -> Dict[str, 
     print(f"[SEND_SMS] To: {to_number}", flush=True)
     print(f"[SEND_SMS] Body length: {len(body)} chars", flush=True)
     print(f"[SEND_SMS] Body preview: {body[:100]}...", flush=True)
-    print(f"[SEND_SMS] Force Direct Mode: {force_direct}", flush=True)
+    # Note: force_direct parameter is deprecated - routing determined by env vars
     
     # ALWAYS use environment variables - no parameters
     token_to_use = os.getenv("TWILIO_AUTH_TOKEN")
@@ -222,29 +224,28 @@ def send_sms(to_number: str, body: str, force_direct: bool = True) -> Dict[str, 
         print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
         raise ValueError(error_msg)
     
-    # 🔒 CRITICAL: For blasts, ALWAYS use direct phone number
-    # Never use Messaging Service for blasts (ensures messages actually send)
-    # 🔥 CRITICAL: FORCE DIRECT PHONE NUMBER MODE (ignore Messaging Service)
-    # Direct mode works reliably and is simpler for controlled blast traffic
-    # Messaging Service is ignored even if configured (force_direct=True by default)
-    if messaging_service_sid:
-        print(f"[SEND_SMS] ⚠️ TWILIO_MESSAGING_SERVICE_SID is set but will be IGNORED (using direct phone)", flush=True)
+    # 🔒 ROUTING LOGIC: Use Messaging Service if available (has campaign/brand metadata)
+    # Otherwise fall back to direct phone number
+    # This ensures carriers see approved traffic with proper campaign context
+    use_messaging_service = bool(messaging_service_sid)
     
-    # Always use direct phone number mode (force_direct=True by default)
-    print(f"[SEND_SMS] ✅ FORCE DIRECT MODE: Using direct phone number", flush=True)
-    if not phone_number_normalized:
-        error_msg = "TWILIO_PHONE_NUMBER not set in environment variables (REQUIRED for direct mode)"
-        print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
-        raise ValueError(error_msg)
-    
-    # Validate E.164 format
-    if not phone_number_normalized.startswith("+"):
-        error_msg = f"TWILIO_PHONE_NUMBER must be in E.164 format (got: {phone_number_normalized})"
-        print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
-        raise ValueError(error_msg)
-    
-    use_messaging_service = False
-    send_mode = "DIRECT_NUMBER"
+    if use_messaging_service:
+        print(f"[SEND_SMS] ✅ Using Messaging Service (campaign metadata attached)", flush=True)
+        print(f"[SEND_SMS] Messaging Service SID: {messaging_service_sid[:10]}...{messaging_service_sid[-4:]} (length: {len(messaging_service_sid)})", flush=True)
+        send_mode = "MESSAGING_SERVICE"
+    else:
+        print(f"[SEND_SMS] ✅ Using direct phone number (no Messaging Service configured)", flush=True)
+        if not phone_number_normalized:
+            error_msg = "TWILIO_PHONE_NUMBER not set in environment variables (REQUIRED when Messaging Service not available)"
+            print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
+            raise ValueError(error_msg)
+        
+        # Validate E.164 format
+        if not phone_number_normalized.startswith("+"):
+            error_msg = f"TWILIO_PHONE_NUMBER must be in E.164 format (got: {phone_number_normalized})"
+            print(f"[SEND_SMS] ❌ ERROR: {error_msg}", flush=True)
+            raise ValueError(error_msg)
+        send_mode = "DIRECT_NUMBER"
     
     # Validate Account SID format
     if not sid_to_use.startswith('AC'):
@@ -275,9 +276,10 @@ def send_sms(to_number: str, body: str, force_direct: bool = True) -> Dict[str, 
         
         # 🔒 PREPARE MESSAGE PARAMETERS: Explicit branching - no ambiguity
         # CRITICAL: Never mix both - Twilio will reject if both are set
-        # For blasts: ALWAYS use direct from_ (never Messaging Service)
+        # Use Messaging Service if available (preserves campaign/brand metadata for carriers)
+        # Otherwise fall back to direct phone number
         if use_messaging_service:
-            # Legacy mode: Messaging Service (not used for blasts)
+            # Messaging Service mode: Includes campaign/brand metadata for carrier approval
             message_params = {
                 "to": to_number,
                 "body": body,
@@ -286,7 +288,7 @@ def send_sms(to_number: str, body: str, force_direct: bool = True) -> Dict[str, 
             # CRITICAL: Do NOT set from_ when using Messaging Service
             assert "from_" not in message_params, "Cannot use from_ with Messaging Service"
         else:
-            # Direct mode: Use from_ phone number (REQUIRED for blasts)
+            # Direct mode: Use from_ phone number (fallback when Messaging Service not configured)
             # 🔥 CRITICAL: Use normalized E.164 format (Twilio requires + prefix)
             message_params = {
                 "to": to_number,
