@@ -479,11 +479,10 @@ def run_blast_for_cards(
             )
         
         # Check 4: Known test/internal phone numbers
-        test_numbers = [
+        elif phone_normalized in [
             "+19843695080",  # Alan's test number
             "+19194436288",  # System phone
-        ]
-        if phone_normalized in test_numbers:
+        ]:
             skip_reason = "TEST_PHONE_NUMBER"
             print(
                 f"[BLAST_SKIP] card_id={card_id} phone={phone_normalized} reason={skip_reason} "
@@ -503,6 +502,12 @@ def run_blast_for_cards(
                 }
             )
             continue
+
+        # ✅ Card passed all skip checks - use normalized phone for sending
+        phone = phone_normalized
+        # Update card_data with normalized phone
+        if isinstance(card["card_data"], dict):
+            card["card_data"]["phone"] = phone
 
         # Find matching deal using new relational proof-point selector
         purchased_example = None
