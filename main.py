@@ -4813,14 +4813,14 @@ async def rep_blast(
     card_ids = payload.get("card_ids")
     print("🧠 [BLAST] card_ids:", card_ids, flush=True)
     
-        if not card_ids:
-            print("❌ [BLAST] NO CARD IDS — ABORTING", flush=True)
-            return {"ok": False, "error": "no card_ids"}
-        
-        print("🚀 [BLAST] BEGIN LOOP", flush=True)
-        
-        current_user = user
-        
+    if not card_ids:
+        print("❌ [BLAST] NO CARD IDS — ABORTING", flush=True)
+        return {"ok": False, "error": "no card_ids"}
+    
+    print("🚀 [BLAST] BEGIN LOOP", flush=True)
+    
+    current_user = user
+    
     # Now continue with the rest of the handler logic
     try:
         # CRITICAL: Log immediately when endpoint is hit - BEFORE anything else
@@ -5136,33 +5136,9 @@ async def rep_blast(
                 traceback.print_exc()
                 print("=" * 80, flush=True)
                 raise
-            
-            logger.info(f"[BLAST] Blast completed: sent={result.get('sent', 0)}, skipped={result.get('skipped', 0)}")
-            logger.info(f"[BLAST] Result details: {result}")
-            print(f"[BLAST_ENDPOINT] Blast result: ok={result.get('ok')}, sent={result.get('sent', 0)}, skipped={result.get('skipped', 0)}", flush=True)
-            
-            # #region agent log - Blast result
-            try:
-                import json as _json
-                from datetime import datetime
-                from pathlib import Path
-                debug_log_path = Path(__file__).resolve().parent / ".cursor" / "debug.log"
-                debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(debug_log_path, "a") as f:
-                    f.write(_json.dumps({
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "timestamp": int(datetime.now().timestamp() * 1000),
-                        "location": "main.py:rep_blast:RESULT",
-                        "message": "Blast completed successfully",
-                        "data": {"ok": result.get('ok'), "sent": result.get('sent', 0), "skipped": result.get('skipped', 0), "results_count": len(result.get('results', []))},
-                        "hypothesisId": "D"
-                    }) + "\n")
-            except Exception as e:
-                logger.error(f"[DEBUG_LOG] Failed to write debug log: {e}")
-            # #endregion
-            
-            return result
+        except Exception as inner_e:
+            # Re-raise to be caught by outer except
+            raise
     except HTTPException:
         # Re-raise HTTP exceptions (auth errors, etc.)
         raise
@@ -5180,56 +5156,40 @@ async def rep_blast(
         
         # #region agent log - Blast exception
         try:
-                import json as _json
-                from datetime import datetime
-                import traceback
-                from pathlib import Path
-                debug_log_path = Path(__file__).resolve().parent / ".cursor" / "debug.log"
-                debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(debug_log_path, "a") as f:
-                    f.write(_json.dumps({
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "timestamp": int(datetime.now().timestamp() * 1000),
-                        "location": "main.py:rep_blast:EXCEPTION",
-                        "message": "Blast failed with exception",
-                        "data": {"error": str(e), "error_type": type(e).__name__, "traceback": traceback.format_exc()},
-                        "hypothesisId": "E"
-                    }) + "\n")
-            except Exception as log_err:
-                logger.error(f"[DEBUG_LOG] Failed to write debug log: {log_err}")
-            # #endregion
-            
-            # CRITICAL: Log exception immediately
-            print("=" * 80, flush=True)
-            print(f"[BLAST_ENDPOINT] ❌ EXCEPTION CAUGHT", flush=True)
-            print(f"[BLAST_ENDPOINT] Error: {str(e)}", flush=True)
-            print(f"[BLAST_ENDPOINT] Error type: {type(e).__name__}", flush=True)
+            import json as _json
+            from datetime import datetime
             import traceback
-            error_trace = traceback.format_exc()
-            print(f"[BLAST_ENDPOINT] Full traceback:\n{error_trace}", flush=True)
-            print("=" * 80, flush=True)
-            
-            # This should never be reached because we catch exceptions above
-            logger.error(f"[BLAST] ❌ EXCEPTION in rep_blast: {e}")
-            logger.error(f"[BLAST] Traceback:\n{error_trace}")
-            raise HTTPException(status_code=500, detail=f"Blast failed: {str(e)}")
-        except Exception as outer_e:
-            # Top-level exception handler
-            print("=" * 80, flush=True)
-            print(f"❌ [BLAST] TOP-LEVEL EXCEPTION", flush=True)
-            print("=" * 80, flush=True)
-            print(f"❌ [BLAST] Error type: {type(outer_e).__name__}", flush=True)
-            print(f"❌ [BLAST] Error message: {str(outer_e)}", flush=True)
-            import traceback
-            print(f"❌ [BLAST] Full traceback:", flush=True)
-            traceback.print_exc()
-            print("=" * 80, flush=True)
-            logger.error(f"[BLAST] Top-level exception: {outer_e}")
-            return JSONResponse(
-                status_code=500,
-                content={"ok": False, "error": f"Blast failed: {str(outer_e)}", "sent": 0, "skipped": 0}
-            )
+            from pathlib import Path
+            debug_log_path = Path(__file__).resolve().parent / ".cursor" / "debug.log"
+            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(debug_log_path, "a") as f:
+                f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "timestamp": int(datetime.now().timestamp() * 1000),
+                    "location": "main.py:rep_blast:EXCEPTION",
+                    "message": "Blast failed with exception",
+                    "data": {"error": str(e), "error_type": type(e).__name__, "traceback": traceback.format_exc()},
+                    "hypothesisId": "E"
+                }) + "\n")
+        except Exception as log_err:
+            logger.error(f"[DEBUG_LOG] Failed to write debug log: {log_err}")
+        # #endregion
+        
+        # CRITICAL: Log exception immediately
+        print("=" * 80, flush=True)
+        print(f"[BLAST_ENDPOINT] ❌ EXCEPTION CAUGHT", flush=True)
+        print(f"[BLAST_ENDPOINT] Error: {str(e)}", flush=True)
+        print(f"[BLAST_ENDPOINT] Error type: {type(e).__name__}", flush=True)
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"[BLAST_ENDPOINT] Full traceback:\n{error_trace}", flush=True)
+        print("=" * 80, flush=True)
+        
+        # This should never be reached because we catch exceptions above
+        logger.error(f"[BLAST] ❌ EXCEPTION in rep_blast: {e}")
+        logger.error(f"[BLAST] Traceback:\n{error_trace}")
+        raise HTTPException(status_code=500, detail=f"Blast failed: {str(e)}")
 
 
 @app.post("/rep/messages/send")
