@@ -4537,8 +4537,19 @@ async def rep_blast(
     request: Request
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
+    # Ensure logger is available (defensive check)
+    if 'logger' not in globals():
+        import logging
+        logger = logging.getLogger(__name__)
+    
     # 1️⃣ At the very top of /rep/blast
-    logger.error("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast")
+    try:
+        logger.error("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast")
+    except NameError:
+        # Fallback if logger still not available
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast")
     print("🚀🚀🚀 [BLAST_ENDPOINT] ENTERED /rep/blast", flush=True)
     print(f"[REP_BLAST] Request method: {request.method}", flush=True)
     print(f"[REP_BLAST] Request path: {request.url.path}", flush=True)
