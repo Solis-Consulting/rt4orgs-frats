@@ -4858,9 +4858,9 @@ async def rep_blast(
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
     _logger = logging.getLogger(__name__)
-    # 🔥 CRITICAL: FIRST LINE LOG - proves endpoint was hit
-    logger.error("🚨🚨🚨 BLAST ENDPOINT HIT 🚨🚨🚨")
-    print("🚀🚀🚀 /rep/blast HIT — THIS SHOULD NEVER BE SILENT", flush=True)
+    # 🔥 STEP 1: Prove endpoint is being hit
+    logger.error("🚨🚨🚨 [BLAST_REQUEST] endpoint hit")
+    print("🚨🚨🚨 [BLAST_REQUEST] endpoint hit", flush=True)
     print("🚀🚀🚀 /rep/blast HIT — THIS SHOULD NEVER BE SILENT", flush=True)
     print("🚀🚀🚀 /rep/blast HIT — THIS SHOULD NEVER BE SILENT", flush=True)
     
@@ -4893,16 +4893,17 @@ async def rep_blast(
         print("❌ [BLAST] JSON parse failed:", e, flush=True)
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
     
-    # 🔥 CRITICAL: Print payload and card_ids BEFORE any guards
-    logger.error(f"[BLAST] Payload received: {payload}")
-    print("🚀🚀🚀 BLAST HIT — PARSED PAYLOAD:", payload, flush=True)
+    # 🔥 STEP 2: Log raw request payload (CRITICAL)
+    logger.error(f"[BLAST_INPUT] raw payload: {payload}")
+    print(f"[BLAST_INPUT] raw payload: {payload}", flush=True)
     
     # Try both snake_case and camelCase for compatibility
     card_ids = payload.get("card_ids") or payload.get("cardIds")
     
-    # 🔥 CRITICAL DIAGNOSTIC: Log input card_ids immediately after parsing
-    logger.error(f"[BLAST_INPUT] selected_card_ids={card_ids} count={len(card_ids) if isinstance(card_ids, list) else 0}")
-    print(f"[BLAST_INPUT] selected_card_ids={card_ids} count={len(card_ids) if isinstance(card_ids, list) else 0}", flush=True)
+    # 🔥 STEP 3: Log resolved card IDs *before* DB
+    card_ids_list = card_ids if isinstance(card_ids, list) else []
+    logger.error(f"[BLAST_CARD_IDS] card_ids={card_ids_list} count={len(card_ids_list)}")
+    print(f"[BLAST_CARD_IDS] card_ids={card_ids_list} count={len(card_ids_list)}", flush=True)
     
     logger.error(f"[BLAST] Cards resolved: {len(card_ids) if isinstance(card_ids, list) else 0}")
     print("🚀🚀🚀 CARD IDS RECEIVED:", card_ids, flush=True)

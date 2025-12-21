@@ -372,10 +372,10 @@ def run_blast_for_cards(
     print(f"[BLAST_RUN] Fetching {len(card_ids)} cards from database...", flush=True)
     cards = _fetch_cards_by_ids(conn, card_ids)
     
-    # 🔥 CRITICAL DIAGNOSTIC: Log resolved cards right before loop
+    # 🔥 STEP 4: Log DB fetch result (THIS is where it's dying)
     resolved_ids = [c["id"] for c in cards] if cards else []
-    logger.error(f"[BLAST_RESOLVED_CARDS] resolved_count={len(cards)} resolved_ids={resolved_ids}")
-    print(f"[BLAST_RESOLVED_CARDS] resolved_count={len(cards)} resolved_ids={resolved_ids}", flush=True)
+    logger.error(f"[BLAST_DB_FETCH] requested={len(card_ids)} resolved={len(cards)} resolved_ids={resolved_ids}")
+    print(f"[BLAST_DB_FETCH] requested={len(card_ids)} resolved={len(cards)} resolved_ids={resolved_ids}", flush=True)
     
     print(f"[BLAST_RUN] Found {len(cards)} person cards with phone numbers", flush=True)
     if not cards:
@@ -435,6 +435,9 @@ def run_blast_for_cards(
 
     for card in cards:
         card_id = card["id"]
+        # 🔥 STEP 5: Prove loop entry
+        logger.error(f"[BLAST_LOOP_ENTER] card_id={card_id}")
+        print(f"[BLAST_LOOP_ENTER] card_id={card_id}", flush=True)
         data = card["card_data"] or {}
 
         # Decision visibility: log what we know before eligibility checks
@@ -1247,6 +1250,13 @@ def run_blast_for_cards(
     print(f"[BLAST_RUN] Total Cards: {len(cards)}", flush=True)
     print(f"[BLAST_RUN] Results: {len(results)}", flush=True)
     print("=" * 80, flush=True)
+    
+    # 🔥 STEP 6: Hard fail if nothing is processed (remove silent block)
+    if sent_count == 0 and skipped_count == 0:
+        error_msg = f"BLAST_ABORT: no cards processed. card_ids={card_ids} requested={len(card_ids)} resolved={len(cards)}"
+        logger.critical(f"[BLAST_ABORT] {error_msg}")
+        print(f"[BLAST_ABORT] {error_msg}", flush=True)
+        raise RuntimeError(error_msg)
     
     # 🔥 8️⃣ NUCLEAR INVARIANT - blast accounting must match
     total_processed = sent_count + skipped_count
