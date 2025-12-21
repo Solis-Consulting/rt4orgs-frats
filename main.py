@@ -1163,6 +1163,8 @@ async def twilio_inbound(request: Request):
             return PlainTextResponse(str(response), status_code=200, media_type="application/xml")
         print("=" * 80, flush=True)
         print(f"[TWILIO_INBOUND] 🔥🔥🔥 INBOUND WEBHOOK RECEIVED 🔥🔥🔥", flush=True)
+        # 🔥 INVARIANT 2 VERIFICATION: Inbound webhook hits handler
+        logger.error(f"[INVARIANT] ✅ Inbound webhook received: From={From} Body={Body}")
         print("=" * 80, flush=True)
         print(f"[TWILIO_INBOUND] Original From: {From}", flush=True)
         print(f"[TWILIO_INBOUND] Normalized phone: {normalized_phone}", flush=True)
@@ -1524,15 +1526,31 @@ async def twilio_inbound(request: Request):
         print(f"[TWILIO_INBOUND]   Card ID: {card_id}", flush=True)
         
         # Call the intelligence handler directly (no HTTP overhead)
+        # 🔥 INVARIANT 3 VERIFICATION: Markov evaluation
+        logger.error(f"[INVARIANT] [MARKOV] Context=inbound Current state={conversation_state} Rep={rep_user_id}")
         result = await inbound_intelligent(event)
         
         print("=" * 80, flush=True)
         print(f"[TWILIO_INBOUND] ✅ MARKOV INTELLIGENCE RESULT", flush=True)
         print("=" * 80, flush=True)
         print(f"[TWILIO_INBOUND]   Full result: {json.dumps(result, indent=2, default=str)}", flush=True)
-        print(f"[TWILIO_INBOUND]   next_state: {result.get('next_state')}", flush=True)
-        print(f"[TWILIO_INBOUND]   previous_state: {result.get('previous_state')}", flush=True)
+        next_state = result.get('next_state')
+        previous_state = result.get('previous_state')
+        response_text = result.get('response_text', '')
+        print(f"[TWILIO_INBOUND]   next_state: {next_state}", flush=True)
+        print(f"[TWILIO_INBOUND]   previous_state: {previous_state}", flush=True)
         print(f"[TWILIO_INBOUND]   intent: {result.get('intent')}", flush=True)
+        
+        # 🔥 INVARIANT 3 VERIFICATION: Markov transition and response
+        if previous_state and next_state:
+            logger.error(f"[INVARIANT] [MARKOV] Transition: {previous_state} → {next_state}")
+            print(f"[INVARIANT] [MARKOV] Transition: {previous_state} → {next_state}", flush=True)
+        if response_text:
+            logger.error(f"[INVARIANT] [MARKOV] Response found: length={len(response_text)}")
+            print(f"[INVARIANT] [MARKOV] Response found: length={len(response_text)}", flush=True)
+        else:
+            logger.error(f"[INVARIANT] [MARKOV] ⚠️ NO RESPONSE TEXT (check rep_markov_responses table)")
+            print(f"[INVARIANT] [MARKOV] ⚠️ NO RESPONSE TEXT - check rep_markov_responses table for state={next_state}", flush=True)
         print("=" * 80, flush=True)
         
         # 🔧 CRITICAL: Update last_inbound_at and card_id on the conversation scoped to environment_id

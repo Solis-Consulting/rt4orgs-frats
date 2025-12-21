@@ -895,6 +895,9 @@ def run_blast_for_cards(
                         returned_state = row[1]
                         logger.error(f"[BLAST] ✅ Conversation upsert RETURNING rep_user_id={returned_rep_user_id} state={returned_state}")
                         print(f"[BLAST] ✅ Conversation recorded/updated: phone={phone}, env={environment_id}, rep_user_id={returned_rep_user_id}, state={returned_state}", flush=True)
+                        # 🔥 INVARIANT 1 VERIFICATION: Conversation exists and linked to card
+                        logger.error(f"[INVARIANT] ✅ Conversation created: card_id={card_id} phone={phone} state={returned_state} environment_id={environment_id}")
+                        print(f"[INVARIANT] ✅ Conversation created: card_id={card_id} phone={phone} state={returned_state}", flush=True)
                         
                         # Runtime assertions to warn if state/rep_user_id not persisted correctly
                         # Log as warning instead of raising to avoid blocking blasts
