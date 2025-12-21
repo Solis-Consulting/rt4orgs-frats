@@ -443,6 +443,24 @@ def run_blast_for_cards(
             flush=True,
         )
 
+        # 🔥 CRITICAL: Initialize environment_id BEFORE any use (fixes UnboundLocalError)
+        # Generate environment_id for this blast (must be done per-card but initialized early)
+        from backend.environment import generate_environment_id
+        
+        # Infer campaign_id from card data
+        campaign_id = None
+        if data.get("fraternity"):
+            campaign_id = "frat_rt4orgs"
+        elif data.get("faith_group"):
+            campaign_id = "faith_rt4orgs"
+        elif data.get("role") == "Office":
+            campaign_id = "faith_rt4orgs"
+        else:
+            campaign_id = "default_rt4orgs"
+        
+        # Generate environment_id for this blast (unconditionally, before any use)
+        environment_id = generate_environment_id(rep_user_id, campaign_id)
+        
         # 🔥 1️⃣ ABSOLUTE BLAST TRUTH LOG - single source of reality
         log_ctx = {
             "card_id": card_id,
@@ -761,22 +779,10 @@ def run_blast_for_cards(
             write_initial_state(folder, data, purchased_example or {})
             write_initial_message(folder, message)
 
-            # 🔥 ENVIRONMENT ISOLATION: Generate environment_id for this blast
-            from backend.environment import generate_environment_id, store_message_event
+            # 🔥 ENVIRONMENT ISOLATION: environment_id already generated above (before loop use)
+            from backend.environment import store_message_event
             
-            # Infer campaign_id from card data
-            campaign_id = None
-            if data.get("fraternity"):
-                campaign_id = "frat_rt4orgs"
-            elif data.get("faith_group"):
-                campaign_id = "faith_rt4orgs"
-            elif data.get("role") == "Office":
-                campaign_id = "faith_rt4orgs"
-            else:
-                campaign_id = "default_rt4orgs"
-            
-            # Generate environment_id for this blast
-            environment_id = generate_environment_id(rep_user_id, campaign_id)
+            # environment_id is already set above (moved before first use to fix scoping)
             print(f"[BLAST] 🔥 Environment ID: {environment_id} (rep={rep_user_id}, campaign={campaign_id})", flush=True)
             
             # Record conversation row directly into conversations table
