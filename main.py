@@ -7,7 +7,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # Now we can import everything
 from fastapi import FastAPI, HTTPException, Form, Query, Body
-from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi.responses import PlainTextResponse, JSONResponse, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -330,6 +330,16 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=3600,  # Cache preflight for 1 hour
 )
+
+# 🔥 CRITICAL: Explicit OPTIONS handler to bypass auth dependencies
+# Browser sends OPTIONS preflight before POST with Authorization header
+# FastAPI dependencies run BEFORE CORS middleware can handle OPTIONS
+# This handler allows all OPTIONS requests to succeed without auth
+@app.options("/{path:path}")
+async def options_handler(path: str, request: Request):
+    """Handle all OPTIONS preflight requests - bypasses auth dependencies"""
+    print(f"🌐 [HTTP] OPTIONS {request.url.path} (preflight)", flush=True)
+    return Response(status_code=200)
 
 # Request logging middleware
 @app.middleware("http")
