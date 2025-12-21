@@ -155,6 +155,9 @@
     let selectedPhone = null;
     let apiToken = null;
     
+    // 🔥 GLOBAL SELECTION STORE - persists across re-renders
+    window.__SELECTED_CARD_IDS__ = new Set();
+    
     // Check for existing rep token in sessionStorage on page load
     (async function checkExistingSession() {
       const storedToken = sessionStorage.getItem('repApiToken');
@@ -292,6 +295,23 @@
         }
       });
     });
+
+    // 🔥 CARD TOGGLE HANDLER - updates global selection store
+    window.handleCardToggle = function(cb) {
+      const id = cb.dataset.cardId || cb.dataset.id;
+      if (!id) {
+        console.error('[SELECTION] Checkbox missing card ID:', cb);
+        return;
+      }
+
+      if (cb.checked) {
+        window.__SELECTED_CARD_IDS__.add(id);
+      } else {
+        window.__SELECTED_CARD_IDS__.delete(id);
+      }
+
+      console.log("[SELECTED IDS]", Array.from(window.__SELECTED_CARD_IDS__));
+    };
 
     async function loadCards() {
       try {
@@ -443,8 +463,9 @@
           const notes = card.assignment?.notes || '-';
           const updated = card.updated_at ? new Date(card.updated_at).toLocaleDateString() : '-';
           
+          const isSelected = window.__SELECTED_CARD_IDS__.has(card.id);
           html += `<tr class="group-row group-rows" data-group-id="${groupId}">`;
-          html += `<td><input type="checkbox" class="card-checkbox" data-id="${card.id}" data-card-id="${card.id}" data-group-id="${groupId}"></td>`;
+          html += `<td><input type="checkbox" class="card-checkbox" data-id="${card.id}" data-card-id="${card.id}" data-group-id="${groupId}" ${isSelected ? 'checked' : ''} onchange="handleCardToggle(this)"></td>`;
           html += `<td>${name}</td>`;
           html += `<td><span class='badge ${type}'>${type}</span></td>`;
           html += `<td><span class='badge gray'>${salesState}</span></td>`;
@@ -461,10 +482,19 @@
       html += '</tbody></table>';
       document.getElementById('cardsTableWrap').innerHTML = html;
 
-      // Select all checkbox
+      // Select all checkbox - update both DOM and Set
       document.getElementById('selectAll')?.addEventListener('change', (e) => {
+        const shouldSelect = e.target.checked;
         document.querySelectorAll('.card-checkbox').forEach(cb => {
-          cb.checked = e.target.checked;
+          cb.checked = shouldSelect;
+          const id = cb.dataset.cardId || cb.dataset.id;
+          if (id) {
+            if (shouldSelect) {
+              window.__SELECTED_CARD_IDS__.add(id);
+            } else {
+              window.__SELECTED_CARD_IDS__.delete(id);
+            }
+          }
         });
         // Update group checkboxes
         document.querySelectorAll('.group-checkbox').forEach(gcb => {
@@ -473,7 +503,7 @@
         updateBlastButton();
       });
 
-      // Group checkbox functionality
+      // Group checkbox functionality - update both DOM and Set
       document.querySelectorAll('.group-checkbox').forEach(gcb => {
         gcb.addEventListener('change', (e) => {
           e.stopPropagation();
@@ -481,6 +511,14 @@
           const checked = e.target.checked;
           document.querySelectorAll(`.card-checkbox[data-group-id="${groupId}"]`).forEach(cb => {
             cb.checked = checked;
+            const id = cb.dataset.cardId || cb.dataset.id;
+            if (id) {
+              if (checked) {
+                window.__SELECTED_CARD_IDS__.add(id);
+              } else {
+                window.__SELECTED_CARD_IDS__.delete(id);
+              }
+            }
           });
           updateBlastButton();
           updateSelectAllState();
@@ -622,57 +660,17 @@
       fetch('http://127.0.0.1:7242/ingest/a5ef77db-cf0a-4573-b971-236b0aa12e72',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rep.html:blastBtn:CLICK',message:'Blast button clicked',data:{timestamp:Date.now()},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
       // #endregion
       
-      // 🔧 FIX: Get selected card IDs - use unambiguous selector
-      // Query ALL input checkboxes with card-checkbox class (works even on hidden/collapsed groups)
-      const allCheckboxes = document.querySelectorAll('input.card-checkbox');
-      const checkedCheckboxes = document.querySelectorAll('input.card-checkbox:checked');
+      // 🔥 USE GLOBAL SELECTION STORE (not DOM queries)
+      const selected = Array.from(window.__SELECTED_CARD_IDS__);
       
-      // 🔥 NUCLEAR DEBUG: Log selection state BEFORE processing
-      console.log('BLAST CLICKED', {
-        totalCheckboxes: allCheckboxes.length,
-        checkedCount: checkedCheckboxes.length,
-        allCheckboxDetails: Array.from(allCheckboxes).map(cb => ({
-          id: cb.getAttribute('data-id'),
-          cardId: cb.getAttribute('data-card-id'),
-          checked: cb.checked,
-          visible: cb.offsetParent !== null,
-          classes: cb.className
-        })),
-        checkedDetails: Array.from(checkedCheckboxes).map(cb => ({
-          id: cb.getAttribute('data-id'),
-          cardId: cb.getAttribute('data-card-id'),
-          checked: cb.checked,
-          visible: cb.offsetParent !== null
-        }))
-      });
-      
-      // Get IDs - try data-card-id first, fallback to data-id
-      const selected = Array.from(checkedCheckboxes).map(cb => {
-        const cardId = cb.getAttribute('data-card-id') || cb.getAttribute('data-id');
-        console.log('[BLAST] Processing checked checkbox:', { 
-          cardId, 
-          dataId: cb.getAttribute('data-id'),
-          dataCardId: cb.getAttribute('data-card-id'),
-          checked: cb.checked 
-        });
-        return cardId;
-      }).filter(id => id); // Filter out any null/undefined IDs
-      
-      console.log('[BLAST] Final selected IDs:', selected);
+      console.log("[BLAST IDS]", selected);
       
       // #region agent log - Cards selected
-      fetch('http://127.0.0.1:7242/ingest/a5ef77db-cf0a-4573-b971-236b0aa12e72',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rep.html:blastBtn:SELECTED',message:'Cards selected for blast',data:{selected_count:selected.length,selected_ids:selected,total_checkboxes:allCheckboxes.length,checked_count:checkedCheckboxes.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/a5ef77db-cf0a-4573-b971-236b0aa12e72',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rep.html:blastBtn:SELECTED',message:'Cards selected for blast',data:{selected_count:selected.length,selected_ids:selected},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
       // #endregion
       
       if (selected.length === 0) {
-        const debugInfo = {
-          totalCheckboxes: allCheckboxes.length,
-          checkedCount: checkedCheckboxes.length,
-          allCheckboxIds: Array.from(allCheckboxes).map(cb => cb.getAttribute('data-id')),
-          checkedIds: Array.from(checkedCheckboxes).map(cb => cb.getAttribute('data-id'))
-        };
-        console.error('[BLAST] No cards selected - debug info:', debugInfo);
-        alert(`No cards selected.\n\nDebug: Found ${allCheckboxes.length} total checkboxes, ${checkedCheckboxes.length} checked.\n\nCheck browser console for details.`);
+        alert("No cards selected");
         return;
       }
 
