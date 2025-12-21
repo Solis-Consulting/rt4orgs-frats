@@ -96,7 +96,7 @@
             <option value="closed">Closed</option>
             <option value="lost">Lost</option>
           </select>
-          <button id="blastBtn" disabled>Blast Selected Assigned Leads</button>
+          <button type="button" id="blastBtn" disabled>Blast Selected Assigned Leads</button>
           <button id="checkAllAssignBtn">Check All & Assign</button>
         </div>
         <div id="cardsTableWrap"></div>
@@ -655,7 +655,13 @@
     });
     
     // Blast selected cards
-    document.getElementById('blastBtn').addEventListener('click', async () => {
+    document.getElementById('blastBtn').addEventListener('click', async (e) => {
+      // 🔥 PREVENT DEFAULT FORM SUBMIT BEHAVIOR
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      
       // #region agent log - Frontend blast button clicked
       fetch('http://127.0.0.1:7242/ingest/a5ef77db-cf0a-4573-b971-236b0aa12e72',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rep.html:blastBtn:CLICK',message:'Blast button clicked',data:{timestamp:Date.now()},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
       // #endregion
