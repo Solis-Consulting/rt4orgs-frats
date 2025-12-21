@@ -822,9 +822,11 @@
         return;
       }
       
+      // 🔥 CRITICAL: NO SUCCESS UI UNLESS BACKEND CONFIRMS
+      let res;
       try {
         console.log("📡 [BLAST] Starting fetch NOW...");
-        const res = await fetch(blastUrl, {
+        res = await fetch(blastUrl, {
           method: "POST",
           mode: "cors",
           credentials: "omit",
@@ -833,42 +835,64 @@
         });
         
         console.log("📬 [BLAST] Response received - status:", res.status);
-        const t = await res.text();
-        console.log("📬 [BLAST] Response body:", t);
-        
-        if (!res.ok) {
-          console.error("❌ [BLAST] Response not OK:", res.status, t);
-          alert(`Error ${res.status}: ${t.substring(0, 200)}`);
-          btn.disabled = false;
-          btn.textContent = 'Blast Selected Assigned Leads';
-          return;
-        }
-        
-        try {
-          const data = JSON.parse(t);
-          console.log("✅ [BLAST] Success:", data);
-          alert(`Blast complete. Sent: ${data.sent || 0}, Skipped: ${data.skipped || 0}`);
-          loadCards();
-        } catch (parseErr) {
-          console.error("❌ [BLAST] JSON parse failed:", parseErr);
-          alert(`Error parsing response: ${parseErr.message}`);
-        }
       } catch (fetchErr) {
+        // 🔥 NETWORK ERROR - NO SUCCESS UI
         console.error("🔥 [BLAST] FETCH FAILED:", fetchErr);
         console.error("🔥 [BLAST] Error name:", fetchErr.name);
         console.error("🔥 [BLAST] Error message:", fetchErr.message);
         console.error("🔥 [BLAST] Error stack:", fetchErr.stack);
         console.error("🔥 [BLAST] URL that failed:", blastUrl);
         
-        let errorMsg = `Error: ${fetchErr.message}`;
+        let errorMsg = `Network error: ${fetchErr.message}`;
         if (fetchErr.name === 'TypeError' && fetchErr.message.includes('fetch')) {
           errorMsg = `Network error: Failed to fetch. This usually means:\n1. Backend URL is wrong: ${blastUrl}\n2. CORS is blocking the request\n3. Mixed content (HTTPS page calling HTTP backend)\n4. Network is unreachable`;
         }
         alert(errorMsg);
-      } finally {
         btn.disabled = false;
         btn.textContent = 'Blast Selected Assigned Leads';
+        return; // 🔥 EARLY RETURN - NO SUCCESS UI
       }
+      
+      // 🔥 CRITICAL: Check response status BEFORE any success UI
+      if (!res || !res.ok) {
+        const errorText = res ? await res.text() : 'No response';
+        console.error("❌ [BLAST] Response not OK:", res?.status || 'NO_RESPONSE', errorText);
+        alert(`Blast failed: HTTP ${res?.status || 'NO_RESPONSE'} - ${errorText.substring(0, 200)}`);
+        btn.disabled = false;
+        btn.textContent = 'Blast Selected Assigned Leads';
+        return; // 🔥 EARLY RETURN - NO SUCCESS UI
+      }
+      
+      // 🔥 ONLY REACH HERE IF res.ok === true
+      let data;
+      try {
+        const responseText = await res.text();
+        console.log("📬 [BLAST] Response body:", responseText);
+        data = JSON.parse(responseText);
+        console.log("✅ [BLAST] Parsed response data:", data);
+      } catch (parseErr) {
+        console.error("❌ [BLAST] JSON parse failed:", parseErr);
+        alert(`Error: Could not parse backend response - ${parseErr.message}`);
+        btn.disabled = false;
+        btn.textContent = 'Blast Selected Assigned Leads';
+        return; // 🔥 EARLY RETURN - NO SUCCESS UI
+      }
+      
+      // 🔥 CRITICAL: SUCCESS UI ONLY HERE - AFTER CONFIRMED BACKEND RESPONSE
+      if (!data || typeof data.sent === 'undefined') {
+        console.error("❌ [BLAST] Invalid response data:", data);
+        alert("Error: Backend returned invalid response format");
+        btn.disabled = false;
+        btn.textContent = 'Blast Selected Assigned Leads';
+        return;
+      }
+      
+      // 🔥 THIS IS THE ONLY PLACE SUCCESS CAN BE SHOWN
+      console.log("✅ [BLAST] SUCCESS - Backend confirmed:", data);
+      alert(`Blast complete. Sent: ${data.sent || 0}, Skipped: ${data.skipped || 0}`);
+      loadCards();
+      btn.disabled = false;
+      btn.textContent = 'Blast Selected Assigned Leads';
     }
     
     // 🔥 EVENT DELEGATION: Attach ONCE to document, survives all DOM changes
