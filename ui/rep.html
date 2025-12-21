@@ -529,9 +529,11 @@
       });
 
       // Individual card checkbox functionality
+      // NOTE: Checkboxes already have onchange="handleCardToggle(this)" in HTML
+      // handleCardToggle() calls updateBlastButton(), so we just need to update UI state
       document.querySelectorAll('.card-checkbox').forEach(cb => {
         cb.addEventListener('change', () => {
-          updateBlastButton();
+          // handleCardToggle() already called updateBlastButton() via onchange attribute
           updateSelectAllState();
           updateGroupCheckboxState(cb);
         });
@@ -550,15 +552,18 @@
         }
       }
 
-      // Update select all checkbox state
+      // Update select all checkbox state - use global store for consistency
       function updateSelectAllState() {
         const selectAll = document.getElementById('selectAll');
         const allCardCheckboxes = document.querySelectorAll('.card-checkbox');
         if (selectAll && allCardCheckboxes.length > 0) {
-          const allChecked = Array.from(allCardCheckboxes).every(cb => cb.checked);
-          const someChecked = Array.from(allCardCheckboxes).some(cb => cb.checked);
+          // Check if all cards in store are selected
+          const totalCards = allCardCheckboxes.length;
+          const selectedCount = window.__SELECTED_CARD_IDS__ ? window.__SELECTED_CARD_IDS__.size : 0;
+          const allChecked = selectedCount === totalCards && totalCards > 0;
+          const someChecked = selectedCount > 0 && selectedCount < totalCards;
           selectAll.checked = allChecked;
-          selectAll.indeterminate = someChecked && !allChecked;
+          selectAll.indeterminate = someChecked;
         }
       }
 
@@ -622,9 +627,13 @@
     
     // Check All & Assign button
     document.getElementById('checkAllAssignBtn')?.addEventListener('click', async () => {
-      // Check all checkboxes
+      // Check all checkboxes - update both DOM and global store
       document.querySelectorAll('.card-checkbox').forEach(cb => {
         cb.checked = true;
+        const id = cb.dataset.cardId || cb.dataset.id;
+        if (id) {
+          window.__SELECTED_CARD_IDS__.add(id);
+        }
       });
       document.querySelectorAll('.group-checkbox').forEach(gcb => {
         gcb.checked = true;
@@ -636,7 +645,8 @@
       }
       updateBlastButton();
       
-      const selected = Array.from(document.querySelectorAll('.card-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
+      // 🔥 USE GLOBAL SELECTION STORE (not DOM queries)
+      const selected = Array.from(window.__SELECTED_CARD_IDS__);
       
       if (selected.length === 0) {
         alert('No cards to assign');
