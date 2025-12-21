@@ -4842,6 +4842,8 @@ async def rep_blast(
 ):
     """Blast cards. Owner can blast any cards, reps can only blast their assigned cards."""
     _logger = logging.getLogger(__name__)
+    # 🔥 CRITICAL: FIRST LINE LOG - proves endpoint was hit
+    logger.error("🚨🚨🚨 BLAST ENDPOINT HIT 🚨🚨🚨")
     print("🚀🚀🚀 /rep/blast HIT — THIS SHOULD NEVER BE SILENT", flush=True)
     print("🚀🚀🚀 /rep/blast HIT — THIS SHOULD NEVER BE SILENT", flush=True)
     print("🚀🚀🚀 /rep/blast HIT — THIS SHOULD NEVER BE SILENT", flush=True)
@@ -4876,10 +4878,12 @@ async def rep_blast(
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
     
     # 🔥 CRITICAL: Print payload and card_ids BEFORE any guards
+    logger.error(f"[BLAST] Payload received: {payload}")
     print("🚀🚀🚀 BLAST HIT — PARSED PAYLOAD:", payload, flush=True)
     
     # Try both snake_case and camelCase for compatibility
     card_ids = payload.get("card_ids") or payload.get("cardIds")
+    logger.error(f"[BLAST] Cards resolved: {len(card_ids) if isinstance(card_ids, list) else 0}")
     print("🚀🚀🚀 CARD IDS RECEIVED:", card_ids, flush=True)
     print("🚀🚀🚀 CARD IDS TYPE:", type(card_ids), flush=True)
     if card_ids is not None:

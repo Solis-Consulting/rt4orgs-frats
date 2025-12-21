@@ -633,6 +633,8 @@ def run_blast_for_cards(
             try:
                 print(f"[BLAST_SEND_ATTEMPT] ✅ EXECUTING send_sms() - BLAST MODE", flush=True)
                 print(f"[BLAST_SEND_ATTEMPT] ✅ Card passed all skip checks - sending SMS", flush=True)
+                logger.error(f"[BLAST] SENDING TO {phone}")
+                logger.error("[SEND_SMS] FUNCTION ENTERED")
                 sms_result = send_sms(phone, message)
                 print(f"[BLAST_SEND_ATTEMPT] ✅ send_sms() returned successfully", flush=True)
                 print(f"[BLAST_SEND_ATTEMPT] SMS Result: {sms_result}", flush=True)

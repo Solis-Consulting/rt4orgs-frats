@@ -205,6 +205,11 @@ def send_sms(to_number: str, body: str, force_direct: bool = False) -> Dict[str,
     import os
     from datetime import datetime
     
+    # 🔥 CRITICAL: FIRST LINE LOG - proves function was entered
+    import logging
+    _send_logger = logging.getLogger(__name__)
+    _send_logger.error("[SEND_SMS] FUNCTION ENTERED")
+    
     print("=" * 80, flush=True)
     print(f"[SEND_SMS] 🚀 STARTING SMS SEND", flush=True)
     print("=" * 80, flush=True)
