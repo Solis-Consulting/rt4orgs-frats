@@ -656,10 +656,16 @@
     
     // Blast selected cards
     document.getElementById('blastBtn').addEventListener('click', async (e) => {
+      // 🔥🔥🔥 NUCLEAR LOG - PROVE BUTTON CLICK WAS REGISTERED
+      console.log("🔥🔥🔥 BLAST BUTTON CLICKED 🔥🔥🔥", e);
+      console.error("🔥🔥🔥 BLAST BUTTON CLICKED 🔥🔥🔥");
+      alert("BLAST BUTTON CLICKED - Check console");
+      
       // 🔥 PREVENT DEFAULT FORM SUBMIT BEHAVIOR
       if (e) {
         e.preventDefault();
         e.stopPropagation();
+        console.log("✅ preventDefault() and stopPropagation() called");
       }
       
       // #region agent log - Frontend blast button clicked
@@ -667,9 +673,11 @@
       // #endregion
       
       // 🔥 USE GLOBAL SELECTION STORE (not DOM queries)
-      const selected = Array.from(window.__SELECTED_CARD_IDS__);
+      console.log("🔍 Checking window.__SELECTED_CARD_IDS__:", window.__SELECTED_CARD_IDS__);
+      const selected = Array.from(window.__SELECTED_CARD_IDS__ || []);
       
       console.log("[BLAST IDS]", selected);
+      console.log("[BLAST IDS] Count:", selected.length);
       
       // #region agent log - Cards selected
       fetch('http://127.0.0.1:7242/ingest/a5ef77db-cf0a-4573-b971-236b0aa12e72',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rep.html:blastBtn:SELECTED',message:'Cards selected for blast',data:{selected_count:selected.length,selected_ids:selected},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
@@ -693,16 +701,21 @@
 
       try {
         console.log('[REP_BLAST] Blasting selected cards:', selected);
+        console.log('🔥 ABOUT TO CALL FETCH:', `${BACKEND}/rep/blast`);
+        console.log('🔥 SELECTED CARDS:', selected);
+        console.log('🔥 HEADERS:', getHeaders());
         
         // #region agent log - Before fetch request
         fetch('http://127.0.0.1:7242/ingest/a5ef77db-cf0a-4573-b971-236b0aa12e72',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rep.html:blastBtn:BEFORE_FETCH',message:'About to send blast request',data:{url:`${BACKEND}/rep/blast`,selected_count:selected.length,headers:Object.keys(getHeaders())},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
         // #endregion
         
+        console.log('🔥🔥🔥 CALLING FETCH NOW 🔥🔥🔥');
         const res = await fetch(`${BACKEND}/rep/blast`, {
           method: 'POST',
           headers: getHeaders(),
           body: JSON.stringify({ card_ids: selected })
         });
+        console.log('🔥🔥🔥 FETCH COMPLETED 🔥🔥🔥', res.status);
         
         // #region agent log - After fetch response
         fetch('http://127.0.0.1:7242/ingest/a5ef77db-cf0a-4573-b971-236b0aa12e72',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rep.html:blastBtn:AFTER_FETCH',message:'Received blast response',data:{status:res.status,ok:res.ok},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
