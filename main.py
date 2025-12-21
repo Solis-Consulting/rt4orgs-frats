@@ -1250,6 +1250,9 @@ async def twilio_inbound(request: Request):
         # 🔥 CRITICAL: Find conversation by phone FIRST (across all environments)
         # This prevents losing the conversation due to environment mismatch
         print(f"[TWILIO_INBOUND] 🔍 Step 2: Finding conversation by phone (across environments)...", flush=True)
+        # 🔥 INVARIANT VERIFICATION: Log lookup parameters BEFORE query
+        logger.error(f"[INVARIANT] [CONVERSATION_LOOKUP] Looking for conversation: phone={normalized_phone} (original={From})")
+        print(f"[INVARIANT] [CONVERSATION_LOOKUP] phone={normalized_phone} (original={From})", flush=True)
         conversation_by_phone = None
         env_id_from_convo = None
         rep_from_convo = None
@@ -1266,6 +1269,20 @@ async def twilio_inbound(request: Request):
                     LIMIT 1
                 """, (normalized_phone,))
                 conversation_by_phone = cur.fetchone()
+                # 🔥 INVARIANT VERIFICATION: Log lookup result
+                if conversation_by_phone:
+                    logger.error(f"[INVARIANT] [CONVERSATION_LOOKUP] ✅ FOUND: env={conversation_by_phone[0]} card_id={conversation_by_phone[2]} state={conversation_by_phone[3]}")
+                    print(f"[INVARIANT] [CONVERSATION_LOOKUP] ✅ FOUND conversation", flush=True)
+                else:
+                    logger.error(f"[INVARIANT] [CONVERSATION_LOOKUP] ❌ NOT FOUND: No conversation exists for phone={normalized_phone}")
+                    print(f"[INVARIANT] [CONVERSATION_LOOKUP] ❌ NOT FOUND - checking all conversations...", flush=True)
+                    # Debug: Show all conversations with similar phone numbers
+                    cur.execute("SELECT phone, card_id, state, environment_id FROM conversations ORDER BY updated_at DESC LIMIT 10")
+                    all_convs = cur.fetchall()
+                    logger.error(f"[INVARIANT] [CONVERSATION_LOOKUP] Recent conversations: {all_convs}")
+                    print(f"[INVARIANT] [CONVERSATION_LOOKUP] Recent conversations in DB:", flush=True)
+                    for conv in all_convs:
+                        print(f"  phone={conv[0]} card_id={conv[1]} state={conv[2]} env={conv[3]}", flush=True)
             except psycopg2.ProgrammingError:
                 # Fallback if environment_id column doesn't exist
                 cur.execute("""
@@ -1284,6 +1301,8 @@ async def twilio_inbound(request: Request):
         if conversation_by_phone:
             env_id_from_convo, rep_from_convo, card_id_from_convo, state_from_convo, last_source, last_outbound_at, updated_at = conversation_by_phone
             print(f"[TWILIO_INBOUND] ✅ Found conversation by phone: env={env_id_from_convo}, rep={rep_from_convo}, state={state_from_convo}, last_source={last_source}", flush=True)
+            # 🔥 INVARIANT VERIFICATION: Conversation match confirmed
+            logger.error(f"[INVARIANT] ✅ Conversation match: phone={normalized_phone} env={env_id_from_convo} card_id={card_id_from_convo} state={state_from_convo}")
             
             # Step 1: conversation-by-phone (highest priority - NEVER override with routing)
             if env_id_from_convo:
@@ -1339,6 +1358,10 @@ async def twilio_inbound(request: Request):
         else:
             # Step 2: No conversation exists - routing fallback is allowed
             print(f"[TWILIO_INBOUND] ⚠️ No conversation found by phone - routing to environment", flush=True)
+            # 🔥 INVARIANT VERIFICATION: Conversation NOT found - this is the failure point
+            logger.error(f"[INVARIANT] ❌ Conversation NOT FOUND - inbound will exit early or route to new environment")
+            logger.error(f"[INVARIANT] ❌ CAUSE: No conversation row exists for phone={normalized_phone}")
+            logger.error(f"[INVARIANT] ❌ Check: Did blast create conversation? Is phone normalization consistent?")
             routed_env_id, routed_rep_id, routed_campaign_id = route_inbound_to_environment(conn, normalized_phone)
             if routed_env_id:
                 environment_id = routed_env_id
