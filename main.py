@@ -1549,6 +1549,9 @@ async def twilio_inbound(request: Request):
         print(f"[TWILIO_INBOUND]   Rep user ID: {rep_user_id}", flush=True)
         print(f"[TWILIO_INBOUND]   Card ID: {card_id}", flush=True)
         
+        # 🔥 CRITICAL INVARIANT: Inbound handler must never return before Markov finishes OR a reply is sent
+        # The HTTP "OK" response is NOT the SMS - SMS must be sent explicitly via Twilio REST API
+        
         # Call the intelligence handler directly (no HTTP overhead)
         # 🔥 STEP 4: Markov invocation proof (non-negotiable)
         logger.error(f"🔥🔥🔥 MARKOV_ENTER inbound conversation_id={conversation_by_phone[2] if conversation_by_phone else 'N/A'} text={Body[:100]}")
@@ -1557,8 +1560,13 @@ async def twilio_inbound(request: Request):
         logger.error(f"[INVARIANT] [MARKOV] Context=inbound Current state={conversation_state} Rep={rep_user_id}")
         result = await inbound_intelligent(event)
         response_text = result.get('response_text', '')
-        logger.error(f"✅ MARKOV_EXIT conversation_id={conversation_by_phone[2] if conversation_by_phone else 'N/A'} response={response_text[:100] if response_text else 'EMPTY'}")
-        print(f"✅ MARKOV_EXIT response={response_text[:100] if response_text else 'EMPTY'}", flush=True)
+        next_state = result.get('next_state')
+        logger.error(f"✅ MARKOV_EXIT conversation_id={conversation_by_phone[2] if conversation_by_phone else 'N/A'} next_state={next_state} response_length={len(response_text) if response_text else 0}")
+        print(f"✅ MARKOV_EXIT next_state={next_state} response_length={len(response_text) if response_text else 0}", flush=True)
+        
+        # 🔥 CRITICAL LOG: Show Markov output immediately
+        logger.error(f"[MARKOV_RESULT] next_state={next_state} previous_state={result.get('previous_state')} response_text={'SET' if response_text else 'EMPTY'}")
+        print(f"[MARKOV_RESULT] next_state={next_state} previous_state={result.get('previous_state')} response_text={'SET' if response_text else 'EMPTY'}", flush=True)
         
         print("=" * 80, flush=True)
         print(f"[TWILIO_INBOUND] ✅ MARKOV INTELLIGENCE RESULT", flush=True)
@@ -1688,6 +1696,7 @@ async def twilio_inbound(request: Request):
         
         # Skip reply generation if bot loop detected OR card is unassigned (but still process/store inbound for leads)
         if skip_auto_reply:
+            logger.error(f"[REPLY_BLOCKED] Reason=bot_loop_prevention skip_auto_reply=True")
             print(f"[TWILIO_INBOUND] 🛑 Skipping reply generation due to bot loop prevention (inbound will still be stored)", flush=True)
             reply_text = None
         elif not card_assigned and card_id:
@@ -1695,6 +1704,7 @@ async def twilio_inbound(request: Request):
             # This means either:
             # 1. No rep_user_id was available (conversation has no owner)
             # 2. Auto-assignment failed
+            logger.error(f"[REPLY_BLOCKED] Reason=card_unassigned card_id={card_id}")
             print(f"[TWILIO_INBOUND] 🛑 Skipping reply generation - card is unassigned (inbound will still be stored)", flush=True)
             print(f"[TWILIO_INBOUND]   Reason: Card {card_id} has no assignment and no rep_user_id to assign to", flush=True)
             reply_text = None
@@ -1898,6 +1908,7 @@ async def twilio_inbound(request: Request):
                     reply_text = None
         else:
             # No next_state from Markov engine - this shouldn't happen but handle gracefully
+            logger.error(f"[REPLY_BLOCKED] Reason=no_next_state_from_markov result_keys={list(result.keys())}")
             print("=" * 80, flush=True)
             print(f"[TWILIO_INBOUND] ⚠️ NO STATE TRANSITION FROM MARKOV ENGINE", flush=True)
             print("=" * 80, flush=True)
@@ -2076,6 +2087,7 @@ async def twilio_inbound(request: Request):
                         raise
         
         if should_suppress and not force_send:
+            logger.error(f"[REPLY_BLOCKED] Reason=duplicate_suppression suppression_reason={suppression_reason} force_send={force_send}")
             print("=" * 80, flush=True)
             print(f"[TWILIO_INBOUND] 🚫 SUPPRESSING SEND", flush=True)
             print("=" * 80, flush=True)
@@ -2299,7 +2311,15 @@ async def twilio_inbound(request: Request):
                 import traceback
                 print(f"[TWILIO_INBOUND] Traceback: {traceback.format_exc()}")
         
+        # 🔥 CRITICAL: Final return happens AFTER Markov completes and SMS is sent (if applicable)
+        # The HTTP "OK" response satisfies Twilio - it does NOT send an SMS
+        # SMS must be sent explicitly via Twilio REST API (done above if reply_text was set)
+        logger.error(f"[INBOUND_COMPLETE] reply_sent={'YES' if reply_text and will_actually_send else 'NO'} reply_text={'SET' if reply_text else 'None'} will_send={will_actually_send if 'will_actually_send' in locals() else 'unknown'}")
+        print(f"[INBOUND_COMPLETE] reply_sent={'YES' if reply_text and 'will_actually_send' in locals() and will_actually_send else 'NO'}", flush=True)
         print(f"[TWILIO_INBOUND] Success: {result}")
+        
+        # 🔥 INVARIANT: Only return OK after all processing completes
+        # This return tells Twilio we received the webhook - it does NOT send an SMS
         return PlainTextResponse("OK", status_code=200)
     except Exception as e:
         # Log error but return ok to Twilio (prevents retries on transient errors)
