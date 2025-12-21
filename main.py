@@ -3859,14 +3859,17 @@ def get_markov_response_with_trace(conn, next_state: str, rep_user_id: str | Non
     print(f"[MARKOV_TRACE] phone={phone} next_state={next_state} rep_user_id={rep_user_id} env={environment_id} rep_count={rep_count} global_count={global_count}", flush=True)
     
     # 🔧 FIX #3: Hard-fail when Markov finds 0 responses (never want silent "success")
+    # This prevents silent dead states forever - fail loud if graph is empty
     if rep_count == 0 and global_count == 0:
         error_msg = (
-            f"[MARKOV_EMPTY] No responses found for state={next_state} rep={rep_user_id} env={environment_id} phone={phone}. "
-            f"rep_count=0 global_count=0. This indicates missing Markov configuration."
+            f"Markov graph empty: env={environment_id}, state={next_state}, rep={rep_user_id}, phone={phone}. "
+            f"rep_count=0 global_count=0. This indicates missing Markov configuration. "
+            f"Seed at least one row in markov_responses for this state (rep-specific or global)."
         )
-        logger.error(error_msg)
-        print(f"[TWILIO_INBOUND] ❌❌❌ {error_msg}", flush=True)
-        # Don't raise - return None so caller can handle gracefully, but log it as an error
+        logger.error(f"[MARKOV_EMPTY] {error_msg}")
+        print(f"[TWILIO_INBOUND] ❌❌❌ [MARKOV_EMPTY] {error_msg}", flush=True)
+        # Raise RuntimeError to prevent silent dead states
+        raise RuntimeError(error_msg)
     
     # 3) Call your existing function
     resp = get_markov_response(conn, next_state, rep_user_id)
