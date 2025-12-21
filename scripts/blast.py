@@ -215,6 +215,7 @@ def send_sms(to_number: str, body: str, force_direct: bool = False) -> Dict[str,
     token_to_use = os.getenv("TWILIO_AUTH_TOKEN")
     sid_to_use = os.getenv("TWILIO_ACCOUNT_SID")
     messaging_service_sid = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
+    status_callback_url = os.getenv("TWILIO_STATUS_CALLBACK_URL", "").strip()
     
     # 🔥 CRITICAL: Determine mode FIRST - phone handling only happens in direct mode
     use_messaging_service = bool(messaging_service_sid)
@@ -295,6 +296,9 @@ def send_sms(to_number: str, body: str, force_direct: bool = False) -> Dict[str,
                 "body": body,
                 "messaging_service_sid": messaging_service_sid
             }
+            # Add status callback if configured (for delivery status tracking)
+            if status_callback_url:
+                message_params["status_callback"] = status_callback_url
             # CRITICAL: Do NOT set from_ when using Messaging Service
             assert "from_" not in message_params, "Cannot use from_ with Messaging Service"
         else:
@@ -305,6 +309,9 @@ def send_sms(to_number: str, body: str, force_direct: bool = False) -> Dict[str,
                 "body": body,
                 "from_": phone_number_normalized
             }
+            # Add status callback if configured (for delivery status tracking)
+            if status_callback_url:
+                message_params["status_callback"] = status_callback_url
             # CRITICAL: Do NOT set messaging_service_sid when using direct phone
             assert "messaging_service_sid" not in message_params, "Cannot use messaging_service_sid with direct phone"
         
@@ -326,6 +333,10 @@ def send_sms(to_number: str, body: str, force_direct: bool = False) -> Dict[str,
         print(f"[SEND_SMS]   to: {message_params.get('to')}", flush=True)
         print(f"[SEND_SMS]   body: {message_params.get('body', '')[:100]}{'...' if len(message_params.get('body', '')) > 100 else ''}", flush=True)
         print(f"[SEND_SMS]   body length: {len(message_params.get('body', ''))} chars", flush=True)
+        if status_callback_url:
+            print(f"[SEND_SMS]   status_callback: {status_callback_url} (enabled for delivery tracking)", flush=True)
+        else:
+            print(f"[SEND_SMS]   status_callback: NOT SET (no delivery status tracking)", flush=True)
         print("=" * 80, flush=True)
         
         # Make the API call

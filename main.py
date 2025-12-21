@@ -1045,6 +1045,37 @@ def resolve_rep_user_id_for_inbound(conn, *, environment_id: str, phone: str, ca
     return None, "none", card_id
 
 
+@app.post("/twilio/status", include_in_schema=False)
+async def twilio_status(request: Request):
+    """
+    Twilio status callback endpoint for SMS delivery status updates.
+    
+    Twilio calls this endpoint when message status changes (queued → sent → delivered/failed).
+    This provides real delivery status instead of relying on initial API response.
+    """
+    try:
+        form = await request.form()
+        sid = form.get("MessageSid") or form.get("SmsSid")
+        status = form.get("MessageStatus") or form.get("SmsStatus")
+        err = form.get("ErrorCode")
+        err_msg = form.get("ErrorMessage")
+        to_number = form.get("To")
+        from_number = form.get("From")
+        
+        print(f"[TWILIO_STATUS] 📊 Status update: sid={sid} status={status} error={err} to={to_number} from={from_number}", flush=True)
+        if err:
+            print(f"[TWILIO_STATUS] ❌ Error: code={err} message={err_msg}", flush=True)
+        else:
+            print(f"[TWILIO_STATUS] ✅ Status: {status}", flush=True)
+        
+        return PlainTextResponse("ok", status_code=200)
+    except Exception as e:
+        print(f"[TWILIO_STATUS] ❌ Error processing status callback: {e}", flush=True)
+        import traceback
+        print(f"[TWILIO_STATUS] Traceback: {traceback.format_exc()}", flush=True)
+        return PlainTextResponse("ok", status_code=200)  # Always return 200 to Twilio
+
+
 @app.post("/twilio/inbound", response_class=PlainTextResponse)
 async def twilio_inbound(request: Request):
     """
