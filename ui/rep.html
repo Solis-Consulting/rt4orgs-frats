@@ -148,6 +148,9 @@
     import { BACKEND_URL } from '/config.js';
     const BACKEND = BACKEND_URL;
 
+    // ✅ JS PARSED SUCCESSFULLY - if you see this, syntax is valid
+    console.log("✅ JS PARSED SUCCESSFULLY");
+    
     let currentView = 'cards';
     let allCards = [];
     let allLeads = []; // Initialize to empty array to handle empty responses
@@ -324,7 +327,7 @@
           }
         }
       }, 500);
-    }););
+    });
 
     // 🔥 CARD TOGGLE HANDLER - updates global selection store
     window.handleCardToggle = function(cb) {
