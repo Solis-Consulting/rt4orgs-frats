@@ -422,6 +422,56 @@ def run_blast_for_cards(
             flush=True,
         )
 
+        # 🔥 CRITICAL: Extract phone from multiple possible field locations
+        # Cards come from different pipelines with different field names
+        # Check all common variations before declaring phone missing
+        def extract_phone_from_card(card_data):
+            """Extract phone from card_data, checking multiple field name variations."""
+            if not card_data:
+                return None
+            
+            # Try canonical location first
+            phone = card_data.get("phone")
+            if phone and str(phone).strip():
+                return str(phone).strip()
+            
+            # Try alternative field names
+            phone = card_data.get("phone_number")
+            if phone and str(phone).strip():
+                return str(phone).strip()
+            
+            # Try nested in metadata
+            metadata = card_data.get("metadata", {})
+            if isinstance(metadata, dict):
+                phone = metadata.get("phone")
+                if phone and str(phone).strip():
+                    return str(phone).strip()
+            
+            # Try contact_info nested
+            contact_info = card_data.get("contact_info", {})
+            if isinstance(contact_info, dict):
+                phone = contact_info.get("phone") or contact_info.get("phone_number")
+                if phone and str(phone).strip():
+                    return str(phone).strip()
+            
+            return None
+        
+        raw_phone = extract_phone_from_card(data)
+        
+        # Log what we found for debugging
+        if raw_phone:
+            print(f"[BLAST] Extracted phone from card: {raw_phone} (card_id={card_id})", flush=True)
+        else:
+            # Log all possible phone fields for debugging
+            phone_fields = {
+                "phone": data.get("phone"),
+                "phone_number": data.get("phone_number"),
+                "metadata.phone": data.get("metadata", {}).get("phone") if isinstance(data.get("metadata"), dict) else None,
+                "contact_info.phone": data.get("contact_info", {}).get("phone") if isinstance(data.get("contact_info"), dict) else None,
+            }
+            logger.error(f"[BLAST_SKIP] card_id={card_id} NO_PHONE - checked fields: {phone_fields}")
+            print(f"[BLAST_SKIP] card_id={card_id} NO_PHONE - checked fields: {phone_fields}", flush=True)
+        
         # 🔥 CRITICAL: Normalize phone ONCE at the top, before ANY checks
         if not raw_phone:
             skip_reason = "NO_PHONE"
