@@ -1228,6 +1228,32 @@ async def twilio_inbound(request: Request):
             rep_user_id = resolved_rep_user_id
             print(f"[TWILIO_INBOUND] ✅ Using resolved rep_user_id for new conversation: {rep_user_id}", flush=True)
         
+        # 🔧 CRITICAL FIX: Final rep_user_id fallback using priority order
+        # Priority: conversation.rep_user_id OR last_outbound.rep_user_id OR card.owner
+        # This ensures we always have a rep_user_id for auto-assignment if any ownership exists
+        if not rep_user_id:
+            print(f"[TWILIO_INBOUND] 🔍 rep_user_id is None - applying fallback priority...", flush=True)
+            
+            # Try 1: conversation.rep_user_id (already checked above, but double-check)
+            if conversation_row and conversation_row[1]:
+                rep_user_id = conversation_row[1]
+                print(f"[TWILIO_INBOUND]   ✅ Using conversation.rep_user_id: {rep_user_id}", flush=True)
+            
+            # Try 2: last_outbound.rep_user_id (from routing)
+            elif routed_rep_id:
+                rep_user_id = routed_rep_id
+                print(f"[TWILIO_INBOUND]   ✅ Using last_outbound.rep_user_id (routed_rep_id): {rep_user_id}", flush=True)
+            
+            # Try 3: card.owner (if card exists)
+            elif card and card.get("owner"):
+                rep_user_id = card["owner"]
+                print(f"[TWILIO_INBOUND]   ✅ Using card.owner: {rep_user_id}", flush=True)
+            
+            if rep_user_id:
+                print(f"[TWILIO_INBOUND] ✅ Final rep_user_id after fallback: {rep_user_id}", flush=True)
+            else:
+                print(f"[TWILIO_INBOUND] ⚠️ No rep_user_id found after all fallbacks - will block auto-assignment", flush=True)
+        
         # Final ownership determination for logging
         final_owner = "OWNER" if not rep_user_id else f"REP({rep_user_id})"
         print(f"[TWILIO_INBOUND] 📋 POLICY A: Final resolved owner: {final_owner}", flush=True)
