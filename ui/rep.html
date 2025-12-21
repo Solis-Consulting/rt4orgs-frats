@@ -297,10 +297,7 @@
           window.location.href = 'markov_responses.html';
         }
       });
-      
-      // 🔬 DIAGNOSTIC: Log that handler was attached
-      console.log('✅ [BLAST] Click handler attached successfully');
-    }
+    });
     
     // 🔬 DIAGNOSTIC: Run on page load to verify setup
     window.addEventListener('DOMContentLoaded', () => {
@@ -764,16 +761,19 @@
         console.log("🚨 BLAST CLICKED");
         console.error("🚨 BLAST CLICKED"); // Also log to error level for visibility
         alert("🚨 BLAST BUTTON CLICKED - Check console for logs");
-      
-      // 🔥 PREVENT DEFAULT FORM SUBMIT BEHAVIOR
-      if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-      
-      // 🔥 USE GLOBAL SELECTION STORE (not DOM queries)
-      const selected = Array.from(window.__SELECTED_CARD_IDS__ || []);
-      console.log("🧠 SELECTED IDS", selected);
+        
+        // 🔬 DIAGNOSTIC: Log that handler was attached
+        console.log('✅ [BLAST] Click handler attached successfully');
+        
+        // 🔥 PREVENT DEFAULT FORM SUBMIT BEHAVIOR
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        
+        // 🔥 USE GLOBAL SELECTION STORE (not DOM queries)
+        const selected = Array.from(window.__SELECTED_CARD_IDS__ || []);
+        console.log("🧠 SELECTED IDS", selected);
       
       // #region agent log - Cards selected
       fetch('http://127.0.0.1:7242/ingest/a5ef77db-cf0a-4573-b971-236b0aa12e72',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rep.html:blastBtn:SELECTED',message:'Cards selected for blast',data:{selected_count:selected.length,selected_ids:selected},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
@@ -909,7 +909,11 @@
         btn.disabled = false;
         btn.textContent = 'Blast Selected Assigned Leads';
       }
-    });
+      });
+      
+      // 🔬 DIAGNOSTIC: Log that handler was attached
+      console.log('✅ [BLAST] Click handler attached successfully');
+    }
 
     // Blast all functionality removed - reps should select specific leads to blast
 
