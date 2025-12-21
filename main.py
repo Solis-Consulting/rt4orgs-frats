@@ -4813,20 +4813,20 @@ async def rep_blast(
     card_ids = payload.get("card_ids")
     print("🧠 [BLAST] card_ids:", card_ids, flush=True)
     
-    if not card_ids:
-        print("❌ [BLAST] NO CARD IDS — ABORTING", flush=True)
-        return {"ok": False, "error": "no card_ids"}
-    
-    print("🚀 [BLAST] BEGIN LOOP", flush=True)
-    
-    current_user = user
-    
+        if not card_ids:
+            print("❌ [BLAST] NO CARD IDS — ABORTING", flush=True)
+            return {"ok": False, "error": "no card_ids"}
+        
+        print("🚀 [BLAST] BEGIN LOOP", flush=True)
+        
+        current_user = user
+        
     # Now continue with the rest of the handler logic
     try:
-            # CRITICAL: Log immediately when endpoint is hit - BEFORE anything else
-            import sys
-            sys.stdout.flush()
-            sys.stderr.flush()
+        # CRITICAL: Log immediately when endpoint is hit - BEFORE anything else
+        import sys
+        sys.stdout.flush()
+        sys.stderr.flush()
         
         print("=" * 80, flush=True)
         print(f"[BLAST_ENDPOINT] 🚀 ENDPOINT CALLED", flush=True)
