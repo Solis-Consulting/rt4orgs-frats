@@ -1356,44 +1356,19 @@ async def twilio_inbound(request: Request):
                 card_id = card_id_from_convo
                 print(f"[TWILIO_INBOUND] ✅ Using card_id from conversation: {card_id}", flush=True)
         else:
-            # Step 2: No conversation exists - routing fallback is allowed
-            print(f"[TWILIO_INBOUND] ⚠️ No conversation found by phone - routing to environment", flush=True)
+            # Step 2: No conversation exists - this is a HARD FAILURE
+            # 🔥 CRITICAL: Conversation MUST exist (created during blast) - no fallback guessing
+            print(f"[TWILIO_INBOUND] ❌ FATAL: No conversation found by phone - ABORTING inbound processing", flush=True)
             # 🔥 INVARIANT VERIFICATION: Conversation NOT found - this is the failure point
-            logger.error(f"[INVARIANT] ❌ Conversation NOT FOUND - inbound will exit early or route to new environment")
+            logger.error(f"[INVARIANT] ❌ Conversation NOT FOUND - inbound ABORTED (no fallback)")
             logger.error(f"[INVARIANT] ❌ CAUSE: No conversation row exists for phone={normalized_phone}")
+            logger.error(f"[INVARIANT] ❌ REQUIRED: Conversation must be created during blast BEFORE SMS send")
             logger.error(f"[INVARIANT] ❌ Check: Did blast create conversation? Is phone normalization consistent?")
-            routed_env_id, routed_rep_id, routed_campaign_id = route_inbound_to_environment(conn, normalized_phone)
-            if routed_env_id:
-                environment_id = routed_env_id
-                env_source = "routing"
-                print(f"[TWILIO_INBOUND] ✅ Using environment_id from routing: {environment_id}", flush=True)
-            else:
-                # Step 3: hard fallback (NEVER allow None past this)
-                print(f"[TWILIO_INBOUND] ⚠️ No environment found - creating new environment", flush=True)
-                # Resolve rep_id from card_assignments if we have card_id
-                resolved_rep_user_id = None
-                if card_id:
-                    from backend.handoffs import resolve_current_rep
-                    resolved_rep_user_id = resolve_current_rep(conn, card_id)
-                
-                # Infer campaign_id from card if available
-                campaign_id = None
-                if card and card.get("card_data"):
-                    card_data = card["card_data"]
-                    if card_data.get("fraternity"):
-                        campaign_id = "frat_rt4orgs"
-                    elif card_data.get("faith_group"):
-                        campaign_id = "faith_rt4orgs"
-                    elif card_data.get("role") == "Office":
-                        campaign_id = "faith_rt4orgs"
-                    else:
-                        campaign_id = "default_rt4orgs"
-                
-                environment_id = get_or_create_environment(conn, normalized_phone, resolved_rep_user_id, campaign_id, card_id)
-                routed_rep_id = resolved_rep_user_id
-                routed_campaign_id = campaign_id
-                env_source = "created"
-                print(f"[TWILIO_INBOUND] ✅ Created new environment: {environment_id} (rep={routed_rep_id}, campaign={routed_campaign_id})", flush=True)
+            # 🔥 CRITICAL: Do NOT route or create - conversation must exist from blast
+            # Return early - do not process inbound without conversation anchor
+            print(f"[TWILIO_INBOUND] ❌ Inbound message from {From} (Body: '{Body}') - NO CONVERSATION FOUND", flush=True)
+            print(f"[TWILIO_INBOUND] ❌ This message will NOT be processed - conversation anchor missing", flush=True)
+            return PlainTextResponse("No conversation found - message not processed", status_code=200)
         
         # 🔒 CRITICAL: Log environment_id source and assert conversation authority
         logger.error(f"[INBOUND_ENV] using environment_id={environment_id} source={env_source} phone={normalized_phone}")
