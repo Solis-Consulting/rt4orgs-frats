@@ -754,12 +754,21 @@
       }
     });
     
-    // Blast selected cards
-    const blastBtn = document.getElementById('blastBtn');
-    if (!blastBtn) {
-      console.error('❌ [BLAST] blastBtn element not found - cannot attach handler!');
-      console.error('❌ [BLAST] This means the button HTML is missing or ID is wrong');
-    } else {
+    // Blast selected cards - Use event delegation to ensure handler works even if DOM changes
+    function attachBlastHandler() {
+      const blastBtn = document.getElementById('blastBtn');
+      if (!blastBtn) {
+        console.error('❌ [BLAST] blastBtn element not found - cannot attach handler!');
+        console.error('❌ [BLAST] This means the button HTML is missing or ID is wrong');
+        return false;
+      }
+      
+      // Check if handler already attached (prevent duplicates)
+      if (blastBtn.hasAttribute('data-handler-attached')) {
+        console.log('✅ [BLAST] Handler already attached');
+        return true;
+      }
+      
       console.log('✅ [BLAST] blastBtn found, attaching click handler');
       console.log('🔬 [BLAST_DIAG] Button state:', {
         id: blastBtn.id,
@@ -879,9 +888,29 @@
         }
       });
       
-      // 🔬 DIAGNOSTIC: Log that handler was attached
+      // Mark as attached to prevent duplicates
+      blastBtn.setAttribute('data-handler-attached', 'true');
       console.log('✅ [BLAST] Click handler attached successfully');
+      return true;
     }
+    
+    // Attach handler when DOM is ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        attachBlastHandler();
+      });
+    } else {
+      // DOM already loaded, attach immediately
+      attachBlastHandler();
+    }
+    
+    // Also try attaching on window load (fallback)
+    window.addEventListener('load', () => {
+      if (!document.getElementById('blastBtn')?.hasAttribute('data-handler-attached')) {
+        console.log('🔄 [BLAST] Retrying handler attachment on window.load');
+        attachBlastHandler();
+      }
+    });
 
     // Blast all functionality removed - reps should select specific leads to blast
 
