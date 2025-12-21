@@ -916,6 +916,100 @@ async def inbound_intelligent(event: dict):
     }
 
 
+def resolve_rep_user_id_for_inbound(conn, *, environment_id: str, phone: str, card_id: str | None, routed_rep_id: str | None):
+    """
+    Resolves rep_user_id for inbound messages with repair capability.
+    
+    Returns (rep_user_id, source, effective_card_id) where source ∈:
+      'conversation', 'assignment_repair', 'assignment', 'routing', 'none'
+    
+    Strategy: card_assignments is source of truth, conversations.rep_user_id is cache.
+    This function repairs the cache if it's stale.
+    """
+    cur = conn.cursor()
+
+    # 1) Load conversation (fast path)
+    try:
+        cur.execute("""
+            SELECT rep_user_id, card_id, state
+            FROM conversations
+            WHERE environment_id = %s AND phone = %s
+            LIMIT 1
+        """, (environment_id, phone))
+    except psycopg2.ProgrammingError:
+        # Fallback if environment_id column doesn't exist
+        cur.execute("""
+            SELECT rep_user_id, card_id, state
+            FROM conversations
+            WHERE phone = %s
+            LIMIT 1
+        """, (phone,))
+    
+    conv = cur.fetchone()
+
+    if conv:
+        conv_rep = conv[0]
+        conv_card_id = conv[1]
+        effective_card_id = card_id or conv_card_id
+
+        if conv_rep:
+            return conv_rep, "conversation", effective_card_id
+
+        # 2) Repair from assignment if conversation rep is NULL
+        if effective_card_id:
+            cur.execute("""
+                SELECT user_id as rep_user_id
+                FROM card_assignments
+                WHERE card_id = %s
+                ORDER BY assigned_at DESC
+                LIMIT 1
+            """, (effective_card_id,))
+            row = cur.fetchone()
+            if row and row[0]:
+                repaired_rep = row[0]
+                # update conversation cache
+                try:
+                    cur.execute("""
+                        UPDATE conversations
+                        SET rep_user_id = %s, updated_at = NOW()
+                        WHERE environment_id = %s AND phone = %s
+                    """, (repaired_rep, environment_id, phone))
+                except psycopg2.ProgrammingError:
+                    # Fallback if environment_id column doesn't exist
+                    cur.execute("""
+                        UPDATE conversations
+                        SET rep_user_id = %s, updated_at = NOW()
+                        WHERE phone = %s
+                    """, (repaired_rep, phone))
+                conn.commit()
+                return repaired_rep, "assignment_repair", effective_card_id
+
+        # 3) Fall back to routing / owner if conversation exists but no assignment
+        if routed_rep_id:
+            return routed_rep_id, "routing", effective_card_id
+
+        return None, "none", effective_card_id
+
+    # 4) No conversation: use assignment if card_id provided
+    if card_id:
+        cur.execute("""
+            SELECT user_id as rep_user_id
+            FROM card_assignments
+            WHERE card_id = %s
+            ORDER BY assigned_at DESC
+            LIMIT 1
+        """, (card_id,))
+        row = cur.fetchone()
+        if row and row[0]:
+            return row[0], "assignment", card_id
+
+    # 5) Routing fallback
+    if routed_rep_id:
+        return routed_rep_id, "routing", card_id
+
+    return None, "none", card_id
+
+
 @app.post("/twilio/inbound", response_class=PlainTextResponse)
 async def twilio_inbound(request: Request):
     """
@@ -1096,163 +1190,59 @@ async def twilio_inbound(request: Request):
         else:
             print(f"[TWILIO_INBOUND] ✅ Routed to existing environment: {environment_id} (rep={routed_rep_id}, campaign={routed_campaign_id})", flush=True)
         
-        # Get conversation for this specific environment
+        # Step 3: Use helper function to resolve rep_user_id with repair capability
+        # This replaces the previous complex resolution logic with a clean helper that:
+        # - Checks conversation cache first (fast path)
+        # - Repairs from card_assignments if cache is stale
+        # - Falls back to routing if no assignment found
+        rep_user_id, rep_source, effective_card_id = resolve_rep_user_id_for_inbound(
+            conn,
+            environment_id=environment_id,
+            phone=normalized_phone,
+            card_id=card_id,
+            routed_rep_id=routed_rep_id,
+        )
+        logger.info(f"[INBOUND] resolved rep_user_id={rep_user_id} source={rep_source} env={environment_id} phone={normalized_phone} card_id={effective_card_id}")
+        print(f"[TWILIO_INBOUND] ✅ Resolved rep_user_id: {rep_user_id} (source: {rep_source})", flush=True)
+        print(f"[TWILIO_INBOUND]   Effective card_id: {effective_card_id}", flush=True)
+        
+        # Update card_id if helper returned a different one
+        if effective_card_id and effective_card_id != card_id:
+            card_id = effective_card_id
+            print(f"[TWILIO_INBOUND] ✅ Updated card_id from helper: {card_id}", flush=True)
+        
+        # Get conversation state and routing_mode for this environment
         routing_mode = 'ai'  # Default to AI
-        rep_user_id = routed_rep_id
         conversation_state = None
-        conversation_card_id = None
-        conversation_row = None
+        conversation_exists = False
         with conn.cursor() as cur:
-            # Try to query with environment_id (new schema)
             try:
                 cur.execute("""
-                    SELECT routing_mode, rep_user_id, state, card_id 
+                    SELECT routing_mode, state 
                     FROM conversations 
                     WHERE phone = %s AND environment_id = %s
                     LIMIT 1
                 """, (normalized_phone, environment_id))
                 row = cur.fetchone()
                 if row:
-                    conversation_row = row
+                    conversation_exists = True
                     routing_mode = row[0] or 'ai'
-                    rep_user_id = row[1] or routed_rep_id  # Use routed rep if conversation has NULL
-                    conversation_state = row[2]
-                    conversation_card_id = row[3]
+                    conversation_state = row[1]
                     print(f"[TWILIO_INBOUND] ✅ Conversation found for environment {environment_id}", flush=True)
                     print(f"[TWILIO_INBOUND]   routing_mode: {routing_mode}", flush=True)
-                    print(f"[TWILIO_INBOUND]   rep_user_id: {rep_user_id}", flush=True)
                     print(f"[TWILIO_INBOUND]   current_state: {conversation_state}", flush=True)
-                    print(f"[TWILIO_INBOUND]   card_id: {conversation_card_id}", flush=True)
                 else:
                     print(f"[TWILIO_INBOUND] ⚠️ No conversation found for environment {environment_id}", flush=True)
-            except psycopg2.ProgrammingError as e:
-                # environment_id column doesn't exist yet (pre-migration) - fallback to phone-only lookup
-                if 'environment_id' in str(e):
-                    print(f"[TWILIO_INBOUND] ⚠️ environment_id column not found - using fallback lookup", flush=True)
-                    cur.execute("""
-                        SELECT routing_mode, rep_user_id, state, card_id FROM conversations WHERE phone = %s LIMIT 1
-                    """, (normalized_phone,))
-                    row = cur.fetchone()
-                    if row:
-                        conversation_row = row
-                        routing_mode = row[0] or 'ai'
-                        rep_user_id = row[1] or routed_rep_id
-                        conversation_state = row[2]
-                        conversation_card_id = row[3]
-                else:
-                    raise
-        
-        # Define conversation_exists based on whether we found a row
-        conversation_exists = conversation_row is not None
-        
-        # Use card_id from conversation if available, otherwise use the one we just resolved
-        if conversation_card_id and not card_id:
-            card_id = conversation_card_id
-            print(f"[TWILIO_INBOUND] ✅ Using card_id from conversation: {card_id}", flush=True)
-        elif card_id and not conversation_card_id:
-            print(f"[TWILIO_INBOUND] ✅ Using card_id resolved from phone lookup: {card_id}", flush=True)
-        elif card_id and conversation_card_id and card_id != conversation_card_id:
-            print(f"[TWILIO_INBOUND] ⚠️ WARNING: card_id mismatch! conversation={conversation_card_id}, lookup={card_id}", flush=True)
-            # Prefer conversation's card_id as it's the source of truth
-            card_id = conversation_card_id
-        
-        print(f"[TWILIO_INBOUND] 📋 Final card_id for rep resolution: {card_id}", flush=True)
-        
-        # 🔧 POLICY A: Inbound ownership reconciliation - ALWAYS recompute from card_assignments
-        # Source of truth: card_assignments determines ownership (last blaster wins)
-        # This ensures inbound sees blast-claim changes immediately
-        print(f"[TWILIO_INBOUND] 🔍 POLICY A: Resolving current owner from card_assignments...", flush=True)
-        print(f"[TWILIO_INBOUND]   DEBUG: card_id={card_id}, conversation.rep_user_id={rep_user_id}", flush=True)
-        
-        # Resolve current owner from card_assignments (source of truth for Policy A)
-        resolved_rep_user_id = None
-        if card_id:
-            from backend.handoffs import resolve_current_rep
-            resolved_rep_user_id = resolve_current_rep(conn, card_id)
-            print(f"[TWILIO_INBOUND]   ✅ Resolved owner from card_assignments: {resolved_rep_user_id} (NULL = owner, set = rep)", flush=True)
-        
-        # 🔥 CRITICAL: Reconcile stale conversation ownership (Policy A invariant)
-        # Must handle ALL cases:
-        # 1. rep_user_id != resolved_rep_user_id (ownership changed via blast)
-        # 2. rep_user_id is None but resolved_rep_user_id exists (rep assigned)
-        # 3. rep_user_id exists but resolved_rep_user_id is None (owner reclaimed)
-        if conversation_exists and card_id and rep_user_id != resolved_rep_user_id:
-            from backend.handoffs import reset_markov_for_card, log_handoff, get_conversation_state
-            state_before = get_conversation_state(conn, card_id) or conversation_state
-            
-            print(f"[TWILIO_INBOUND] ⚠️ [HANDOFF] Inbound ownership mismatch — correcting", flush=True)
-            print(f"[TWILIO_INBOUND]   conversation.rep_user_id: {rep_user_id}", flush=True)
-            print(f"[TWILIO_INBOUND]   resolved_rep_user_id (from card_assignments): {resolved_rep_user_id}", flush=True)
-            print(f"[TWILIO_INBOUND]   state_before: {state_before}", flush=True)
-            
-            # Reset Markov state to initial_outreach (Policy A: ownership change = reset)
-            reset_markov_for_card(conn, card_id, resolved_rep_user_id, 'inbound_reconciliation', 'system')
-            
-            # Log handoff event
-            log_handoff(
-                conn=conn,
-                card_id=card_id,
-                from_rep=rep_user_id,
-                to_rep=resolved_rep_user_id,
-                reason='inbound_reconciliation',
-                state_before=state_before,
-                state_after='initial_outreach',
-                assigned_by='system',
-                conversation_id=None  # Will be set by reset_markov_for_card if available
-            )
-            
-            # Update conversation atomically with new ownership (scoped to environment)
-            with conn.cursor() as update_cur:
-                try:
-                    update_cur.execute("""
-                        UPDATE conversations
-                        SET rep_user_id = %s, state = 'initial_outreach', updated_at = NOW()
-                        WHERE phone = %s AND environment_id = %s
-                    """, (resolved_rep_user_id, normalized_phone, environment_id))
-                except psycopg2.ProgrammingError:
-                    # Fallback if environment_id column doesn't exist
-                    update_cur.execute("""
-                        UPDATE conversations
-                        SET rep_user_id = %s, state = 'initial_outreach', updated_at = NOW()
-                        WHERE phone = %s
-                    """, (resolved_rep_user_id, normalized_phone))
-            
-            # Update local variable for rest of handler
-            rep_user_id = resolved_rep_user_id
-            conversation_state = 'initial_outreach'
-            
-            print(f"[TWILIO_INBOUND] ✅ [HANDOFF] Fixed ownership mismatch: rep_user_id={rep_user_id}, state reset to initial_outreach", flush=True)
-        
-        # If no conversation exists yet but we have resolved_rep, use it
-        if not conversation_exists and resolved_rep_user_id:
-            rep_user_id = resolved_rep_user_id
-            print(f"[TWILIO_INBOUND] ✅ Using resolved rep_user_id for new conversation: {rep_user_id}", flush=True)
-        
-        # 🔧 CRITICAL FIX: Final rep_user_id fallback using priority order
-        # Priority: conversation.rep_user_id OR last_outbound.rep_user_id OR card.owner
-        # This ensures we always have a rep_user_id for auto-assignment if any ownership exists
-        if not rep_user_id:
-            print(f"[TWILIO_INBOUND] 🔍 rep_user_id is None - applying fallback priority...", flush=True)
-            
-            # Try 1: conversation.rep_user_id (already checked above, but double-check)
-            if conversation_row and conversation_row[1]:
-                rep_user_id = conversation_row[1]
-                print(f"[TWILIO_INBOUND]   ✅ Using conversation.rep_user_id: {rep_user_id}", flush=True)
-            
-            # Try 2: last_outbound.rep_user_id (from routing)
-            elif routed_rep_id:
-                rep_user_id = routed_rep_id
-                print(f"[TWILIO_INBOUND]   ✅ Using last_outbound.rep_user_id (routed_rep_id): {rep_user_id}", flush=True)
-            
-            # Try 3: card.owner (if card exists)
-            elif card and card.get("owner"):
-                rep_user_id = card["owner"]
-                print(f"[TWILIO_INBOUND]   ✅ Using card.owner: {rep_user_id}", flush=True)
-            
-            if rep_user_id:
-                print(f"[TWILIO_INBOUND] ✅ Final rep_user_id after fallback: {rep_user_id}", flush=True)
-            else:
-                print(f"[TWILIO_INBOUND] ⚠️ No rep_user_id found after all fallbacks - will block auto-assignment", flush=True)
+            except psycopg2.ProgrammingError:
+                # Fallback if environment_id column doesn't exist
+                cur.execute("""
+                    SELECT routing_mode, state FROM conversations WHERE phone = %s LIMIT 1
+                """, (normalized_phone,))
+                row = cur.fetchone()
+                if row:
+                    conversation_exists = True
+                    routing_mode = row[0] or 'ai'
+                    conversation_state = row[1]
         
         # Final ownership determination for logging
         final_owner = "OWNER" if not rep_user_id else f"REP({rep_user_id})"
@@ -1261,20 +1251,12 @@ async def twilio_inbound(request: Request):
         print(f"[TWILIO_INBOUND] 📋 Conversation Summary:", flush=True)
         print(f"[TWILIO_INBOUND]   Phone: {normalized_phone} (original: {From})", flush=True)
         print(f"[TWILIO_INBOUND]   Routing mode: {routing_mode}", flush=True)
-        print(f"[TWILIO_INBOUND]   Rep user ID: {rep_user_id}", flush=True)
+        print(f"[TWILIO_INBOUND]   Rep user ID: {rep_user_id} (source: {rep_source})", flush=True)
         print(f"[TWILIO_INBOUND]   Current state: {conversation_state}", flush=True)
         if rep_user_id:
             print(f"[TWILIO_INBOUND] ✅ Will use rep-specific Markov responses for user_id: {rep_user_id}", flush=True)
         else:
             print(f"[TWILIO_INBOUND] ⚠️ Will use global Markov responses (no rep assigned)", flush=True)
-            # Debug: Check if conversation exists but rep_user_id is NULL
-            with conn.cursor() as debug_cur:
-                debug_cur.execute("""
-                    SELECT rep_user_id, last_outbound_at, owner FROM conversations WHERE phone = %s
-                """, (normalized_phone,))
-                debug_row = debug_cur.fetchone()
-                if debug_row:
-                    print(f"[TWILIO_INBOUND] DEBUG: Conversation exists - rep_user_id={debug_row[0]}, last_outbound_at={debug_row[1]}, owner={debug_row[2]}", flush=True)
         
         # Store inbound message in history and message_events
         from backend.rep_messaging import add_message_to_history
@@ -1525,11 +1507,34 @@ async def twilio_inbound(request: Request):
             print(f"[TWILIO_INBOUND] 🔍 MARKOV RESPONSE LOOKUP", flush=True)
             print("=" * 80, flush=True)
             print(f"[TWILIO_INBOUND]   state_key: '{next_state}'", flush=True)
-            print(f"[TWILIO_INBOUND]   rep_user_id (final): {rep_user_id}", flush=True)
+            print(f"[TWILIO_INBOUND]   rep_user_id (before final check): {rep_user_id}", flush=True)
             print(f"[TWILIO_INBOUND]   phone: {normalized_phone}", flush=True)
             print(f"[TWILIO_INBOUND]   routing_mode: {routing_mode}", flush=True)
+            
+            # Step 4: Final safety check before Markov lookup
+            # One last cheap lookup to avoid accidental global responses
+            if not rep_user_id and card_id:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT user_id as rep_user_id
+                    FROM card_assignments
+                    WHERE card_id = %s
+                    ORDER BY assigned_at DESC
+                    LIMIT 1
+                """, (card_id,))
+                row = cur.fetchone()
+                if row and row[0]:
+                    rep_user_id = row[0]
+                    logger.warning(f"[MARKOV] rep_user_id repaired at final check via assignment: {rep_user_id} card_id={card_id}")
+                    print(f"[TWILIO_INBOUND] ⚠️ [MARKOV] rep_user_id repaired at final check: {rep_user_id} (card_id={card_id})", flush=True)
+                else:
+                    logger.warning(f"[MARKOV] No rep_user_id found; using global responses. card_id={card_id}")
+                    print(f"[TWILIO_INBOUND] ⚠️ [MARKOV] No rep_user_id found; will use global responses (card_id={card_id})", flush=True)
+            
+            print(f"[TWILIO_INBOUND]   rep_user_id (final): {rep_user_id}", flush=True)
             print(f"[TWILIO_INBOUND]   Querying markov_responses table...", flush=True)
             configured_response = get_markov_response(conn, next_state, rep_user_id)
+            logger.info(f"[MARKOV] lookup state={next_state} rep_user_id={rep_user_id} rep_specific_found={bool(configured_response)}")
             print("=" * 80, flush=True)
             if configured_response:
                 print("=" * 80, flush=True)

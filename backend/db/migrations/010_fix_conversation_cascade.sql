@@ -40,3 +40,4 @@ BEGIN
     RAISE NOTICE 'Created FK constraint with ON DELETE CASCADE';
   END IF;
 END $$;
+
