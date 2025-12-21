@@ -5141,6 +5141,7 @@ async def rep_blast(
                 for card_id in card_ids:
                     print(f"📤 [BLAST] SENDING card_id = {card_id}", flush=True)
                 
+                print("📤📤📤 /rep/blast ABOUT TO SEND TWILIO", flush=True)
                 result = run_blast_for_cards(
                     conn=conn,
                     card_ids=card_ids,
