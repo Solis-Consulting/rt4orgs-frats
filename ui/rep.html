@@ -144,10 +144,16 @@
     </div>
   </div>
 
+  <!-- 🔥 CRITICAL: Set BACKEND_URL on window BEFORE any module scripts run -->
+  <script>
+    window.BACKEND_URL = "https://rt4orgs-frats-production.up.railway.app";
+    console.log("🌐 [CONFIG] window.BACKEND_URL set:", window.BACKEND_URL);
+  </script>
+
   <script type="module">
-    // 🔥 HARDCODED BACKEND URL (config.js import may fail in Vercel)
-    const BACKEND = "https://rt4orgs-frats-production.up.railway.app";
-    const BACKEND_URL = BACKEND;  // Alias for backward compatibility
+    // 🔥 Use window.BACKEND_URL as source of truth (already set above)
+    const BACKEND = window.BACKEND_URL;
+    const BACKEND_URL = window.BACKEND_URL;
     
     console.log("🌐 [CONFIG] Using BACKEND:", BACKEND);
     console.log("🌐 [CONFIG] BACKEND type:", typeof BACKEND);
@@ -761,9 +767,10 @@
 
       console.log("🚨🚨🚨 [BLAST] HANDLER FIRED");
 
-      const backend = window.BACKEND_URL || window.BACKEND;
+      const backend = window.BACKEND_URL;
       if (!backend) {
-        alert("BACKEND is missing");
+        alert("BACKEND_URL is missing");
+        console.error("❌ [BLAST] window.BACKEND_URL is:", window.BACKEND_URL);
         return;
       }
 
