@@ -295,7 +295,10 @@
         console.log('UPLOAD RESPONSE OK:', response.ok);
 
         // Check HTTP status code first
-        if (!response.ok) {
+        // 207 (Multi-Status) means partial success - some cards succeeded, some failed
+        // This is expected and should be handled gracefully
+        const isPartialSuccess = response.status === 207;
+        if (!response.ok && !isPartialSuccess) {
           let errorText;
           try {
             const errorJson = await response.json();
@@ -323,7 +326,10 @@
           return;
         }
 
-        if (result.ok) {
+        // Handle both full success (result.ok === true) and partial success (207 status)
+        const hasStoredCards = result.stored > 0;
+        
+        if (result.ok || hasStoredCards) {
           // Verify cards are actually in DB
           let verificationMessage = '';
           try {
@@ -342,32 +348,37 @@
                 );
               } else {
                 verificationMessage = ' ✓ Verified in database';
-                showStatus(
-                  `✓ Successfully uploaded and verified ${result.stored} card(s)`,
-                  'success'
-                );
+                const statusMessage = result.errors > 0 
+                  ? `✓ Successfully uploaded ${result.stored} card(s) (${result.errors} skipped due to missing name/phone)`
+                  : `✓ Successfully uploaded and verified ${result.stored} card(s)`;
+                showStatus(statusMessage, 'success');
               }
             } else {
               verificationMessage = ' (verification failed)';
-              showStatus(
-                `✓ Successfully uploaded ${result.stored} card(s)${verificationMessage}`,
-                'success'
-              );
+              const statusMessage = result.errors > 0 
+                ? `✓ Successfully uploaded ${result.stored} card(s) (${result.errors} skipped)${verificationMessage}`
+                : `✓ Successfully uploaded ${result.stored} card(s)${verificationMessage}`;
+              showStatus(statusMessage, 'success');
             }
           } catch (verifyError) {
             console.error('Verification failed:', verifyError);
             verificationMessage = ' (verification failed)';
-            showStatus(
-              `✓ Successfully uploaded ${result.stored} card(s)${verificationMessage}`,
-              'success'
-            );
+            const statusMessage = result.errors > 0 
+              ? `✓ Successfully uploaded ${result.stored} card(s) (${result.errors} skipped)${verificationMessage}`
+              : `✓ Successfully uploaded ${result.stored} card(s)${verificationMessage}`;
+            showStatus(statusMessage, 'success');
           }
 
           if (result.error_details && result.error_details.length > 0) {
             const errorDiv = document.createElement('div');
-            errorDiv.className = 'error';
+            errorDiv.className = 'info';
             errorDiv.style.marginTop = '12px';
-            errorDiv.innerHTML = '<strong>Errors:</strong><pre>' + JSON.stringify(result.error_details, null, 2) + '</pre>';
+            errorDiv.innerHTML = `<strong>Skipped ${result.errors} card(s) (missing required fields: name or phone):</strong><pre style="max-height: 300px; overflow-y: auto;">${JSON.stringify(result.error_details.map(e => ({
+              index: e.index + 1,
+              name: e.card.name || '(no name)',
+              phone: e.card.phone || '(no phone)',
+              error: e.error
+            })), null, 2)}</pre>`;
             document.getElementById('status').after(errorDiv);
           }
 
@@ -376,19 +387,22 @@
           statsDiv.className = 'stats';
           statsDiv.innerHTML = `
             <div><strong>${result.stored}</strong> stored</div>
-            <div><strong>${result.errors}</strong> errors</div>
-            <div><strong>${result.cards.length}</strong> total</div>
+            <div><strong>${result.errors}</strong> skipped</div>
+            <div><strong>${result.cards.length}</strong> total processed</div>
           `;
           document.getElementById('status').after(statsDiv);
 
-          // Clear input after successful upload
-          setTimeout(() => {
-            document.getElementById('jsonInput').value = '';
-            validatedCards = [];
-            document.getElementById('preview').innerHTML = '';
-          }, 3000);
+          // Clear input after successful upload (only if all cards succeeded)
+          if (result.errors === 0) {
+            setTimeout(() => {
+              document.getElementById('jsonInput').value = '';
+              validatedCards = [];
+              document.getElementById('preview').innerHTML = '';
+            }, 3000);
+          }
         } else {
-          showStatus(`Upload failed: ${result.error_details?.[0]?.error || 'Unknown error'}`, 'error');
+          // All cards failed
+          showStatus(`Upload failed: All ${result.errors} card(s) were rejected. ${result.error_details?.[0]?.error || 'Unknown error'}`, 'error');
           if (result.error_details) {
             const errorDiv = document.createElement('div');
             errorDiv.className = 'error';
