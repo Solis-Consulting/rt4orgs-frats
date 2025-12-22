@@ -367,7 +367,7 @@
     window.selectedCardIds = window.selectedCardIds || new Set();
     
     // Core selection API - this is what everything else should use
-    window.selectCard = function(cardId) {
+      window.selectCard = function(cardId) {
       if (!window.selectedCardIds) {
         window.selectedCardIds = new Set();
       }
@@ -376,9 +376,12 @@
       if (window.updateAssignButtonState) {
         window.updateAssignButtonState();
       }
+      if (window.updateDeleteButtonState) {
+        window.updateDeleteButtonState();
+      }
       return cardId;
     };
-    
+
     window.deselectCard = function(cardId) {
       if (!window.selectedCardIds) {
         window.selectedCardIds = new Set();
@@ -387,6 +390,9 @@
       console.log('[SELECT] deselectCard:', cardId, 'Set size:', window.selectedCardIds.size);
       if (window.updateAssignButtonState) {
         window.updateAssignButtonState();
+      }
+      if (window.updateDeleteButtonState) {
+        window.updateDeleteButtonState();
       }
       return cardId;
     };
@@ -601,6 +607,7 @@
           });
           updateBlastButtonState();
           if (window.updateAssignButtonState) window.updateAssignButtonState();
+          if (window.updateDeleteButtonState) window.updateDeleteButtonState();
         });
       }
 
@@ -628,6 +635,7 @@
           });
           updateBlastButtonState();
           if (window.updateAssignButtonState) window.updateAssignButtonState();
+          if (window.updateDeleteButtonState) window.updateDeleteButtonState();
         });
       });
 
@@ -665,6 +673,7 @@
           // Also update other UI elements
           if (typeof updateBlastButtonState === 'function') updateBlastButtonState();
           if (typeof updateGroupCheckboxState === 'function') updateGroupCheckboxState(cb);
+          if (window.updateDeleteButtonState) window.updateDeleteButtonState();
         }, true);
         
         // Backup click handler
@@ -691,6 +700,7 @@
             
             if (typeof updateBlastButtonState === 'function') updateBlastButtonState();
             if (typeof updateGroupCheckboxState === 'function') updateGroupCheckboxState(cb);
+            if (window.updateDeleteButtonState) window.updateDeleteButtonState();
           }, 0);
         }, true);
         
@@ -746,6 +756,38 @@
         }
       };
       
+      // Update delete button state based on selection
+      window.updateDeleteButtonState = function() {
+        const btn = document.getElementById('deleteSelectedBtn');
+        if (!btn) {
+          console.error('[DELETE] Button not found!');
+          return;
+        }
+        
+        // Use selection model (Set) as source of truth
+        const count = window.selectedCardIds?.size || 0;
+        
+        console.log('[DELETE] Selection model count =', count);
+        
+        if (count > 0) {
+          // ENABLE: Remove ALL ways it can be disabled
+          btn.disabled = false;
+          btn.removeAttribute('disabled');
+          btn.style.pointerEvents = 'auto';
+          btn.style.opacity = '1';
+          btn.style.cursor = 'pointer';
+          console.log('[DELETE] ✅ BUTTON ENABLED (', count, 'cards selected)');
+        } else {
+          // DISABLE
+          btn.disabled = true;
+          btn.setAttribute('disabled', 'disabled');
+          btn.style.pointerEvents = 'none';
+          btn.style.opacity = '0.6';
+          btn.style.cursor = 'not-allowed';
+          console.log('[DELETE] ❌ BUTTON DISABLED (no cards selected)');
+        }
+      };
+      
       // Legacy function name for compatibility
       window.updateSelectAllState = window.updateAssignButtonState;
 
@@ -754,6 +796,7 @@
       
       // Initial button state
       if (window.updateAssignButtonState) window.updateAssignButtonState();
+      if (window.updateDeleteButtonState) window.updateDeleteButtonState();
       
       // Re-attach assign button listener (button is in toolbar, shouldn't be recreated, but ensure it's attached)
       if (window.assignSelectedCards) {
@@ -945,6 +988,7 @@
       
       updateBlastButtonState();
       if (window.updateAssignButtonState) window.updateAssignButtonState();
+      if (window.updateDeleteButtonState) window.updateDeleteButtonState();
     };
     document.getElementById("cardTypeFilter").addEventListener("change", loadCards);
     document.getElementById("cardStateFilter").addEventListener("change", loadCards);
