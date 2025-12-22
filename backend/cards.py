@@ -17,8 +17,8 @@ from psycopg2.extras import Json
 VERTICAL_TYPES = {
     "frats": {
         "name": "Fraternities",
-        "required_fields": ["name", "role"],
-        "optional_fields": ["tags", "metadata", "phone", "email", "chapter", "fraternity", "program", "university"],
+        "required_fields": ["name", "phone"],
+        "optional_fields": ["tags", "metadata", "email", "role", "chapter", "fraternity", "program", "university"],
         "pitch_template": "Hello {name}, we'd love to see how {fraternity} at {chapter} could engage with a FRESH PNM list.\nWe helped {purchased_chapter} at {purchased_institution} save DAYS of outreach. I'm David with RT4Orgs — https://rt4orgs.com"
     },
     "faith": {
@@ -199,24 +199,23 @@ def validate_card_schema(card: Dict[str, Any]) -> tuple[bool, Optional[str]]:
                     missing_fields.append("name/contact_name")
             elif field == "position" or field == "role":
                 value = card.get("role") or card.get("position")
-                # Role is required but can be empty string for frats
+                # Role is optional for frats (can be empty string or missing)
                 if vertical == "frats":
-                    # For frats, allow empty role (empty string is OK)
-                    # Only fail if the field is completely missing (None)
-                    # Check if either role or position exists in the card
-                    has_role_field = "role" in card or "position" in card
-                    if not has_role_field:
-                        missing_fields.append("role/position")
-                    # If we have the field but value is None (shouldn't happen, but be safe)
-                    elif value is None and not has_role_field:
-                        missing_fields.append("role/position")
+                    # For frats, role is optional - don't validate it
+                    pass
                 else:
                     if not value or (isinstance(value, str) and not value.strip()):
                         missing_fields.append("role/position")
             elif field == "phone_number":
                 value = card.get("phone") or card.get("phone_number")
-                if not value or (isinstance(value, str) and not value.strip()):
-                    missing_fields.append("phone/phone_number")
+                # Phone number validation - required for frats
+                if vertical == "frats":
+                    # Phone is REQUIRED for frats - must be present and non-empty
+                    if not value or (isinstance(value, str) and not value.strip()):
+                        missing_fields.append("phone/phone_number")
+                else:
+                    if not value or (isinstance(value, str) and not value.strip()):
+                        missing_fields.append("phone/phone_number")
             elif field == "faith_group_or_org":
                 value = card.get("group") or card.get("faith_group_or_org")
                 if not value or (isinstance(value, str) and not value.strip()):
@@ -249,9 +248,13 @@ def validate_card_schema(card: Dict[str, Any]) -> tuple[bool, Optional[str]]:
                     if not value or (isinstance(value, str) and not value.strip()):
                         missing_fields.append(field)
             elif field == "phone":
-                # Phone validation - allow empty strings for frats
+                # Phone validation - required for frats, optional for cultural/sports
                 value = card.get(field)
-                if vertical in ["cultural", "sports", "frats"]:
+                if vertical == "frats":
+                    # Phone is REQUIRED for frats - must be present and non-empty
+                    if not value or (isinstance(value, str) and not value.strip()):
+                        missing_fields.append(field)
+                elif vertical in ["cultural", "sports"]:
                     # For these verticals, phone is optional (empty string is OK)
                     pass
                 else:
