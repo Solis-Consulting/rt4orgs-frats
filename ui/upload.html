@@ -295,10 +295,8 @@
         console.log('UPLOAD RESPONSE OK:', response.ok);
 
         // Check HTTP status code first
-        // 207 (Multi-Status) means partial success - some cards succeeded, some failed
-        // This is expected and should be handled gracefully
-        const isPartialSuccess = response.status === 207;
-        if (!response.ok && !isPartialSuccess) {
+        // Backend always returns 200 OK with JSON, errors are in the JSON body
+        if (!response.ok) {
           let errorText;
           try {
             const errorJson = await response.json();

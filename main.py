@@ -2820,25 +2820,19 @@ async def upload_cards(
     
     print(f"📊 Upload complete: {len(results)} stored, {len(errors)} errors")
     
-    # Determine HTTP status code
-    if len(errors) == 0:
-        status_code = 200
-    elif len(results) == 0:
-        # All cards failed
-        status_code = 400
-    else:
-        # Partial success
-        status_code = 207  # Multi-Status
-    
+    # Always return 200 OK with JSON response
+    # Use 'ok' field to indicate if all cards succeeded
+    # Partial success (some cards skipped) is still considered successful operation
     return JSONResponse(
         content={
             "ok": len(errors) == 0,
             "stored": len(results),
             "errors": len(errors),
+            "skipped": len(errors),  # Alias for clarity
             "cards": results,
             "error_details": errors
         },
-        status_code=status_code
+        status_code=200
     )
 
 
