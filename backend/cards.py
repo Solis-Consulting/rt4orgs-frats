@@ -342,16 +342,50 @@ def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
             if old_field in normalized and new_field not in normalized:
                 normalized[new_field] = normalized[old_field]
     
-    # Ensure id exists
-    if not normalized.get("id"):
-        normalized["id"] = generate_card_id(normalized)
-    
     # Ensure type is set - if vertical is present but type is missing, assume person
     if not normalized.get("type"):
         if normalized.get("vertical"):
             normalized["type"] = "person"
         else:
             normalized["type"] = "person"  # Default to person for backward compatibility
+    
+    # Standardize frats cards to target format
+    if normalized.get("vertical") == "frats" and normalized.get("type") == "person":
+        # Ensure all standard fields exist with proper defaults
+        if "role" not in normalized:
+            normalized["role"] = ""
+        if "email" not in normalized:
+            normalized["email"] = ""
+        if "fraternity" not in normalized:
+            normalized["fraternity"] = ""
+        if "chapter" not in normalized:
+            normalized["chapter"] = ""
+        if "tags" not in normalized:
+            normalized["tags"] = []
+        if "sales_state" not in normalized:
+            normalized["sales_state"] = "cold"
+        if "metadata" not in normalized:
+            normalized["metadata"] = {}
+        # Ensure metadata has standard structure
+        if not isinstance(normalized["metadata"], dict):
+            normalized["metadata"] = {}
+        if "insta" not in normalized["metadata"]:
+            normalized["metadata"]["insta"] = ""
+        if "other_social" not in normalized["metadata"]:
+            normalized["metadata"]["other_social"] = ""
+        # Move program and university to metadata if they exist, then remove from top level
+        if "program" in normalized:
+            if normalized["program"]:
+                normalized["metadata"]["program"] = normalized["program"]
+            del normalized["program"]
+        if "university" in normalized:
+            if normalized["university"]:
+                normalized["metadata"]["university"] = normalized["university"]
+            del normalized["university"]
+    
+    # Ensure id exists (after normalization so it uses correct fields)
+    if not normalized.get("id"):
+        normalized["id"] = generate_card_id(normalized)
     
     # Ensure arrays exist for entity types
     if normalized["type"] == "fraternity" and "members" not in normalized:
@@ -361,11 +395,11 @@ def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
     if normalized["type"] == "business" and "contacts" not in normalized:
         normalized["contacts"] = []
     
-    # Ensure tags exist for person cards
+    # Ensure tags exist for person cards (non-frats)
     if normalized["type"] == "person" and "tags" not in normalized:
         normalized["tags"] = []
     
-    # Ensure metadata exists for person cards
+    # Ensure metadata exists for person cards (non-frats)
     if normalized["type"] == "person" and "metadata" not in normalized:
         normalized["metadata"] = {}
     
