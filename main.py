@@ -4801,6 +4801,25 @@ async def rep_get_cards(
     return {"ok": True, "cards": cards}
 
 
+@app.get("/rep/user")
+async def rep_get_user(request: Request):
+    """Get current rep user information."""
+    try:
+        current_user = await get_current_owner_or_rep(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[REP_USER] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    return {
+        "ok": True,
+        "id": current_user.get("id"),
+        "username": current_user.get("username"),
+        "role": current_user.get("role")
+    }
+
+
 @app.get("/rep/conversations")
 async def rep_get_conversations(request: Request):
     """Get rep's active conversations. Owner sees all, reps see only their own."""

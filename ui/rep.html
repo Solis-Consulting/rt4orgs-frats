@@ -272,7 +272,23 @@
         
         tokenPrompt.style.display = 'none';
         mainContent.style.display = 'block';
-        userInfo.textContent = 'Rep Dashboard';
+        
+        // Try to get user info to display name
+        try {
+          const userRes = await fetch(`${BACKEND}/rep/user`, { headers: testHeaders });
+          if (userRes.ok) {
+            const userData = await userRes.json();
+            const username = userData.username || userData.id || 'Rep';
+            // Extract first and last name if username is full name
+            const nameParts = username.split(' ');
+            const displayName = nameParts.length > 1 ? `${nameParts[0]} ${nameParts[nameParts.length - 1]}` : username;
+            userInfo.textContent = `hi, ${displayName}`;
+          } else {
+            userInfo.textContent = 'Rep Dashboard';
+          }
+        } catch (e) {
+          userInfo.textContent = 'Rep Dashboard';
+        }
         
         // Load initial data
         loadCards();
