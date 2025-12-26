@@ -2906,119 +2906,6 @@ async def generate_pitch_endpoint(
     return {"pitch": pitch, "vertical": vertical}
 
 
-@app.get("/cards/{card_id}")
-async def get_card_endpoint(card_id: str, request: Request):
-    """
-    Get a single card by ID.
-    
-    SECURITY: 
-    - Owner/admin can view any card
-    - Reps can ONLY view cards assigned to them
-    """
-    # Authenticate user
-    try:
-        current_user = await get_current_owner_or_rep(request)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[GET_CARD] Auth error: {e}")
-        raise HTTPException(status_code=401, detail="Authentication required")
-    
-    conn = get_conn()
-    card = get_card(conn, card_id)
-
-    if not card:
-        raise HTTPException(status_code=404, detail=f"Card not found: {card_id}")
-    
-    # Security check: Reps can only view cards assigned to them
-    if current_user.get("role") != "admin":
-        from backend.assignments import get_card_assignment
-        assignment = get_card_assignment(conn, card_id)
-        if not assignment or assignment["user_id"] != current_user["id"]:
-            logger.warning(f"[GET_CARD] Rep {current_user['id']} attempted to view unauthorized card: {card_id}")
-            raise HTTPException(status_code=403, detail="Card is not assigned to you")
-    
-    # Get relationships
-    relationships = get_card_relationships(conn, card_id)
-    card["relationships"] = relationships
-    
-    # Get linked conversations with message history
-    with conn.cursor() as cur:
-        try:
-            # Try to fetch with history column
-            cur.execute("""
-                SELECT phone, state, last_outbound_at, last_inbound_at, 
-                       COALESCE(history::text, '[]') as history
-                FROM conversations
-                WHERE card_id = %s
-                ORDER BY last_outbound_at DESC NULLS LAST;
-            """, (card_id,))
-        except psycopg2.ProgrammingError:
-            # History column doesn't exist, fetch without it
-            cur.execute("""
-                SELECT phone, state, last_outbound_at, last_inbound_at
-                FROM conversations
-                WHERE card_id = %s
-                ORDER BY last_outbound_at DESC NULLS LAST;
-            """, (card_id,))
-        
-        conversations = []
-        for row in cur.fetchall():
-            conv_data = {
-                "phone": row[0],
-                "state": row[1],
-                "last_outbound_at": row[2].isoformat() if row[2] else None,
-                "last_inbound_at": row[3].isoformat() if row[3] else None,
-            }
-            
-            # Include history if available
-            if len(row) > 4 and row[4]:
-                try:
-                    history = json.loads(row[4]) if isinstance(row[4], str) else row[4]
-                    conv_data["history"] = history
-                except (json.JSONDecodeError, TypeError):
-                    conv_data["history"] = []
-            else:
-                conv_data["history"] = []
-            
-            conversations.append(conv_data)
-        card["conversations"] = conversations
-    
-    return card
-
-
-@app.delete("/cards/{card_id}")
-async def delete_card_endpoint(card_id: str, request: Request):
-    """
-    Delete a card by ID. Also deletes related relationships, conversations, and assignments.
-    Logs terminal handoff event (not a handoff - to_rep=NULL indicates deletion).
-    Requires owner authentication.
-    """
-    # Authenticate user (owner only for deletion)
-    try:
-        current_user = await get_current_admin_user(request)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[CARD_DELETE] Auth error: {e}")
-        raise HTTPException(status_code=401, detail="Authentication required")
-    
-    conn = get_conn()
-    
-    # Check if card exists
-    card = get_card(conn, card_id)
-    if not card:
-        raise HTTPException(status_code=404, detail=f"Card not found: {card_id}")
-
-    # Use the new delete_card function which handles cleanup and handoff logging
-    success, error_message = delete_card(conn, card_id, current_user['id'])
-    
-    if not success:
-        raise HTTPException(status_code=500, detail=error_message or f"Error deleting card: {card_id}")
-
-    return {"ok": True, "message": f"Card {card_id} deleted successfully"}
-
-
 @app.get("/cards/duplicates")
 async def get_duplicates(request: Request):
     """
@@ -3145,6 +3032,119 @@ async def get_duplicates(request: Request):
     except Exception as e:
         logger.error(f"[DUPLICATES] Unexpected error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error finding duplicates: {str(e)}")
+
+
+@app.get("/cards/{card_id}")
+async def get_card_endpoint(card_id: str, request: Request):
+    """
+    Get a single card by ID.
+    
+    SECURITY: 
+    - Owner/admin can view any card
+    - Reps can ONLY view cards assigned to them
+    """
+    # Authenticate user
+    try:
+        current_user = await get_current_owner_or_rep(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[GET_CARD] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    conn = get_conn()
+    card = get_card(conn, card_id)
+
+    if not card:
+        raise HTTPException(status_code=404, detail=f"Card not found: {card_id}")
+    
+    # Security check: Reps can only view cards assigned to them
+    if current_user.get("role") != "admin":
+        from backend.assignments import get_card_assignment
+        assignment = get_card_assignment(conn, card_id)
+        if not assignment or assignment["user_id"] != current_user["id"]:
+            logger.warning(f"[GET_CARD] Rep {current_user['id']} attempted to view unauthorized card: {card_id}")
+            raise HTTPException(status_code=403, detail="Card is not assigned to you")
+    
+    # Get relationships
+    relationships = get_card_relationships(conn, card_id)
+    card["relationships"] = relationships
+    
+    # Get linked conversations with message history
+    with conn.cursor() as cur:
+        try:
+            # Try to fetch with history column
+            cur.execute("""
+                SELECT phone, state, last_outbound_at, last_inbound_at, 
+                       COALESCE(history::text, '[]') as history
+                FROM conversations
+                WHERE card_id = %s
+                ORDER BY last_outbound_at DESC NULLS LAST;
+            """, (card_id,))
+        except psycopg2.ProgrammingError:
+            # History column doesn't exist, fetch without it
+            cur.execute("""
+                SELECT phone, state, last_outbound_at, last_inbound_at
+                FROM conversations
+                WHERE card_id = %s
+                ORDER BY last_outbound_at DESC NULLS LAST;
+            """, (card_id,))
+        
+        conversations = []
+        for row in cur.fetchall():
+            conv_data = {
+                "phone": row[0],
+                "state": row[1],
+                "last_outbound_at": row[2].isoformat() if row[2] else None,
+                "last_inbound_at": row[3].isoformat() if row[3] else None,
+            }
+            
+            # Include history if available
+            if len(row) > 4 and row[4]:
+                try:
+                    history = json.loads(row[4]) if isinstance(row[4], str) else row[4]
+                    conv_data["history"] = history
+                except (json.JSONDecodeError, TypeError):
+                    conv_data["history"] = []
+            else:
+                conv_data["history"] = []
+            
+            conversations.append(conv_data)
+        card["conversations"] = conversations
+    
+    return card
+
+
+@app.delete("/cards/{card_id}")
+async def delete_card_endpoint(card_id: str, request: Request):
+    """
+    Delete a card by ID. Also deletes related relationships, conversations, and assignments.
+    Logs terminal handoff event (not a handoff - to_rep=NULL indicates deletion).
+    Requires owner authentication.
+    """
+    # Authenticate user (owner only for deletion)
+    try:
+        current_user = await get_current_admin_user(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[CARD_DELETE] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    conn = get_conn()
+    
+    # Check if card exists
+    card = get_card(conn, card_id)
+    if not card:
+        raise HTTPException(status_code=404, detail=f"Card not found: {card_id}")
+
+    # Use the new delete_card function which handles cleanup and handoff logging
+    success, error_message = delete_card(conn, card_id, current_user['id'])
+    
+    if not success:
+        raise HTTPException(status_code=500, detail=error_message or f"Error deleting card: {card_id}")
+
+    return {"ok": True, "message": f"Card {card_id} deleted successfully"}
 
 
 @app.post("/cards/merge")
