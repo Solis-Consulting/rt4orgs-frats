@@ -3241,14 +3241,39 @@ async def merge_cards(
             """, [primary_card_id] + duplicate_card_ids)
             
             # Update assignments (check if table exists)
+            # Handle assignments carefully to avoid duplicate key violations
             try:
+                # First, get all unique assignments from duplicate cards
                 cur.execute(f"""
-                    UPDATE card_assignments
-                    SET card_id = %s
+                    SELECT DISTINCT user_id, status, notes, assigned_by, assigned_at
+                    FROM card_assignments
                     WHERE card_id IN ({placeholders})
-                """, [primary_card_id] + duplicate_card_ids)
+                """, tuple(duplicate_card_ids))
+                
+                unique_assignments = cur.fetchall()
+                
+                # Delete all assignments for duplicate cards
+                cur.execute(f"""
+                    DELETE FROM card_assignments
+                    WHERE card_id IN ({placeholders})
+                """, tuple(duplicate_card_ids))
+                
+                # Insert assignments for primary card, avoiding duplicates
+                for assignment in unique_assignments:
+                    user_id, status, notes, assigned_by, assigned_at = assignment
+                    cur.execute("""
+                        INSERT INTO card_assignments (card_id, user_id, status, notes, assigned_by, assigned_at)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (card_id, user_id) DO NOTHING
+                    """, (primary_card_id, user_id, status, notes, assigned_by, assigned_at))
+                
             except psycopg2.errors.UndefinedTable:
                 # card_assignments table doesn't exist, skip
+                pass
+            except psycopg2.IntegrityError as e:
+                # Handle any remaining constraint violations gracefully
+                logger.warning(f"[MERGE] Assignment constraint violation (non-fatal): {e}")
+                # Continue with merge - assignments are not critical
                 pass
             
             # Update relationships (both as parent and child)
