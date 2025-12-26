@@ -3019,6 +3019,231 @@ async def delete_card_endpoint(card_id: str, request: Request):
     return {"ok": True, "message": f"Card {card_id} deleted successfully"}
 
 
+@app.get("/cards/duplicates")
+async def get_duplicates(request: Request):
+    """
+    Find all duplicate cards grouped by phone number.
+    Returns groups of cards that share the same normalized phone number.
+    Requires owner authentication.
+    """
+    # Authenticate user (owner only)
+    try:
+        current_user = await get_current_admin_user(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[DUPLICATES] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    from intelligence.utils import normalize_phone
+    
+    conn = get_conn()
+    
+    try:
+        with conn.cursor() as cur:
+            # Get all person cards with phone numbers
+            cur.execute("""
+                SELECT id, type, card_data, sales_state, owner, created_at, updated_at
+                FROM cards
+                WHERE type = 'person' AND card_data->>'phone' IS NOT NULL AND card_data->>'phone' != ''
+            """)
+            
+            cards = []
+            phone_groups = {}
+            
+            for row in cur.fetchall():
+                card = {
+                    "id": row[0],
+                    "type": row[1],
+                    "card_data": row[2],
+                    "sales_state": row[3],
+                    "owner": row[4],
+                    "created_at": row[5].isoformat() if row[5] else None,
+                    "updated_at": row[6].isoformat() if row[6] else None,
+                }
+                
+                phone = card["card_data"].get("phone")
+                if phone:
+                    normalized_phone = normalize_phone(phone)
+                    if normalized_phone not in phone_groups:
+                        phone_groups[normalized_phone] = []
+                    phone_groups[normalized_phone].append(card)
+            
+            # Only return groups with 2+ cards (duplicates)
+            duplicate_groups = []
+            for phone, card_list in phone_groups.items():
+                if len(card_list) > 1:
+                    duplicate_groups.append({
+                        "phone": phone,
+                        "count": len(card_list),
+                        "cards": card_list
+                    })
+            
+            # Sort by count (most duplicates first)
+            duplicate_groups.sort(key=lambda x: x["count"], reverse=True)
+            
+            return {
+                "ok": True,
+                "duplicate_groups": duplicate_groups,
+                "total_groups": len(duplicate_groups),
+                "total_duplicate_cards": sum(len(g["cards"]) for g in duplicate_groups)
+            }
+            
+    except Exception as e:
+        logger.error(f"[DUPLICATES] Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error finding duplicates: {str(e)}")
+
+
+@app.post("/cards/merge")
+async def merge_cards(
+    data: Dict[str, Any],
+    request: Request
+):
+    """
+    Merge multiple duplicate cards into one.
+    
+    Body:
+    {
+        "primary_card_id": "card_id_to_keep",
+        "duplicate_card_ids": ["card_id1", "card_id2", ...]
+    }
+    
+    Merges duplicate cards into the primary card:
+    - Updates conversations to point to primary card
+    - Updates assignments to point to primary card
+    - Updates relationships to point to primary card
+    - Deletes duplicate cards
+    - Merges card_data (takes non-empty values from duplicates)
+    
+    Requires owner authentication.
+    """
+    # Authenticate user (owner only)
+    try:
+        current_user = await get_current_admin_user(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[MERGE] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    primary_card_id = data.get("primary_card_id")
+    duplicate_card_ids = data.get("duplicate_card_ids", [])
+    
+    if not primary_card_id:
+        raise HTTPException(status_code=400, detail="Missing primary_card_id")
+    
+    if not duplicate_card_ids:
+        raise HTTPException(status_code=400, detail="Missing duplicate_card_ids")
+    
+    if primary_card_id in duplicate_card_ids:
+        raise HTTPException(status_code=400, detail="Primary card cannot be in duplicate list")
+    
+    conn = get_conn()
+    
+    try:
+        # Get primary card
+        primary_card = get_card(conn, primary_card_id)
+        if not primary_card:
+            raise HTTPException(status_code=404, detail=f"Primary card not found: {primary_card_id}")
+        
+        # Get duplicate cards
+        duplicate_cards = []
+        for dup_id in duplicate_card_ids:
+            dup_card = get_card(conn, dup_id)
+            if not dup_card:
+                logger.warning(f"[MERGE] Duplicate card not found: {dup_id}")
+                continue
+            duplicate_cards.append(dup_card)
+        
+        if not duplicate_cards:
+            raise HTTPException(status_code=400, detail="No valid duplicate cards found")
+        
+        # Merge card_data - take non-empty values from duplicates
+        merged_card_data = primary_card["card_data"].copy()
+        for dup_card in duplicate_cards:
+            dup_data = dup_card["card_data"]
+            for key, value in dup_data.items():
+                # If primary doesn't have this field or it's empty, use duplicate's value
+                if key not in merged_card_data or not merged_card_data[key]:
+                    if value:  # Only use non-empty values
+                        merged_card_data[key] = value
+        
+        # Update primary card with merged data
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE cards
+                SET card_data = %s::jsonb, updated_at = NOW()
+                WHERE id = %s
+            """, (json.dumps(merged_card_data), primary_card_id))
+        
+        # Update all references to point to primary card
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(duplicate_card_ids))
+            
+            # Update conversations
+            cur.execute(f"""
+                UPDATE conversations
+                SET card_id = %s
+                WHERE card_id IN ({placeholders})
+            """, [primary_card_id] + duplicate_card_ids)
+            
+            # Update assignments (check if table exists)
+            try:
+                cur.execute(f"""
+                    UPDATE card_assignments
+                    SET card_id = %s
+                    WHERE card_id IN ({placeholders})
+                """, [primary_card_id] + duplicate_card_ids)
+            except psycopg2.errors.UndefinedTable:
+                # card_assignments table doesn't exist, skip
+                pass
+            
+            # Update relationships (both as parent and child)
+            # First, delete relationships that would create self-references
+            cur.execute(f"""
+                DELETE FROM card_relationships
+                WHERE (parent_card_id = %s AND child_card_id IN ({placeholders}))
+                   OR (parent_card_id IN ({placeholders}) AND child_card_id = %s)
+            """, [primary_card_id] + duplicate_card_ids + duplicate_card_ids + [primary_card_id])
+            
+            # Now update remaining relationships
+            cur.execute(f"""
+                UPDATE card_relationships
+                SET parent_card_id = %s
+                WHERE parent_card_id IN ({placeholders})
+            """, [primary_card_id] + duplicate_card_ids)
+            
+            cur.execute(f"""
+                UPDATE card_relationships
+                SET child_card_id = %s
+                WHERE child_card_id IN ({placeholders})
+            """, [primary_card_id] + duplicate_card_ids)
+            
+            # Delete duplicate cards (cascades will handle related data)
+            cur.execute(f"""
+                DELETE FROM cards
+                WHERE id IN ({placeholders})
+            """, tuple(duplicate_card_ids))
+        
+        conn.commit()
+        
+        logger.info(f"[MERGE] Merged {len(duplicate_cards)} cards into {primary_card_id}")
+        
+        return {
+            "ok": True,
+            "message": f"Merged {len(duplicate_cards)} duplicate cards into {primary_card_id}",
+            "primary_card_id": primary_card_id,
+            "merged_count": len(duplicate_cards)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"[MERGE] Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error merging cards: {str(e)}")
+
+
 @app.get("/cards")
 async def list_cards(
     type: Optional[str] = Query(None, description="Filter by card type"),

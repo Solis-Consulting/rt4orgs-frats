@@ -149,165 +149,66 @@ def generate_card_id(card: Dict[str, Any]) -> str:
     """Auto-generate card ID if missing."""
     card_type = card.get("type", "person")
     name = card.get("name", "unknown")
+    org = card.get("org", "")
     
-    if card_type == "person":
-        fraternity = card.get("fraternity", "")
-        chapter = card.get("chapter", "")
-        parts = [card_type, name]
-        if fraternity:
-            parts.append(fraternity)
-        if chapter:
-            parts.append(chapter)
-    else:
-        parts = [card_type, name]
+    parts = [card_type, name]
+    if org:
+        parts.append(org)
     
     return "_".join(slugify(part) for part in parts if part)
 
 
 def validate_card_schema(card: Dict[str, Any]) -> tuple[bool, Optional[str]]:
     """
-    Validate card schema per type and vertical.
+    Validate card schema - only allows 5 standard fields: univ, org, name, ig, email
     Returns (is_valid, error_message).
     """
     card_type = card.get("type")
-    vertical = card.get("vertical")
-    
-    # If vertical is present but type is missing, assume it's a person card
-    # (normalize_card will set type to "person" but validation happens after normalization)
-    if not card_type and vertical:
-        card_type = "person"
     
     if not card_type:
         return False, "Missing required field: type"
     
-    # Validate vertical-specific person cards
-    # If vertical is present, treat as person card (type may be auto-set by normalization)
-    if vertical and (card_type == "person" or not card_type):
-        if vertical not in VERTICAL_TYPES:
-            return False, f"Invalid vertical: {vertical}. Must be one of: {', '.join(VERTICAL_TYPES.keys())}"
-        
-        vertical_config = VERTICAL_TYPES[vertical]
-        required_fields = vertical_config.get("required_fields", [])
-        
-        # Check required fields
-        missing_fields = []
-        for field in required_fields:
-            # Handle field name variations
-            if field == "contact_name":
-                value = card.get("name") or card.get("contact_name")
-                if not value or (isinstance(value, str) and not value.strip()):
-                    missing_fields.append("name/contact_name")
-            elif field == "position" or field == "role":
-                value = card.get("role") or card.get("position")
-                # Role is optional for frats (can be empty string or missing)
-                if vertical == "frats":
-                    # For frats, role is optional - don't validate it
-                    pass
-                else:
-                    if not value or (isinstance(value, str) and not value.strip()):
-                        missing_fields.append("role/position")
-            elif field == "phone_number":
-                value = card.get("phone") or card.get("phone_number")
-                # Phone number validation - required for frats
-                if vertical == "frats":
-                    # Phone is REQUIRED for frats - must be present and non-empty
-                    if not value or (isinstance(value, str) and not value.strip()):
-                        missing_fields.append("phone/phone_number")
-                else:
-                    if not value or (isinstance(value, str) and not value.strip()):
-                        missing_fields.append("phone/phone_number")
-            elif field == "faith_group_or_org":
-                value = card.get("group") or card.get("faith_group_or_org")
-                if not value or (isinstance(value, str) and not value.strip()):
-                    missing_fields.append("group/faith_group_or_org")
-            elif field == "team_or_club":
-                value = card.get("team") or card.get("team_or_club")
-                if not value or (isinstance(value, str) and not value.strip()):
-                    missing_fields.append("team/team_or_club")
-            elif field == "program_name":
-                value = card.get("program") or card.get("program_name")
-                if not value or (isinstance(value, str) and not value.strip()):
-                    missing_fields.append("program/program_name")
-            elif field == "department_name":
-                value = card.get("department") or card.get("department_name")
-                if not value or (isinstance(value, str) and not value.strip()):
-                    missing_fields.append("department/department_name")
-            elif field == "organization_name":
-                value = card.get("org") or card.get("organization_name")
-                if not value or (isinstance(value, str) and not value.strip()):
-                    missing_fields.append("org/organization_name")
-            elif field == "email":
-                # Email validation - check if it's in required or optional
-                value = card.get(field)
-                # Email is optional for cultural/sports/frats, so skip if missing
-                if vertical in ["cultural", "sports", "frats"]:
-                    # For these verticals, email is optional (empty string is OK)
-                    pass
-                else:
-                    # For other verticals, email is required
-                    if not value or (isinstance(value, str) and not value.strip()):
-                        missing_fields.append(field)
-            elif field == "phone":
-                # Phone validation - required for frats, optional for cultural/sports
-                value = card.get(field)
-                if vertical == "frats":
-                    # Phone is REQUIRED for frats - must be present and non-empty
-                    if not value or (isinstance(value, str) and not value.strip()):
-                        missing_fields.append(field)
-                elif vertical in ["cultural", "sports"]:
-                    # For these verticals, phone is optional (empty string is OK)
-                    pass
-                else:
-                    # For other verticals, phone is required
-                    if not value or (isinstance(value, str) and not value.strip()):
-                        missing_fields.append(field)
-            elif field == "chapter" or field == "fraternity":
-                # Chapter and fraternity are optional for frats
-                value = card.get(field)
-                if vertical == "frats":
-                    # Allow empty/missing for frats
-                    pass
-                else:
-                    # For other verticals that require these, validate
-                    if not value or (isinstance(value, str) and not value.strip()):
-                        missing_fields.append(field)
-            else:
-                value = card.get(field)
-                if not value or (isinstance(value, str) and not value.strip()):
-                    missing_fields.append(field)
-        
-        if missing_fields:
-            return False, f"{vertical_config['name']} card missing required fields: {', '.join(missing_fields)}"
-        
-        return True, None
-    
-    # Legacy validation for non-vertical cards
     if card_type not in ["person", "fraternity", "team", "business"]:
         return False, f"Invalid type: {card_type}. Must be one of: person, fraternity, team, business"
     
-    # Type-specific validation (legacy)
-    if card_type == "person":
-        if not card.get("name"):
-            return False, "Person card missing required field: name"
-        if not card.get("phone"):
-            return False, "Person card missing required field: phone"
+    # Standard fields that are allowed
+    standard_fields = {"univ", "org", "name", "ig", "email"}
+    # System fields that are allowed (not part of card_data)
+    system_fields = {"id", "type", "sales_state", "owner", "vertical"}
+    # Entity-specific fields
+    entity_fields = {"members", "contacts"}
     
+    # Check that only standard fields, system fields, and entity fields are present
+    invalid_fields = []
+    for field in card.keys():
+        if field not in standard_fields and field not in system_fields and field not in entity_fields:
+            invalid_fields.append(field)
+    
+    if invalid_fields:
+        return False, f"Card contains invalid fields: {', '.join(invalid_fields)}. Only allowed fields are: {', '.join(sorted(standard_fields))}"
+    
+    # All fields are optional (can be empty strings), but validate that name exists for person cards
+    if card_type == "person":
+        if "name" not in card:
+            return False, "Person card missing required field: name"
+    
+    # For entity types, validate structure
     elif card_type == "fraternity":
-        if not card.get("name"):
+        if "name" not in card:
             return False, "Fraternity card missing required field: name"
         members = card.get("members", [])
         if not isinstance(members, list):
             return False, "Fraternity card 'members' must be an array"
     
     elif card_type == "team":
-        if not card.get("name"):
+        if "name" not in card:
             return False, "Team card missing required field: name"
         members = card.get("members", [])
         if not isinstance(members, list):
             return False, "Team card 'members' must be an array"
     
     elif card_type == "business":
-        if not card.get("name"):
+        if "name" not in card:
             return False, "Business card missing required field: name"
         contacts = card.get("contacts", [])
         if not isinstance(contacts, list):
@@ -318,94 +219,67 @@ def validate_card_schema(card: Dict[str, Any]) -> tuple[bool, Optional[str]]:
 
 def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Normalize card: ensure id exists, clean up structure, map field variations.
-    Returns normalized card dict.
+    Normalize card: ensure id exists, clean up structure, standardize to 5 fields only.
+    Returns normalized card dict with only: univ, org, name, ig, email
     """
-    normalized = card.copy()
+    # System fields that should be preserved
+    system_fields = ["id", "type", "sales_state", "owner", "vertical", "members", "contacts"]
     
-    # Normalize field name variations for vertical-based cards
-    vertical = normalized.get("vertical")
-    if vertical and normalized.get("type") == "person":
-        # Map common field variations to standard names
-        field_mappings = {
-            "contact_name": "name",
-            "position": "role",
-            "phone_number": "phone",
-            "faith_group_or_org": "group",
-            "team_or_club": "team",
-            "program_name": "program",
-            "department_name": "department",
-            "organization_name": "org"
-        }
-        
-        for old_field, new_field in field_mappings.items():
-            if old_field in normalized and new_field not in normalized:
-                normalized[new_field] = normalized[old_field]
+    # Map common field variations to standard names (in priority order)
+    field_mappings = [
+        ("contact_name", "name"),
+        ("university", "univ"),
+        ("school", "univ"),
+        ("organization", "org"),
+        ("organization_name", "org"),
+        ("fraternity", "org"),
+        ("chapter", "org"),
+        ("group", "org"),
+        ("team", "org"),
+        ("instagram", "ig"),
+        ("insta", "ig"),
+    ]
     
-    # Ensure type is set - if vertical is present but type is missing, assume person
-    if not normalized.get("type"):
-        if normalized.get("vertical"):
-            normalized["type"] = "person"
+    normalized = {}
+    
+    # Preserve system fields
+    for sys_field in system_fields:
+        if sys_field in card:
+            normalized[sys_field] = card[sys_field]
+    
+    # Map fields from input card (take first non-empty match)
+    standard_fields = ["univ", "org", "name", "ig", "email"]
+    for standard_field in standard_fields:
+        # First check if it exists in standard form
+        if standard_field in card:
+            normalized[standard_field] = card[standard_field]
         else:
-            normalized["type"] = "person"  # Default to person for backward compatibility
+            # Check field mappings
+            for old_field, new_field in field_mappings:
+                if new_field == standard_field:
+                    # Check direct field
+                    if old_field in card and card[old_field]:
+                        normalized[standard_field] = card[old_field]
+                        break
+                    # Check nested metadata.insta
+                    if old_field == "insta" and "metadata" in card:
+                        metadata = card["metadata"]
+                        if isinstance(metadata, dict) and "insta" in metadata and metadata["insta"]:
+                            normalized[standard_field] = metadata["insta"]
+                            break
     
-    # Standardize frats cards to target format
-    if normalized.get("vertical") == "frats" and normalized.get("type") == "person":
-        # Ensure all standard fields exist with proper defaults
-        if "role" not in normalized:
-            normalized["role"] = ""
-        if "email" not in normalized:
-            normalized["email"] = ""
-        if "fraternity" not in normalized:
-            normalized["fraternity"] = ""
-        if "chapter" not in normalized:
-            normalized["chapter"] = ""
-        if "tags" not in normalized:
-            normalized["tags"] = []
-        if "sales_state" not in normalized:
-            normalized["sales_state"] = "cold"
-        if "metadata" not in normalized:
-            normalized["metadata"] = {}
-        # Ensure metadata has standard structure
-        if not isinstance(normalized["metadata"], dict):
-            normalized["metadata"] = {}
-        if "insta" not in normalized["metadata"]:
-            normalized["metadata"]["insta"] = ""
-        if "other_social" not in normalized["metadata"]:
-            normalized["metadata"]["other_social"] = ""
-        # Move program and university to metadata if they exist, then remove from top level
-        if "program" in normalized:
-            if normalized["program"]:
-                normalized["metadata"]["program"] = normalized["program"]
-            del normalized["program"]
-        if "university" in normalized:
-            if normalized["university"]:
-                normalized["metadata"]["university"] = normalized["university"]
-            del normalized["university"]
+    # Ensure all 5 standard fields exist (empty string if missing)
+    for field in standard_fields:
+        if field not in normalized:
+            normalized[field] = ""
+    
+    # Ensure type is set (default to person)
+    if "type" not in normalized:
+        normalized["type"] = card.get("type", "person")
     
     # Ensure id exists (after normalization so it uses correct fields)
     if not normalized.get("id"):
         normalized["id"] = generate_card_id(normalized)
-    
-    # Ensure arrays exist for entity types
-    if normalized["type"] == "fraternity" and "members" not in normalized:
-        normalized["members"] = []
-    if normalized["type"] == "team" and "members" not in normalized:
-        normalized["members"] = []
-    if normalized["type"] == "business" and "contacts" not in normalized:
-        normalized["contacts"] = []
-    
-    # Ensure tags exist for person cards (non-frats)
-    if normalized["type"] == "person" and "tags" not in normalized:
-        normalized["tags"] = []
-    
-    # Ensure metadata exists for person cards (non-frats)
-    if normalized["type"] == "person" and "metadata" not in normalized:
-        normalized["metadata"] = {}
-    
-    # Ensure vertical is preserved
-    if vertical:
-        normalized["vertical"] = vertical
     
     return normalized
 
