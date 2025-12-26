@@ -3243,14 +3243,27 @@ async def merge_cards(
             # Update assignments (check if table exists)
             # Handle assignments carefully to avoid duplicate key violations
             try:
-                # First, get all unique assignments from duplicate cards
+                # First, get all assignments from duplicate cards
                 cur.execute(f"""
-                    SELECT DISTINCT user_id, status, notes, assigned_by, assigned_at
+                    SELECT user_id, status, notes, assigned_by, assigned_at
                     FROM card_assignments
                     WHERE card_id IN ({placeholders})
                 """, tuple(duplicate_card_ids))
                 
-                unique_assignments = cur.fetchall()
+                all_assignments = cur.fetchall()
+                
+                # Group by user_id in Python to get unique assignments per user
+                # Use the most recent assignment for each user
+                user_assignments = {}
+                for assignment in all_assignments:
+                    user_id, status, notes, assigned_by, assigned_at = assignment
+                    if user_id not in user_assignments:
+                        user_assignments[user_id] = assignment
+                    else:
+                        # Keep the most recent assignment
+                        existing_at = user_assignments[user_id][4]
+                        if assigned_at and (not existing_at or assigned_at > existing_at):
+                            user_assignments[user_id] = assignment
                 
                 # Delete all assignments for duplicate cards
                 cur.execute(f"""
@@ -3259,21 +3272,31 @@ async def merge_cards(
                 """, tuple(duplicate_card_ids))
                 
                 # Insert assignments for primary card, avoiding duplicates
-                for assignment in unique_assignments:
-                    user_id, status, notes, assigned_by, assigned_at = assignment
-                    cur.execute("""
-                        INSERT INTO card_assignments (card_id, user_id, status, notes, assigned_by, assigned_at)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (card_id, user_id) DO NOTHING
-                    """, (primary_card_id, user_id, status, notes, assigned_by, assigned_at))
+                for user_id, assignment in user_assignments.items():
+                    _, status, notes, assigned_by, assigned_at = assignment
+                    try:
+                        cur.execute("""
+                            INSERT INTO card_assignments (card_id, user_id, status, notes, assigned_by, assigned_at)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (card_id, user_id) DO NOTHING
+                        """, (primary_card_id, user_id, status or 'assigned', notes, assigned_by, assigned_at))
+                    except Exception as e:
+                        # Log but don't fail - assignment conflicts are non-fatal
+                        logger.warning(f"[MERGE] Could not insert assignment for user {user_id}: {e}")
+                        continue
                 
             except psycopg2.errors.UndefinedTable:
                 # card_assignments table doesn't exist, skip
+                logger.info("[MERGE] card_assignments table does not exist, skipping assignment updates")
                 pass
             except psycopg2.IntegrityError as e:
                 # Handle any remaining constraint violations gracefully
                 logger.warning(f"[MERGE] Assignment constraint violation (non-fatal): {e}")
                 # Continue with merge - assignments are not critical
+                pass
+            except Exception as e:
+                # Log any other assignment-related errors but don't fail the merge
+                logger.warning(f"[MERGE] Error handling assignments (non-fatal): {e}")
                 pass
             
             # Update relationships (both as parent and child)
@@ -3316,9 +3339,13 @@ async def merge_cards(
         
     except HTTPException:
         raise
+    except psycopg2.Error as e:
+        conn.rollback()
+        logger.error(f"[MERGE] Database error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Database error during merge: {str(e)}")
     except Exception as e:
         conn.rollback()
-        logger.error(f"[MERGE] Error: {e}")
+        logger.error(f"[MERGE] Unexpected error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error merging cards: {str(e)}")
 
 
