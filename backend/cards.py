@@ -160,7 +160,7 @@ def generate_card_id(card: Dict[str, Any]) -> str:
 
 def validate_card_schema(card: Dict[str, Any]) -> tuple[bool, Optional[str]]:
     """
-    Validate card schema - only allows 5 standard fields: univ, org, name, ig, email
+    Validate card schema - only allows 6 standard fields: univ, org, name, ig, email, phone
     Returns (is_valid, error_message).
     """
     card_type = card.get("type")
@@ -172,7 +172,7 @@ def validate_card_schema(card: Dict[str, Any]) -> tuple[bool, Optional[str]]:
         return False, f"Invalid type: {card_type}. Must be one of: person, fraternity, team, business"
     
     # Standard fields that are allowed
-    standard_fields = {"univ", "org", "name", "ig", "email"}
+    standard_fields = {"univ", "org", "name", "ig", "email", "phone"}
     # System fields that are allowed (not part of card_data)
     system_fields = {"id", "type", "sales_state", "owner", "vertical"}
     # Entity-specific fields
@@ -219,8 +219,8 @@ def validate_card_schema(card: Dict[str, Any]) -> tuple[bool, Optional[str]]:
 
 def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Normalize card: ensure id exists, clean up structure, standardize to 5 fields only.
-    Returns normalized card dict with only: univ, org, name, ig, email
+    Normalize card: ensure id exists, clean up structure, standardize to 6 fields only.
+    Returns normalized card dict with only: univ, org, name, ig, email, phone
     """
     # System fields that should be preserved
     system_fields = ["id", "type", "sales_state", "owner", "vertical", "members", "contacts"]
@@ -238,6 +238,7 @@ def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
         ("team", "org"),
         ("instagram", "ig"),
         ("insta", "ig"),
+        ("phone_number", "phone"),
     ]
     
     normalized = {}
@@ -248,7 +249,7 @@ def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
             normalized[sys_field] = card[sys_field]
     
     # Map fields from input card (take first non-empty match)
-    standard_fields = ["univ", "org", "name", "ig", "email"]
+    standard_fields = ["univ", "org", "name", "ig", "email", "phone"]
     for standard_field in standard_fields:
         # First check if it exists in standard form
         if standard_field in card:
