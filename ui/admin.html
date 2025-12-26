@@ -70,6 +70,7 @@
       <div class="tabs">
         <div class="tab active" data-view="users">Users</div>
         <div class="tab" data-view="assignments">Card Assignments</div>
+        <div class="tab" data-view="duplicates">Duplicates</div>
         <div class="tab" data-view="blast">Blast</div>
       </div>
 
@@ -98,6 +99,25 @@
           <button onclick="showAssignCardModal()">Assign Card</button>
         </div>
         <div id="assignmentsTableWrap"></div>
+      </div>
+
+      <!-- Duplicates View -->
+      <div id="duplicatesView" style="display: none;">
+        <div style="margin-bottom: 16px;">
+          <p style="color: #9ca3af; font-size: 14px; margin-bottom: 12px;">
+            Find and merge duplicate cards based on phone number. Cards with the same normalized phone number are grouped together.
+          </p>
+          <button onclick="loadDuplicates()">Refresh Duplicates</button>
+        </div>
+        <div id="duplicatesError" style="display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; border-radius: 8px; padding: 12px; margin-bottom: 16px; color: #fca5a5;"></div>
+        <div id="duplicatesSuccess" style="display: none; background: rgba(34, 197, 94, 0.1); border: 1px solid #22c55e; border-radius: 8px; padding: 12px; margin-bottom: 16px; color: #86efac;"></div>
+        <div id="duplicatesSummary" style="display: none; margin-bottom: 16px; padding: 12px; background: #1e293b; border-radius: 8px; font-size: 12px; color: #9ca3af;">
+          <div><strong style="color: #e5e7eb;" id="duplicatesGroupCount">0</strong> duplicate groups</div>
+          <div><strong style="color: #e5e7eb;" id="duplicatesCardCount">0</strong> total duplicate cards</div>
+        </div>
+        <div id="duplicatesLoading" style="text-align: center; padding: 40px; color: #9ca3af;">Loading duplicates...</div>
+        <div id="duplicatesEmpty" style="display: none; text-align: center; padding: 40px; color: #9ca3af;">No duplicates found! 🎉</div>
+        <div id="duplicatesContent"></div>
       </div>
 
       <!-- Blast View -->
@@ -219,12 +239,15 @@
         
         document.getElementById('usersView').style.display = view === 'users' ? 'block' : 'none';
         document.getElementById('assignmentsView').style.display = view === 'assignments' ? 'block' : 'none';
+        document.getElementById('duplicatesView').style.display = view === 'duplicates' ? 'block' : 'none';
         document.getElementById('blastView').style.display = view === 'blast' ? 'block' : 'none';
         
         if (view === 'users') {
           loadUsers();
         } else if (view === 'assignments') {
           loadAssignments();
+        } else if (view === 'duplicates') {
+          loadDuplicates();
         } else if (view === 'blast') {
           loadBlastCards();
         }
@@ -917,6 +940,199 @@
     }
 
     window.unassignCard = unassignCard;
+
+    // Duplicates functionality
+    let duplicateGroups = [];
+    let selectedPrimary = {};
+
+    function showDuplicatesError(message) {
+      const errorDiv = document.getElementById('duplicatesError');
+      errorDiv.textContent = message;
+      errorDiv.style.display = 'block';
+      setTimeout(() => {
+        errorDiv.style.display = 'none';
+      }, 5000);
+    }
+
+    function showDuplicatesSuccess(message) {
+      const successDiv = document.getElementById('duplicatesSuccess');
+      successDiv.textContent = message;
+      successDiv.style.display = 'block';
+      setTimeout(() => {
+        successDiv.style.display = 'none';
+      }, 5000);
+    }
+
+    function formatCardData(card) {
+      const data = card.card_data || {};
+      return {
+        name: data.name || card.id,
+        univ: data.univ || '-',
+        org: data.org || '-',
+        email: data.email || '-',
+        ig: data.ig || '-',
+        phone: data.phone || '-'
+      };
+    }
+
+    function renderDuplicates() {
+      const container = document.getElementById('duplicatesContent');
+      const loading = document.getElementById('duplicatesLoading');
+      const empty = document.getElementById('duplicatesEmpty');
+      const summary = document.getElementById('duplicatesSummary');
+
+      if (duplicateGroups.length === 0) {
+        loading.style.display = 'none';
+        empty.style.display = 'block';
+        container.innerHTML = '';
+        summary.style.display = 'none';
+        return;
+      }
+
+      loading.style.display = 'none';
+      empty.style.display = 'none';
+      summary.style.display = 'block';
+      document.getElementById('duplicatesGroupCount').textContent = duplicateGroups.length;
+      document.getElementById('duplicatesCardCount').textContent = duplicateGroups.reduce((sum, g) => sum + g.count, 0);
+
+      container.innerHTML = duplicateGroups.map((group, groupIdx) => {
+        const primaryId = selectedPrimary[groupIdx] || group.cards[0].id;
+        
+        return `
+          <div style="margin-bottom: 24px; border: 1px solid #1f2937; border-radius: 12px; padding: 16px; background: #0f172a;">
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #1f2937;">
+              <h3 style="margin: 0; font-size: 16px; color: #38bdf8;">Phone: ${group.phone}</h3>
+              <span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #fca5a5; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 600;">${group.count} duplicates</span>
+            </div>
+            
+            ${group.cards.map((card, cardIdx) => {
+              const info = formatCardData(card);
+              const isPrimary = card.id === primaryId;
+              
+              return `
+                <div style="display: flex; align-items: center; gap: 16px; padding: 12px; background: ${isPrimary ? '#1e3a5f' : '#020617'}; border-radius: 8px; margin-bottom: 8px; border: 1px solid ${isPrimary ? '#0ea5e9' : '#1f2937'};">
+                  <input 
+                    type="radio" 
+                    name="primary_${groupIdx}" 
+                    value="${card.id}" 
+                    ${isPrimary ? 'checked' : ''}
+                    onchange="selectPrimary(${groupIdx}, '${card.id}')"
+                    style="cursor: pointer;"
+                  >
+                  <div style="flex: 1;">
+                    <div style="font-weight: 600; color: #e5e7eb; margin-bottom: 4px;">${info.name}</div>
+                    <div style="font-size: 12px; color: #9ca3af; display: flex; gap: 16px;">
+                      <div style="display: flex; gap: 4px;"><strong>ID:</strong> ${card.id}</div>
+                      <div style="display: flex; gap: 4px;"><strong>Univ:</strong> ${info.univ}</div>
+                      <div style="display: flex; gap: 4px;"><strong>Org:</strong> ${info.org}</div>
+                      <div style="display: flex; gap: 4px;"><strong>Email:</strong> ${info.email}</div>
+                      <div style="display: flex; gap: 4px;"><strong>IG:</strong> ${info.ig}</div>
+                      <div style="display: flex; gap: 4px;"><strong>State:</strong> ${card.sales_state || 'cold'}</div>
+                    </div>
+                  </div>
+                  <div style="display: flex; gap: 8px;">
+                    <a href="card.html?id=${card.id}" class="link" target="_blank">View</a>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+            
+            <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #1f2937;">
+              <button 
+                class="danger" 
+                onclick="mergeGroup(${groupIdx})"
+                ${group.cards.length < 2 ? 'disabled' : ''}
+              >
+                Merge into Selected Card
+              </button>
+              <span style="color: #9ca3af; font-size: 12px; margin-left: 8px;">
+                Selected card will be kept, others will be merged and deleted
+              </span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    window.selectPrimary = function(groupIdx, cardId) {
+      selectedPrimary[groupIdx] = cardId;
+      renderDuplicates();
+    };
+
+    window.mergeGroup = async function(groupIdx) {
+      const group = duplicateGroups[groupIdx];
+      const primaryId = selectedPrimary[groupIdx] || group.cards[0].id;
+      const duplicateIds = group.cards.filter(c => c.id !== primaryId).map(c => c.id);
+
+      if (duplicateIds.length === 0) {
+        showDuplicatesError('No duplicate cards to merge');
+        return;
+      }
+
+      if (!confirm(`Merge ${duplicateIds.length} duplicate card(s) into "${primaryId}"? This will delete the duplicates.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`${BACKEND}/cards/merge`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            primary_card_id: primaryId,
+            duplicate_card_ids: duplicateIds
+          })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          showDuplicatesError(data.detail || 'Failed to merge cards');
+          return;
+        }
+
+        showDuplicatesSuccess(`Successfully merged ${duplicateIds.length} card(s) into ${primaryId}`);
+        
+        // Reload duplicates
+        setTimeout(() => {
+          loadDuplicates();
+        }, 1000);
+      } catch (error) {
+        showDuplicatesError(`Error: ${error.message}`);
+      }
+    };
+
+    async function loadDuplicates() {
+      const loading = document.getElementById('duplicatesLoading');
+      loading.style.display = 'block';
+      document.getElementById('duplicatesContent').innerHTML = '';
+      document.getElementById('duplicatesSummary').style.display = 'none';
+      document.getElementById('duplicatesEmpty').style.display = 'none';
+
+      try {
+        const res = await fetch(`${BACKEND}/cards/duplicates`, {
+          headers
+        });
+
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403) {
+            window.location.href = 'login.html';
+            return;
+          }
+          throw new Error('Failed to load duplicates');
+        }
+
+        const data = await res.json();
+        duplicateGroups = data.duplicate_groups || [];
+        selectedPrimary = {};
+        
+        renderDuplicates();
+      } catch (error) {
+        showDuplicatesError(`Error loading duplicates: ${error.message}`);
+        document.getElementById('duplicatesLoading').style.display = 'none';
+      }
+    }
+
+    window.loadDuplicates = loadDuplicates;
   </script>
 </body>
 </html>
