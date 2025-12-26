@@ -269,7 +269,7 @@ def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
                             normalized[standard_field] = metadata["insta"]
                             break
     
-    # Ensure all 5 standard fields exist (empty string if missing)
+    # Ensure all 6 standard fields exist (empty string if missing)
     for field in standard_fields:
         if field not in normalized:
             normalized[field] = ""
