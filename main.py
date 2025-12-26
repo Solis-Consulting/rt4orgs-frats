@@ -3026,48 +3026,92 @@ async def get_duplicates(request: Request):
     Returns groups of cards that share the same normalized phone number.
     Requires owner authentication.
     """
+    logger.info("[DUPLICATES] Starting duplicate detection")
+    
     # Authenticate user (owner only)
     try:
         current_user = await get_current_admin_user(request)
+        logger.info(f"[DUPLICATES] Authenticated user: {current_user.get('id')}")
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[DUPLICATES] Auth error: {e}")
+        logger.error(f"[DUPLICATES] Auth error: {e}", exc_info=True)
         raise HTTPException(status_code=401, detail="Authentication required")
     
-    from intelligence.utils import normalize_phone
-    
-    conn = get_conn()
+    # Get database connection
+    try:
+        conn = get_conn()
+        logger.info("[DUPLICATES] Database connection established")
+    except Exception as e:
+        logger.error(f"[DUPLICATES] Database connection error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
     
     try:
         with conn.cursor() as cur:
+            logger.info("[DUPLICATES] Executing query for person cards with phone numbers")
+            
             # Get all person cards with phone numbers
-            cur.execute("""
-                SELECT id, type, card_data, sales_state, owner, created_at, updated_at
-                FROM cards
-                WHERE type = 'person' AND card_data->>'phone' IS NOT NULL AND card_data->>'phone' != ''
-            """)
+            try:
+                cur.execute("""
+                    SELECT id, type, card_data, sales_state, owner, created_at, updated_at
+                    FROM cards
+                    WHERE type = 'person' AND card_data->>'phone' IS NOT NULL AND card_data->>'phone' != ''
+                """)
+                logger.info(f"[DUPLICATES] Query executed successfully")
+            except Exception as e:
+                logger.error(f"[DUPLICATES] Query execution error: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Database query failed: {str(e)}")
             
             cards = []
             phone_groups = {}
+            cards_processed = 0
+            cards_with_phone = 0
+            normalization_errors = 0
+            
+            logger.info("[DUPLICATES] Processing cards...")
             
             for row in cur.fetchall():
-                card = {
-                    "id": row[0],
-                    "type": row[1],
-                    "card_data": row[2],
-                    "sales_state": row[3],
-                    "owner": row[4],
-                    "created_at": row[5].isoformat() if row[5] else None,
-                    "updated_at": row[6].isoformat() if row[6] else None,
-                }
+                cards_processed += 1
                 
-                phone = card["card_data"].get("phone")
-                if phone:
-                    normalized_phone = normalize_phone(phone)
-                    if normalized_phone not in phone_groups:
-                        phone_groups[normalized_phone] = []
-                    phone_groups[normalized_phone].append(card)
+                try:
+                    # Handle potential JSONB parsing issues
+                    card_data = row[2]
+                    if not isinstance(card_data, dict):
+                        logger.warning(f"[DUPLICATES] Card {row[0]} has invalid card_data type: {type(card_data)}")
+                        continue
+                    
+                    card = {
+                        "id": row[0],
+                        "type": row[1],
+                        "card_data": card_data,
+                        "sales_state": row[3],
+                        "owner": row[4],
+                        "created_at": row[5].isoformat() if row[5] else None,
+                        "updated_at": row[6].isoformat() if row[6] else None,
+                    }
+                    
+                    phone = card_data.get("phone")
+                    if phone and isinstance(phone, str) and phone.strip():
+                        cards_with_phone += 1
+                        try:
+                            normalized_phone = normalize_phone(phone)
+                            if normalized_phone:
+                                if normalized_phone not in phone_groups:
+                                    phone_groups[normalized_phone] = []
+                                phone_groups[normalized_phone].append(card)
+                            else:
+                                logger.warning(f"[DUPLICATES] Card {row[0]} phone normalized to empty: {phone}")
+                        except Exception as e:
+                            normalization_errors += 1
+                            logger.warning(f"[DUPLICATES] Phone normalization error for card {row[0]}: {e}, phone: {phone}")
+                    else:
+                        logger.debug(f"[DUPLICATES] Card {row[0]} has no valid phone number")
+                        
+                except Exception as e:
+                    logger.error(f"[DUPLICATES] Error processing card {row[0]}: {e}", exc_info=True)
+                    continue
+            
+            logger.info(f"[DUPLICATES] Processed {cards_processed} cards, {cards_with_phone} with phones, {normalization_errors} normalization errors")
             
             # Only return groups with 2+ cards (duplicates)
             duplicate_groups = []
@@ -3082,15 +3126,24 @@ async def get_duplicates(request: Request):
             # Sort by count (most duplicates first)
             duplicate_groups.sort(key=lambda x: x["count"], reverse=True)
             
-            return {
+            total_duplicate_cards = sum(len(g["cards"]) for g in duplicate_groups)
+            
+            logger.info(f"[DUPLICATES] Found {len(duplicate_groups)} duplicate groups with {total_duplicate_cards} total duplicate cards")
+            
+            return JSONResponse(content={
                 "ok": True,
                 "duplicate_groups": duplicate_groups,
                 "total_groups": len(duplicate_groups),
-                "total_duplicate_cards": sum(len(g["cards"]) for g in duplicate_groups)
-            }
+                "total_duplicate_cards": total_duplicate_cards
+            })
             
+    except HTTPException:
+        raise
+    except psycopg2.Error as e:
+        logger.error(f"[DUPLICATES] Database error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     except Exception as e:
-        logger.error(f"[DUPLICATES] Error: {e}")
+        logger.error(f"[DUPLICATES] Unexpected error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error finding duplicates: {str(e)}")
 
 
