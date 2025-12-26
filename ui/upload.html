@@ -67,12 +67,10 @@
   {
     "type": "person",
     "name": "John Doe",
-    "phone": "+1234567890",
-    "email": "john@example.com",
-    "fraternity": "SigChi",
-    "chapter": "Alpha",
-    "tags": ["rush", "decision_maker"],
-    "sales_state": "cold"
+    "univ": "State University",
+    "org": "SigChi",
+    "ig": "@johndoe",
+    "email": "john@example.com"
   }
 ]'></textarea>
 
@@ -429,95 +427,70 @@
           "type": "person",
           "vertical": "frats",
           "name": "Aidan Scheible",
-          "role": "President",
-          "phone": "+12489962425",
-          "email": "scheibae@miamioh.edu",
-          "fraternity": "SigChi",
-          "chapter": "Alpha",
-          "tags": ["fraternity", "rush", "decision_maker"],
-          "sales_state": "cold"
+          "univ": "Miami University",
+          "org": "SigChi",
+          "ig": "",
+          "email": "scheibae@miamioh.edu"
         }];
       } else if (vertical === 'faith') {
         example = [{
           "type": "person",
           "vertical": "faith",
           "name": "Sarah Johnson",
-          "role": "Campus Minister",
-          "phone": "+1234567890",
-          "email": "sarah@example.edu",
-          "faith_group": "Campus Crusade",
-          "university": "State University",
-          "sales_state": "cold"
+          "univ": "State University",
+          "org": "Campus Crusade",
+          "ig": "",
+          "email": "sarah@example.edu"
         }];
       } else if (vertical === 'academic') {
         example = [{
           "type": "person",
           "vertical": "academic",
           "name": "Alex Chen",
-          "role": "Program Director",
-          "phone": "+1234567890",
-          "email": "alex@example.edu",
-          "program": "Engineering Honors",
-          "department": "Engineering",
-          "university": "State University",
-          "sales_state": "cold"
+          "univ": "State University",
+          "org": "Engineering Honors",
+          "ig": "",
+          "email": "alex@example.edu"
         }];
       } else if (vertical === 'government') {
         example = [{
           "type": "person",
           "vertical": "government",
           "name": "Jordan Smith",
-          "role": "Student Body President",
-          "phone": "+1234567890",
-          "email": "jordan@example.edu",
+          "univ": "State University",
           "org": "Student Government",
-          "university": "State University",
-          "sales_state": "cold"
+          "ig": "",
+          "email": "jordan@example.edu"
         }];
       } else if (vertical === 'cultural') {
         example = [{
           "type": "person",
           "vertical": "cultural",
           "name": "Maria Garcia",
-          "role": "President",
-          "email": "maria@example.edu",
-          "phone": "+1234567890",
-          "group": "Latinx Student Association",
-          "university": "State University",
-          "insta": "@maria_garcia",
-          "tags": [],
-          "metadata": {}
+          "univ": "State University",
+          "org": "Latinx Student Association",
+          "ig": "@maria_garcia",
+          "email": "maria@example.edu"
         }];
       } else if (vertical === 'sports') {
         example = [{
           "type": "person",
           "vertical": "sports",
           "name": "Mike Thompson",
-          "role": "Team Captain",
-          "email": "mike@example.edu",
-          "phone": "+1234567890",
-          "team": "Ultimate Frisbee",
-          "university": "State University",
-          "insta": "@mike_t",
-          "tags": [],
-          "metadata": {}
+          "univ": "State University",
+          "org": "Ultimate Frisbee",
+          "ig": "@mike_t",
+          "email": "mike@example.edu"
         }];
       } else {
-        // Default example (frats)
+        // Default example (standardized format)
         example = [{
           "type": "person",
           "name": "Aidan Scheible",
-          "role": "President",
-          "phone": "+12489962425",
-          "email": "scheibae@miamioh.edu",
-          "fraternity": "SigChi",
-          "chapter": "Alpha",
-          "tags": ["fraternity", "rush", "decision_maker"],
-          "sales_state": "cold",
-          "metadata": {
-            "insta": "",
-            "other_social": ""
-          }
+          "univ": "Miami University",
+          "org": "SigChi",
+          "ig": "",
+          "email": "scheibae@miamioh.edu"
         }];
       }
       
