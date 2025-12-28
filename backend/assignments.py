@@ -130,30 +130,22 @@ def get_rep_assigned_cards(
             # New: id, type, card_data, sales_state, owner, created_at, updated_at, upload_batch_id, assigned_at, status, notes, assigned_by (12 columns)
             has_upload_batch_id = len(row) >= 12
             
-            card_obj = {
+            cards.append({
                 "id": row[0],
                 "type": row[1],
                 "card_data": card_data,
                 "sales_state": row[3],
                 "owner": row[4],
-                "created_at": row[5].isoformat() if row[5] else None,
-                "updated_at": row[6].isoformat() if row[6] else None,
+                "created_at": row[5],
+                "updated_at": row[6],
                 "upload_batch_id": row[7] if has_upload_batch_id else None,
-            }
-            
-            # Flatten card response to standard format
-            from backend.cards import flatten_card_response
-            flattened_card = flatten_card_response(card_obj)
-            
-            # Add assignment info
-            flattened_card["assignment"] = {
-                "assigned_at": (row[8] if has_upload_batch_id else row[7]).isoformat() if (row[8] if has_upload_batch_id else row[7]) else None,
-                "status": row[9] if has_upload_batch_id else row[8],
-                "notes": row[10] if has_upload_batch_id else row[9],
-                "assigned_by": row[11] if has_upload_batch_id else row[10],
-            }
-            
-            cards.append(flattened_card)
+                "assignment": {
+                    "assigned_at": row[8] if has_upload_batch_id else row[7],
+                    "status": row[9] if has_upload_batch_id else row[8],
+                    "notes": row[10] if has_upload_batch_id else row[9],
+                    "assigned_by": row[11] if has_upload_batch_id else row[10],
+                }
+            })
         
         print(f"[ASSIGNMENTS] Returning {len(cards)} cards for user_id={user_id}")
         return cards

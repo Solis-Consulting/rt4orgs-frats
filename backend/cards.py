@@ -225,6 +225,22 @@ def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
     # System fields that should be preserved
     system_fields = ["id", "type", "sales_state", "owner", "vertical", "members", "contacts"]
     
+    # Map common field variations to standard names (in priority order)
+    field_mappings = [
+        ("contact_name", "name"),
+        ("university", "univ"),
+        ("school", "univ"),
+        ("organization", "org"),
+        ("organization_name", "org"),
+        ("fraternity", "org"),
+        ("chapter", "org"),
+        ("group", "org"),
+        ("team", "org"),
+        ("instagram", "ig"),
+        ("insta", "ig"),
+        ("phone_number", "phone"),
+    ]
+    
     normalized = {}
     
     # Preserve system fields
@@ -232,62 +248,28 @@ def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
         if sys_field in card:
             normalized[sys_field] = card[sys_field]
     
-    # Helper to get value from card (handles empty strings, None, etc.)
-    def get_value(key: str, default: str = "") -> str:
-        value = card.get(key, default)
-        if value is None:
-            return default
-        return str(value).strip() if value else default
-    
-    # Helper to get nested value
-    def get_nested_value(path: list, default: str = "") -> str:
-        current = card
-        for key in path:
-            if isinstance(current, dict) and key in current:
-                current = current[key]
-            else:
-                return default
-        if current is None:
-            return default
-        return str(current).strip() if current else default
-    
-    # Standard field mappings (in priority order - first non-empty match wins)
-    
-    # 1. NAME: contact_name -> name
-    normalized["name"] = get_value("name") or get_value("contact_name", "")
-    
-    # 2. UNIV: university, school -> univ
-    normalized["univ"] = get_value("univ") or get_value("university") or get_value("school", "")
-    
-    # 3. ORG: org, organization, organization_name, chapter, fraternity, group, team -> org
-    # Priority: org > organization > organization_name > chapter > fraternity > group > team
-    normalized["org"] = (
-        get_value("org") or
-        get_value("organization") or
-        get_value("organization_name") or
-        get_value("chapter") or
-        get_value("fraternity") or
-        get_value("group") or
-        get_value("team", "")
-    )
-    
-    # 4. IG: ig, insta, instagram -> ig (check metadata.insta and other_social too)
-    normalized["ig"] = (
-        get_value("ig") or
-        get_value("insta") or
-        get_value("instagram") or
-        get_nested_value(["metadata", "insta"]) or
-        get_value("other_social", "")  # other_social might contain Instagram URLs
-    )
-    
-    # 5. EMAIL: email
-    normalized["email"] = get_value("email", "")
-    
-    # 6. PHONE: phone, phone_number -> phone
-    normalized["phone"] = get_value("phone") or get_value("phone_number", "")
+    # Map fields from input card (take first non-empty match)
+    standard_fields = ["univ", "org", "name", "ig", "email", "phone"]
+    for standard_field in standard_fields:
+        # First check if it exists in standard form
+        if standard_field in card:
+            normalized[standard_field] = card[standard_field]
+        else:
+            # Check field mappings
+            for old_field, new_field in field_mappings:
+                if new_field == standard_field:
+                    # Check direct field
+                    if old_field in card and card[old_field]:
+                        normalized[standard_field] = card[old_field]
+                        break
+                    # Check nested metadata.insta
+                    if old_field == "insta" and "metadata" in card:
+                        metadata = card["metadata"]
+                        if isinstance(metadata, dict) and "insta" in metadata and metadata["insta"]:
+                            normalized[standard_field] = metadata["insta"]
+                            break
     
     # Ensure all 6 standard fields exist (empty string if missing)
-    standard_fields = ["univ", "org", "name", "ig", "email", "phone"]
     for field in standard_fields:
         if field not in normalized:
             normalized[field] = ""
@@ -525,47 +507,11 @@ def store_relationships(conn: Any, card: Dict[str, Any]) -> None:
                 """, (card_id, contact_id))
 
 
-def flatten_card_response(card: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Flatten card response: merge card_data into top-level, keeping only standard fields.
-    Returns flattened card with only: ig, org, name, univ, email, phone (plus system fields).
-    """
-    # System fields to preserve at top level
-    system_fields = ["id", "type", "sales_state", "owner", "created_at", "updated_at", 
-                     "upload_batch_id", "vertical", "members", "contacts"]
-    
-    flattened = {}
-    
-    # Preserve system fields
-    for sys_field in system_fields:
-        if sys_field in card:
-            flattened[sys_field] = card[sys_field]
-    
-    # Extract card_data (might be nested or already at top level)
-    card_data = card.get("card_data", {})
-    if not isinstance(card_data, dict):
-        card_data = {}
-    
-    # Standard fields to include (in order: ig, org, name, univ, email, phone)
-    standard_fields = ["ig", "org", "name", "univ", "email", "phone"]
-    for field in standard_fields:
-        # Check card_data first, then top-level (for backwards compatibility)
-        if field in card_data:
-            flattened[field] = card_data[field]
-        elif field in card:
-            flattened[field] = card[field]
-        else:
-            flattened[field] = ""
-    
-    return flattened
-
-
 def get_card(conn: Any, card_id: str) -> Optional[Dict[str, Any]]:
-    """Get a single card by ID. Returns flattened card with standard fields."""
+    """Get a single card by ID."""
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT id, type, card_data, sales_state, owner, created_at, updated_at,
-                   COALESCE(upload_batch_id, NULL) as upload_batch_id
+            SELECT id, type, card_data, sales_state, owner, created_at, updated_at
             FROM cards
             WHERE id = %s;
         """, (card_id,))
@@ -574,7 +520,7 @@ def get_card(conn: Any, card_id: str) -> Optional[Dict[str, Any]]:
         if not row:
             return None
         
-        card = {
+        return {
             "id": row[0],
             "type": row[1],
             "card_data": row[2],
@@ -583,13 +529,6 @@ def get_card(conn: Any, card_id: str) -> Optional[Dict[str, Any]]:
             "created_at": row[5].isoformat() if row[5] else None,
             "updated_at": row[6].isoformat() if row[6] else None,
         }
-        
-        # Add upload_batch_id if available
-        if len(row) > 7 and row[7]:
-            card["upload_batch_id"] = row[7]
-        
-        # Flatten the card response
-        return flatten_card_response(card)
 
 
 def delete_card(conn: Any, card_id: str, deleted_by: str) -> tuple[bool, Optional[str]]:

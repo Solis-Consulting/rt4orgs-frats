@@ -2809,10 +2809,7 @@ async def upload_cards(
         
         if success:
             print(f"  ✅ Card {idx + 1}/{len(cards)} stored: {card_id}")
-            # Flatten card response to standard format
-            from backend.cards import flatten_card_response
-            flattened_card = flatten_card_response(stored_card)
-            results.append(flattened_card)
+            results.append(stored_card)
         else:
             print(f"  ❌ Card {idx + 1}/{len(cards)} storage failed: {card_id} - {error_msg}")
             errors.append({
@@ -2970,7 +2967,7 @@ async def get_duplicates(request: Request):
                         logger.warning(f"[DUPLICATES] Card {row[0]} has invalid card_data type: {type(card_data)}")
                         continue
                     
-                    card_obj = {
+                    card = {
                         "id": row[0],
                         "type": row[1],
                         "card_data": card_data,
@@ -2980,11 +2977,7 @@ async def get_duplicates(request: Request):
                         "updated_at": row[6].isoformat() if row[6] else None,
                     }
                     
-                    # Flatten card response to standard format
-                    from backend.cards import flatten_card_response
-                    card = flatten_card_response(card_obj)
-                    
-                    phone = card.get("phone") or card_data.get("phone")
+                    phone = card_data.get("phone")
                     if phone and isinstance(phone, str) and phone.strip():
                         cards_with_phone += 1
                         try:
@@ -3662,11 +3655,7 @@ async def list_cards(
                     # Add upload_batch_id if column exists (8th column)
                     if len(row) > 7:
                         card_obj["upload_batch_id"] = row[7]
-                    
-                    # Flatten card response to standard format
-                    from backend.cards import flatten_card_response
-                    flattened_card = flatten_card_response(card_obj)
-                    cards.append(flattened_card)
+                    cards.append(card_obj)
         except psycopg2.errors.UndefinedTable as table_error:
             # #region agent log - Table missing error from query
             try:
@@ -3720,11 +3709,7 @@ async def list_cards(
                                 # Add upload_batch_id if column exists (8th column)
                                 if len(row) > 7:
                                     card_obj["upload_batch_id"] = row[7]
-                                
-                                # Flatten card response to standard format
-                                from backend.cards import flatten_card_response
-                                flattened_card = flatten_card_response(card_obj)
-                                cards.append(flattened_card)
+                                cards.append(card_obj)
                             
                             result = {
                                 "cards": cards,
@@ -5109,7 +5094,7 @@ async def rep_get_cards(
         with conn.cursor() as cur:
             cur.execute(query, params)
             for row in cur.fetchall():
-                card_obj = {
+                cards.append({
                     "id": row[0],
                     "type": row[1],
                     "card_data": row[2],
@@ -5117,14 +5102,7 @@ async def rep_get_cards(
                     "owner": row[4],
                     "created_at": row[5].isoformat() if row[5] else None,
                     "updated_at": row[6].isoformat() if row[6] else None,
-                }
-                # Add upload_batch_id if available
-                if len(row) > 7 and row[7]:
-                    card_obj["upload_batch_id"] = row[7]
-                # Flatten card response to standard format
-                from backend.cards import flatten_card_response
-                flattened_card = flatten_card_response(card_obj)
-                cards.append(flattened_card)
+                })
         logger.info(f"[REP_CARDS] Owner - returning {len(cards)} total cards")
     else:
         # Rep: STRICT enforcement - ONLY assigned cards via card_assignments table
