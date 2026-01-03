@@ -32,15 +32,33 @@ def analyze_misclassifications():
     print("🔍 MISCLASSIFICATION ANALYSIS")
     print("=" * 60)
     
-    # Get all Interest-Based cards
+    # Check if upload_batch_id column exists
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT id, type, card_data, upload_batch_id
-            FROM cards
-            WHERE type = 'person' 
-            AND card_data->>'sector' = 'Interest-Based'
-            ORDER BY upload_batch_id, created_at
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'cards' AND column_name = 'upload_batch_id'
         """)
+        has_upload_batch_id = cur.fetchone() is not None
+    
+    # Get all Interest-Based cards
+    with conn.cursor() as cur:
+        if has_upload_batch_id:
+            cur.execute("""
+                SELECT id, type, card_data, upload_batch_id
+                FROM cards
+                WHERE type = 'person' 
+                AND card_data->>'sector' = 'Interest-Based'
+                ORDER BY upload_batch_id, created_at
+            """)
+        else:
+            cur.execute("""
+                SELECT id, type, card_data, NULL as upload_batch_id
+                FROM cards
+                WHERE type = 'person' 
+                AND card_data->>'sector' = 'Interest-Based'
+                ORDER BY created_at
+            """)
         interest_based_cards = cur.fetchall()
     
     print(f"\n📊 Found {len(interest_based_cards)} cards classified as Interest-Based")
