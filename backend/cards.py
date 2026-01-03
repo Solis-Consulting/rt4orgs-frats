@@ -102,7 +102,7 @@ def classify_card_deterministic(card: Dict[str, Any], respect_existing: bool = T
             return ("biz", "Housing")
         elif any(kw in combined_text for kw in ["gym", "fitness", "sportsplex", "athletic", "workout", "training"]):
             return ("biz", "Fitness")
-        elif any(kw in combined_text for kw in ["salon", "spa", "aesthetics", "beauty", "hair", "nail"]):
+        elif any(kw in combined_text for kw in ["salon", "spa", "aesthetics", "beauty", "hair", "nail", "wax", "waxing", "med spa", "medical spa", "clinic", "dermatology", "skincare"]):
             return ("biz", "Salons")
         else:
             return ("biz", "Fitness")  # Default biz sector
@@ -124,7 +124,7 @@ def classify_card_deterministic(card: Dict[str, Any], respect_existing: bool = T
     if any(kw in combined_text for kw in ["gym", "fitness", "sportsplex", "athletic center", "athletics center", "workout", "training", "crossfit", "yoga studio", "fitness center"]):
         return ("biz", "Fitness")
     
-    if any(kw in combined_text for kw in ["salon", "spa", "aesthetics", "beauty", "hair", "nail", "barber", "cosmetic"]):
+    if any(kw in combined_text for kw in ["salon", "spa", "aesthetics", "beauty", "hair", "nail", "barber", "cosmetic", "wax", "waxing", "med spa", "medical spa", "clinic", "dermatology", "skincare", "facial", "massage", "wellness center"]):
         return ("biz", "Salons")
     
     # ORG rules
@@ -152,6 +152,154 @@ def classify_card_deterministic(card: Dict[str, Any], respect_existing: bool = T
     # PRECEDENCE 5: Default fallback (treat as unclassified)
     # Interest-Based means "needs review", not a real classification
     return ("org", "Interest-Based")
+
+
+def analyze_batch_context(cards: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    Analyze a batch of cards to determine dominant sector pattern.
+    Returns context info if clear pattern exists (>50% threshold).
+    
+    Returns:
+        {
+            "dominant_sector": "Salons",
+            "dominant_biz_org": "biz",
+            "sector_distribution": {"Salons": 8, "Interest-Based": 2},
+            "confidence": 0.8
+        }
+        or None if no clear pattern
+    """
+    if not cards or len(cards) < 2:
+        return None
+    
+    sector_counts = {}
+    biz_org_counts = {"biz": 0, "org": 0}
+    total_classified = 0
+    
+    for card in cards:
+        # Handle both card dicts with card_data and direct card_data dicts
+        if isinstance(card, dict) and "card_data" in card:
+            card_data = card.get("card_data", {})
+        else:
+            card_data = card
+        
+        if not isinstance(card_data, dict):
+            continue
+        
+        sector = card_data.get("sector", "")
+        biz_org = "biz" if card_data.get("biz") else ("org" if card_data.get("org") else None)
+        
+        if sector and sector != "Interest-Based":
+            sector_counts[sector] = sector_counts.get(sector, 0) + 1
+            total_classified += 1
+            if biz_org:
+                biz_org_counts[biz_org] = biz_org_counts.get(biz_org, 0) + 1
+    
+    if total_classified == 0:
+        return None
+    
+    # Find dominant sector (must be >50% of classified cards)
+    threshold = max(2, total_classified * 0.5)  # At least 50% or 2 cards minimum
+    dominant_sector = None
+    dominant_count = 0
+    
+    for sector, count in sector_counts.items():
+        if count > dominant_count and count >= threshold:
+            dominant_sector = sector
+            dominant_count = count
+    
+    if not dominant_sector:
+        return None
+    
+    # Determine dominant biz/org
+    dominant_biz_org = None
+    if dominant_sector in RT4BIZ_SECTORS:
+        dominant_biz_org = "biz"
+    elif dominant_sector in RT4ORGS_SECTORS:
+        dominant_biz_org = "org"
+    
+    confidence = dominant_count / total_classified if total_classified > 0 else 0
+    
+    return {
+        "dominant_sector": dominant_sector,
+        "dominant_biz_org": dominant_biz_org,
+        "sector_distribution": sector_counts,
+        "confidence": confidence,
+        "total_cards": len(cards),
+        "classified_cards": total_classified
+    }
+
+
+def classify_with_batch_context(card: Dict[str, Any], batch_context: Optional[Dict[str, Any]] = None) -> tuple[str, str]:
+    """
+    Classify card with optional batch context hints.
+    If card is Interest-Based and batch has dominant sector, use batch context as hint.
+    
+    Args:
+        card: Card dictionary
+        batch_context: Result from analyze_batch_context() or None
+    
+    Returns:
+        (biz_org, sector) tuple
+    """
+    # First, try normal classification
+    biz_org, sector = classify_card_deterministic(card, respect_existing=True)
+    
+    # If classified as Interest-Based and we have batch context, try to improve
+    if sector == "Interest-Based" and batch_context:
+        dominant_sector = batch_context.get("dominant_sector")
+        dominant_biz_org = batch_context.get("dominant_biz_org")
+        confidence = batch_context.get("confidence", 0)
+        
+        # Only use batch context if confidence is high (>60%)
+        if dominant_sector and dominant_biz_org and confidence > 0.6:
+            # Re-check with batch context as hint
+            # Look for any keywords that might match the dominant sector
+            card_lower = {}
+            for k, v in card.items():
+                if isinstance(v, str):
+                    card_lower[k] = v.lower()
+                else:
+                    card_lower[k] = str(v).lower() if v else ""
+            
+            name = card_lower.get("name", "")
+            org = card_lower.get("org", "")
+            combined_text = f"{name} {org}".strip()
+            
+            # If dominant sector is Salons, check for salon-related keywords we might have missed
+            if dominant_sector == "Salons":
+                salon_keywords = ["wax", "waxing", "clinic", "med", "spa", "aesthetic", "beauty", "skin", "facial", "massage", "glow"]
+                if any(kw in combined_text for kw in salon_keywords):
+                    return (dominant_biz_org, dominant_sector)
+            
+            # If dominant sector is Fitness, check for fitness-related keywords
+            elif dominant_sector == "Fitness":
+                fitness_keywords = ["athletic", "sport", "gym", "fitness", "workout", "training", "center"]
+                if any(kw in combined_text for kw in fitness_keywords):
+                    return (dominant_biz_org, dominant_sector)
+            
+            # If dominant sector is Housing, check for housing-related keywords
+            elif dominant_sector == "Housing":
+                housing_keywords = ["apartment", "housing", "residential", "leasing", "rental"]
+                if any(kw in combined_text for kw in housing_keywords):
+                    return (dominant_biz_org, dominant_sector)
+            
+            # For other sectors, if batch context is very strong (>80%), use it
+            if confidence > 0.8:
+                # Only if card doesn't have strong conflicting signals
+                # Check if name contains words that clearly indicate different sector
+                conflicting_keywords = {
+                    "Salons": ["gym", "fitness", "apartment", "housing"],
+                    "Fitness": ["salon", "spa", "apartment", "housing"],
+                    "Housing": ["gym", "fitness", "salon", "spa"]
+                }
+                
+                conflicting = conflicting_keywords.get(dominant_sector, [])
+                has_conflict = any(kw in combined_text for kw in conflicting)
+                
+                if not has_conflict:
+                    return (dominant_biz_org, dominant_sector)
+    
+    return (biz_org, sector)
 
 # Vertical type definitions
 VERTICAL_TYPES = {

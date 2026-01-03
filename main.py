@@ -50,6 +50,8 @@ from backend.cards import (
     get_vertical_info,
     generate_pitch,
     VERTICAL_TYPES,
+    analyze_batch_context,
+    classify_with_batch_context,
 )
 from backend.query import build_list_query
 from backend.resolve import resolve_target, extract_phones_from_cards
@@ -2790,9 +2792,58 @@ async def upload_cards(
         card_types[card_type] = card_types.get(card_type, 0) + 1
     print(f"📋 Card types: {card_types}")
     
+    # PHASE 1: Initial normalization and classification
+    normalized_cards = []
     for idx, card in enumerate(cards):
-        # Normalize card
+        # Normalize card (this does initial classification)
         normalized = normalize_card(card)
+        normalized_cards.append(normalized)
+    
+    # PHASE 2: Analyze batch context
+    print(f"🔍 Analyzing batch context for {len(normalized_cards)} cards...")
+    batch_context = analyze_batch_context(normalized_cards)
+    if batch_context:
+        print(f"   📊 Dominant sector: {batch_context['dominant_sector']} ({batch_context['dominant_biz_org']})")
+        print(f"   📊 Confidence: {batch_context['confidence']:.1%}")
+        print(f"   📊 Distribution: {batch_context['sector_distribution']}")
+    else:
+        print(f"   ⚠️  No clear batch pattern detected")
+    
+    # PHASE 3: Re-classify Interest-Based cards with batch context
+    reclassified_count = 0
+    for idx, normalized in enumerate(normalized_cards):
+        card_id = normalized.get("id", "unknown")
+        card_data = {k: v for k, v in normalized.items() 
+                    if k not in ["id", "type", "sales_state", "owner", "vertical", "members", "contacts"]}
+        
+        # If card is Interest-Based and we have batch context, try to improve classification
+        if card_data.get("sector") == "Interest-Based" and batch_context:
+            # Re-classify with batch context
+            new_biz_org, new_sector = classify_with_batch_context(normalized, batch_context)
+            
+            if new_sector != "Interest-Based":
+                # Update the normalized card
+                # Remove old biz/org
+                if "biz" in normalized:
+                    del normalized["biz"]
+                if "org" in normalized:
+                    del normalized["org"]
+                
+                # Set new biz/org and sector
+                if new_biz_org == "biz":
+                    normalized["biz"] = "biz"
+                else:
+                    normalized["org"] = "org"
+                normalized["sector"] = new_sector
+                
+                reclassified_count += 1
+                print(f"   🔄 Re-classified {card_id}: Interest-Based → {new_sector}")
+    
+    if reclassified_count > 0:
+        print(f"   ✅ Re-classified {reclassified_count} card(s) using batch context")
+    
+    # PHASE 4: Validate and store all cards
+    for idx, normalized in enumerate(normalized_cards):
         card_id = normalized.get("id", "unknown")
         
         # Validate schema
