@@ -97,29 +97,51 @@ def analyze_misclassifications():
                 # For cards without batch_id, try to find by created_at proximity
                 if cards:
                     first_card = cards[0]
+                    if has_upload_batch_id:
+                        cur.execute("""
+                            SELECT id, type, card_data, upload_batch_id
+                            FROM cards
+                            WHERE type = 'person'
+                            AND created_at >= (
+                                SELECT created_at - INTERVAL '10 seconds'
+                                FROM cards
+                                WHERE id = %s
+                            )
+                            AND created_at <= (
+                                SELECT created_at + INTERVAL '10 seconds'
+                                FROM cards
+                                WHERE id = %s
+                            )
+                            ORDER BY created_at
+                        """, (first_card["id"], first_card["id"]))
+                    else:
+                        cur.execute("""
+                            SELECT id, type, card_data, NULL as upload_batch_id
+                            FROM cards
+                            WHERE type = 'person'
+                            AND created_at >= (
+                                SELECT created_at - INTERVAL '10 seconds'
+                                FROM cards
+                                WHERE id = %s
+                            )
+                            AND created_at <= (
+                                SELECT created_at + INTERVAL '10 seconds'
+                                FROM cards
+                                WHERE id = %s
+                            )
+                            ORDER BY created_at
+                        """, (first_card["id"], first_card["id"]))
+            else:
+                if has_upload_batch_id:
                     cur.execute("""
                         SELECT id, type, card_data, upload_batch_id
                         FROM cards
-                        WHERE type = 'person'
-                        AND created_at >= (
-                            SELECT created_at - INTERVAL '10 seconds'
-                            FROM cards
-                            WHERE id = %s
-                        )
-                        AND created_at <= (
-                            SELECT created_at + INTERVAL '10 seconds'
-                            FROM cards
-                            WHERE id = %s
-                        )
+                        WHERE type = 'person' AND upload_batch_id = %s
                         ORDER BY created_at
-                    """, (first_card["id"], first_card["id"]))
-            else:
-                cur.execute("""
-                    SELECT id, type, card_data, upload_batch_id
-                    FROM cards
-                    WHERE type = 'person' AND upload_batch_id = %s
-                    ORDER BY created_at
-                """, (batch_id,))
+                    """, (batch_id,))
+                else:
+                    # Column doesn't exist, can't query by batch_id
+                    all_batch_cards = cards  # Use the Interest-Based cards as the batch
             
             all_batch_cards = []
             for row in cur.fetchall():
