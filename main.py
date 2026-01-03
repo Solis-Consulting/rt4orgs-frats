@@ -3645,6 +3645,22 @@ async def list_cards(
                     elif hasattr(card_data, 'dict'):  # psycopg2.extras.Json object
                         card_data = card_data.dict()
                     
+                    # Normalize card_data to ensure 7-field format
+                    if isinstance(card_data, dict):
+                        full_card = {
+                            "id": row[0],
+                            "type": row[1],
+                            "sales_state": row[3],
+                            "owner": row[4],
+                            **card_data
+                        }
+                        normalized = normalize_card(full_card)
+                        # Extract just the card_data portion (exclude system fields)
+                        card_data = {
+                            k: v for k, v in normalized.items()
+                            if k not in ["id", "type", "sales_state", "owner", "vertical", "members", "contacts"]
+                        }
+                    
                     # Handle both old schema (7 columns) and new schema (8 columns with upload_batch_id)
                     card_obj = {
                         "id": row[0],

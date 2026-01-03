@@ -166,19 +166,22 @@ def main():
             errors += 1
             continue
         
-        # Check if already standardized (has sector and biz/org)
+        # Check for legacy fields - if any exist, we need to migrate
+        legacy_fields = ["role", "tags", "chapter", "fraternity", "metadata", "insta", "other_social"]
+        has_legacy_fields = any(field in card_data for field in legacy_fields)
+        
+        # Check if already standardized (has sector and biz/org AND no legacy fields)
         has_sector = "sector" in card_data and card_data.get("sector")
         has_biz_org = ("biz" in card_data and card_data.get("biz")) or ("org" in card_data and card_data.get("org"))
+        required_fields = ["ig", "sector", "name", "univ", "email", "phone"]
+        has_all_fields = all(field in card_data for field in required_fields)
         
-        if has_sector and has_biz_org:
-            # Already in 7-field format, but verify it has all 7 fields
-            required_fields = ["ig", "sector", "name", "univ", "email", "phone"]
-            has_all_fields = all(field in card_data for field in required_fields)
-            if has_all_fields:
-                skipped += 1
-                if (idx + 1) % 100 == 0:
-                    print(f"   ⏭️  Skipped {idx + 1}/{len(cards)} (already standardized)...")
-                continue
+        # Only skip if fully standardized with no legacy fields
+        if has_sector and has_biz_org and has_all_fields and not has_legacy_fields:
+            skipped += 1
+            if (idx + 1) % 100 == 0:
+                print(f"   ⏭️  Skipped {idx + 1}/{len(cards)} (already standardized)...")
+            continue
         
         try:
             normalized_data, log = migrate_card(card_data, card_id)

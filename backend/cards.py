@@ -353,10 +353,10 @@ def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
     elif "school" in card and card["school"]:
         univ_value = str(card["school"]).strip()
     
-    # Extract email (field 6)
+    # Extract email (field 6) - always include even if empty
     email_value = ""
-    if "email" in card and card["email"]:
-        email_value = str(card["email"]).strip()
+    if "email" in card:
+        email_value = str(card["email"]).strip() if card["email"] else ""
     
     # Extract phone (field 7)
     phone_value = ""
@@ -367,6 +367,7 @@ def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
     
     # Build normalized card with fields in exact order: ig, biz/org, sector, name, univ, email, phone
     # Note: Python dicts maintain insertion order (Python 3.7+)
+    # IMPORTANT: Only include the 7 standard fields, remove all legacy fields
     normalized["ig"] = ig_value
     # Set either "biz" or "org" field (not both)
     if biz_org_value == "biz":
@@ -378,6 +379,14 @@ def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
     normalized["univ"] = univ_value
     normalized["email"] = email_value
     normalized["phone"] = phone_value
+    
+    # Remove any legacy fields that might have been preserved
+    legacy_fields_to_remove = ["role", "tags", "chapter", "fraternity", "metadata", "insta", "other_social", 
+                               "instagram", "phone_number", "contact_name", "university", "school", 
+                               "organization", "organization_name", "group", "team", "faith_group", 
+                               "program", "department"]
+    for legacy_field in legacy_fields_to_remove:
+        normalized.pop(legacy_field, None)
     
     # Ensure type is set (default to person)
     if "type" not in normalized:
@@ -613,7 +622,7 @@ def store_relationships(conn: Any, card: Dict[str, Any]) -> None:
 
 
 def get_card(conn: Any, card_id: str) -> Optional[Dict[str, Any]]:
-    """Get a single card by ID."""
+    """Get a single card by ID. Normalizes card_data to ensure 7-field format."""
     with conn.cursor() as cur:
         cur.execute("""
             SELECT id, type, card_data, sales_state, owner, created_at, updated_at
@@ -625,10 +634,28 @@ def get_card(conn: Any, card_id: str) -> Optional[Dict[str, Any]]:
         if not row:
             return None
         
+        # Normalize the card_data to ensure it's in 7-field format
+        card_data = row[2] or {}
+        if isinstance(card_data, dict):
+            # Create full card dict for normalization
+            full_card = {
+                "id": row[0],
+                "type": row[1],
+                "sales_state": row[3],
+                "owner": row[4],
+                **card_data
+            }
+            normalized = normalize_card(full_card)
+            # Extract just the card_data portion (exclude system fields)
+            card_data = {
+                k: v for k, v in normalized.items()
+                if k not in ["id", "type", "sales_state", "owner", "vertical", "members", "contacts"]
+            }
+        
         return {
             "id": row[0],
             "type": row[1],
-            "card_data": row[2],
+            "card_data": card_data,
             "sales_state": row[3],
             "owner": row[4],
             "created_at": row[5].isoformat() if row[5] else None,
