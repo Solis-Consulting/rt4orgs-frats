@@ -23,7 +23,7 @@ RT4ORGS_SECTORS = {
     "Club Sports",
     "Student Government",
     "Arts Performance",
-    "Interest-Based"
+    "Interest-Based"  # Treat as "unclassified/needs review"
 }
 
 RT4BIZ_SECTORS = {
@@ -33,6 +33,125 @@ RT4BIZ_SECTORS = {
 }
 
 ALL_VALID_SECTORS = RT4ORGS_SECTORS | RT4BIZ_SECTORS
+
+
+def classify_card_deterministic(card: Dict[str, Any], respect_existing: bool = True) -> tuple[str, str]:
+    """
+    Rule-first deterministic classification with clear precedence.
+    Returns (biz_org, sector) tuple.
+    
+    Precedence order (FIRST MATCH WINS):
+    1. Locked classification (if respect_existing=True and classification_locked=True)
+    2. Explicit structural indicators (fraternity)
+    3. Explicit sector already set (respect user/previous classification)
+    4. Hard keyword rules (deterministic)
+    5. Default fallback (Interest-Based = unclassified)
+    
+    This is NOT fuzzy-first. Rules are authoritative.
+    
+    Args:
+        card: Card dictionary
+        respect_existing: If True, respect existing sector/biz_org if already set and valid
+    """
+    # PRECEDENCE 1: Locked classification (highest priority - user override)
+    if respect_existing and card.get("classification_locked"):
+        existing_sector = card.get("sector", "")
+        existing_biz = card.get("biz")
+        existing_org = card.get("org")
+        if existing_sector and existing_sector in ALL_VALID_SECTORS:
+            if existing_biz:
+                return ("biz", existing_sector)
+            elif existing_org:
+                return ("org", existing_sector)
+            # Determine from sector
+            if existing_sector in RT4BIZ_SECTORS:
+                return ("biz", existing_sector)
+            else:
+                return ("org", existing_sector)
+    
+    card_lower = {}
+    for k, v in card.items():
+        if isinstance(v, str):
+            card_lower[k] = v.lower()
+        else:
+            card_lower[k] = str(v).lower() if v else ""
+    
+    name = card_lower.get("name", "")
+    org = card_lower.get("org", "")
+    combined_text = f"{name} {org}".strip()
+    
+    # PRECEDENCE 2: Explicit structural indicators (fraternity field)
+    if "fraternity" in card and card.get("fraternity"):
+        return ("org", "Greek Life")
+    
+    # PRECEDENCE 3: Explicit sector already set (respect user/previous classification)
+    # Only respect if it's not "Interest-Based" (which means unclassified)
+    if respect_existing and "sector" in card and card.get("sector"):
+        sector = card.get("sector")
+        if sector in ALL_VALID_SECTORS and sector != "Interest-Based":
+            # Sector is set and valid - determine biz/org from sector
+            if sector in RT4BIZ_SECTORS:
+                return ("biz", sector)
+            elif sector in RT4ORGS_SECTORS:
+                return ("org", sector)
+    
+    # PRECEDENCE 3: Explicit biz/org field
+    if "biz" in card and card.get("biz"):
+        # If biz is set but no sector, try to determine sector from name
+        if any(kw in combined_text for kw in ["apartment", "housing", "residential", "leasing"]):
+            return ("biz", "Housing")
+        elif any(kw in combined_text for kw in ["gym", "fitness", "sportsplex", "athletic", "workout", "training"]):
+            return ("biz", "Fitness")
+        elif any(kw in combined_text for kw in ["salon", "spa", "aesthetics", "beauty", "hair", "nail"]):
+            return ("biz", "Salons")
+        else:
+            return ("biz", "Fitness")  # Default biz sector
+    
+    if "org" in card and card.get("org"):
+        # If org is set but no sector, try to determine from name
+        if any(kw in combined_text for kw in ["faith", "church", "religious", "ministry", "campus", "christian", "catholic", "baptist"]):
+            return ("org", "Faith-Based")
+        elif any(kw in combined_text for kw in ["athletic", "sports", "club", "league", "team"]):
+            return ("org", "Club Sports")
+        else:
+            return ("org", "Interest-Based")  # Unclassified org
+    
+    # PRECEDENCE 4: Hard keyword rules (deterministic, not fuzzy)
+    # BIZ rules (check first - businesses are more specific)
+    if any(kw in combined_text for kw in ["apartment", "housing", "residential", "leasing", "rental"]):
+        return ("biz", "Housing")
+    
+    if any(kw in combined_text for kw in ["gym", "fitness", "sportsplex", "athletic center", "athletics center", "workout", "training", "crossfit", "yoga studio", "fitness center"]):
+        return ("biz", "Fitness")
+    
+    if any(kw in combined_text for kw in ["salon", "spa", "aesthetics", "beauty", "hair", "nail", "barber", "cosmetic"]):
+        return ("biz", "Salons")
+    
+    # ORG rules
+    if any(kw in combined_text for kw in ["faith", "church", "religious", "ministry", "campus", "christian", "catholic", "baptist", "worship"]):
+        return ("org", "Faith-Based")
+    
+    if any(kw in combined_text for kw in ["athletic", "sports club", "sports team", "athletics", "club sports", "intramural", "tennis club", "golf club", "swim club", "soccer club", "basketball club"]):
+        return ("org", "Club Sports")
+    
+    if any(kw in combined_text for kw in ["student government", "sg", "asb", "student council"]):
+        return ("org", "Student Government")
+    
+    if any(kw in combined_text for kw in ["honors", "honor society", "academic", "scholarship"]):
+        return ("org", "Honors Academic")
+    
+    if any(kw in combined_text for kw in ["cultural", "heritage", "ethnic", "diversity"]):
+        return ("org", "Cultural Identity")
+    
+    if any(kw in combined_text for kw in ["arts", "theater", "drama", "music", "performance", "band", "choir"]):
+        return ("org", "Arts Performance")
+    
+    if any(kw in combined_text for kw in ["professional", "career", "business", "networking", "alumni"]):
+        return ("org", "Professional Career")
+    
+    # PRECEDENCE 5: Default fallback (treat as unclassified)
+    # Interest-Based means "needs review", not a real classification
+    return ("org", "Interest-Based")
 
 # Vertical type definitions
 VERTICAL_TYPES = {
@@ -289,53 +408,8 @@ def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
             ig_value = str(metadata["insta"]).strip()
     
     # Extract biz/org (field 2) and determine sector (field 3)
-    biz_org_value = ""
-    sector_value = ""
-    
-    # Check if it's explicitly set
-    if "biz" in card and card["biz"]:
-        biz_org_value = "biz"
-    elif "org" in card and card["org"]:
-        biz_org_value = "org"
-    
-    # Legacy fraternity detection
-    if "fraternity" in card and card["fraternity"]:
-        biz_org_value = "org"
-        sector_value = "Greek Life"
-    # Legacy faith detection (check for faith-related indicators)
-    elif any(keyword in str(card.get("name", "")).lower() + " " + str(card.get("org", "")).lower() 
-             for keyword in ["faith", "church", "religious", "ministry", "campus", "christian", "catholic", "baptist"]):
-        biz_org_value = "org"
-        sector_value = "Faith-Based"
-    # Check if sector is explicitly provided
-    elif "sector" in card and card["sector"]:
-        sector_value = str(card["sector"]).strip()
-        # If sector is set but biz/org isn't, determine from sector
-        if not biz_org_value:
-            if sector_value in RT4BIZ_SECTORS:
-                biz_org_value = "biz"
-            elif sector_value in RT4ORGS_SECTORS:
-                biz_org_value = "org"
-    
-    # If still no biz/org determined, try to infer from other fields
-    if not biz_org_value:
-        # Check for business indicators
-        if any(keyword in str(card.get("name", "")).lower() 
-               for keyword in ["apartment", "housing", "gym", "fitness", "salon", "spa", "wellness"]):
-            biz_org_value = "biz"
-            if not sector_value:
-                name_lower = str(card.get("name", "")).lower()
-                if "apartment" in name_lower or "housing" in name_lower:
-                    sector_value = "Housing"
-                elif "gym" in name_lower or "fitness" in name_lower or "wellness" in name_lower:
-                    sector_value = "Fitness"
-                elif "salon" in name_lower or "spa" in name_lower:
-                    sector_value = "Salons"
-        else:
-            # Default to org if not clearly a business
-            biz_org_value = "org"
-            if not sector_value:
-                sector_value = "Interest-Based"  # Default org sector
+    # Use deterministic rule-first classification (NOT fuzzy NLP)
+    biz_org_value, sector_value = classify_card_deterministic(card)
     
     # Extract name (field 4)
     name_value = ""
