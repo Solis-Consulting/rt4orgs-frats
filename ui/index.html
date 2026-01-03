@@ -28,6 +28,9 @@
     .badge.fraternity { background: rgba(168,85,247,0.15); color: #e9d5ff; }
     .badge.team { background: rgba(34,197,94,0.15); color: #bbf7d0; }
     .badge.business { background: rgba(245,158,11,0.15); color: #fed7aa; }
+    .badge.biz { background: rgba(34,197,94,0.2); color: #86efac; font-weight: 600; }
+    .badge.org { background: rgba(59,130,246,0.2); color: #93c5fd; font-weight: 600; }
+    .badge.sector { background: rgba(168,85,247,0.2); color: #d8b4fe; }
     .link { color: #38bdf8; text-decoration: none; font-weight: 500; }
     .link:hover { text-decoration: underline; }
     .group-header { background: #1e293b !important; font-weight: 600; cursor: pointer; }
@@ -99,6 +102,30 @@
             <option value="fraternity">Fraternity</option>
             <option value="team">Team</option>
             <option value="business">Business</option>
+          </select>
+          <select id="cardBizOrgFilter">
+            <option value="">All (Biz/Org)</option>
+            <option value="biz">Biz</option>
+            <option value="org">Org</option>
+          </select>
+          <select id="cardSectorFilter">
+            <option value="">All sectors</option>
+            <optgroup label="RT4Orgs">
+              <option value="Greek Life">Greek Life</option>
+              <option value="Faith-Based">Faith-Based</option>
+              <option value="Cultural Identity">Cultural Identity</option>
+              <option value="Honors Academic">Honors Academic</option>
+              <option value="Professional Career">Professional Career</option>
+              <option value="Club Sports">Club Sports</option>
+              <option value="Student Government">Student Government</option>
+              <option value="Arts Performance">Arts Performance</option>
+              <option value="Interest-Based">Interest-Based</option>
+            </optgroup>
+            <optgroup label="RT4Biz">
+              <option value="Housing">Housing</option>
+              <option value="Fitness">Fitness</option>
+              <option value="Salons">Salons</option>
+            </optgroup>
           </select>
           <select id="cardStateFilter">
             <option value="">All sales states</option>
@@ -435,12 +462,38 @@
 
     function renderCards() {
       const search = document.getElementById("cardSearch").value.toLowerCase();
+      const bizOrgFilter = document.getElementById("cardBizOrgFilter").value;
+      const sectorFilter = document.getElementById("cardSectorFilter").value;
       
       let rows = allCards.filter(card => {
-        if (!search) return true;
-        const name = card.card_data?.name || '';
-        const id = card.id || '';
-        return name.toLowerCase().includes(search) || id.toLowerCase().includes(search);
+        const cardData = card.card_data || {};
+        
+        // Search filter
+        if (search) {
+          const name = cardData.name || '';
+          const id = card.id || '';
+          if (!name.toLowerCase().includes(search) && !id.toLowerCase().includes(search)) {
+            return false;
+          }
+        }
+        
+        // Biz/Org filter
+        if (bizOrgFilter) {
+          const bizOrg = cardData.biz || cardData.org || '';
+          if (bizOrg !== bizOrgFilter) {
+            return false;
+          }
+        }
+        
+        // Sector filter
+        if (sectorFilter) {
+          const sector = cardData.sector || '';
+          if (sector !== sectorFilter) {
+            return false;
+          }
+        }
+        
+        return true;
       });
 
       // Sort by updated_at desc
@@ -523,7 +576,7 @@
       });
 
       let html = "<table><thead><tr>";
-      html += "<th><input type='checkbox' id='selectAllCheckbox' title='Select all cards'></th><th>Name</th><th>Type</th><th>Sales State</th><th>Assigned To</th><th>Updated</th><th>Actions</th>";
+      html += "<th><input type='checkbox' id='selectAllCheckbox' title='Select all cards'></th><th>Name</th><th>Type / Sector</th><th>Sales State</th><th>Assigned To</th><th>Updated</th><th>Actions</th>";
       html += "</tr></thead><tbody>";
 
       sortedGroups.forEach(instanceKey => {
@@ -554,16 +607,35 @@
 
         // Cards in this group
         groupCards.forEach(card => {
-          const name = card.card_data?.name || card.id;
+          const cardData = card.card_data || {};
+          const name = cardData.name || card.id;
           const type = card.type || 'person';
           const salesState = card.sales_state || 'cold';
           const assignedTo = card.assignment?.username || card.assignment?.user_id || '-';
           const updated = card.updated_at ? new Date(card.updated_at).toLocaleDateString() : '-';
           
+          // Extract biz/org and sector for badges
+          const bizOrg = cardData.biz || cardData.org || '';
+          const sector = cardData.sector || '';
+          
+          // Determine badge colors
+          const bizOrgBadgeClass = bizOrg === 'biz' ? 'badge biz' : bizOrg === 'org' ? 'badge org' : '';
+          const sectorBadgeClass = sector ? 'badge sector' : '';
+          
           html += `<tr class="group-row group-rows" data-group-id="${groupId}">`;
           html += `<td><input type="checkbox" class="card-select-checkbox" data-id="${card.id}" data-group-id="${groupId}"></td>`;
           html += `<td>${name}</td>`;
-          html += `<td><span class='badge ${type}'>${type}</span></td>`;
+          html += `<td>`;
+          if (bizOrgBadgeClass) {
+            html += `<span class='${bizOrgBadgeClass}'>${bizOrg.toUpperCase()}</span> `;
+          }
+          if (sectorBadgeClass) {
+            html += `<span class='${sectorBadgeClass}'>${sector}</span>`;
+          }
+          if (!bizOrgBadgeClass && !sectorBadgeClass) {
+            html += `<span class='badge ${type}'>${type}</span>`;
+          }
+          html += `</td>`;
           html += `<td><span class='badge gray'>${salesState}</span></td>`;
           html += `<td>${assignedTo}</td>`;
           html += `<td>${updated}</td>`;
@@ -940,6 +1012,8 @@
     window.assignCard = assignCard;
 
     document.getElementById("cardSearch").addEventListener("input", renderCards);
+    document.getElementById("cardBizOrgFilter").addEventListener("change", renderCards);
+    document.getElementById("cardSectorFilter").addEventListener("change", renderCards);
 
     // Toggle group collapse/expand (global for onclick)
     window.toggleGroup = function(groupId) {
@@ -993,6 +1067,11 @@
     };
     document.getElementById("cardTypeFilter").addEventListener("change", loadCards);
     document.getElementById("cardStateFilter").addEventListener("change", loadCards);
+    // Biz/Org and Sector filters use renderCards (client-side filtering)
+    const bizOrgFilter = document.getElementById("cardBizOrgFilter");
+    const sectorFilter = document.getElementById("cardSectorFilter");
+    if (bizOrgFilter) bizOrgFilter.addEventListener("change", renderCards);
+    if (sectorFilter) sectorFilter.addEventListener("change", renderCards);
     
     async function deleteSelectedCards() {
       const selectedIds = getSelectedCardIds();

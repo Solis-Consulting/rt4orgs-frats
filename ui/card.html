@@ -17,6 +17,9 @@
     .badge.team { background: rgba(34,197,94,0.15); color: #bbf7d0; }
     .badge.business { background: rgba(245,158,11,0.15); color: #fed7aa; }
     .badge.state { background: rgba(75,85,99,0.4); color: #e5e7eb; }
+    .badge.biz { background: rgba(34,197,94,0.2); color: #86efac; font-weight: 600; }
+    .badge.org { background: rgba(59,130,246,0.2); color: #93c5fd; font-weight: 600; }
+    .badge.sector { background: rgba(168,85,247,0.2); color: #d8b4fe; }
     .section { margin-top: 16px; border-top: 1px solid #1f2937; padding-top: 12px; }
     pre { background: #020617; border-radius: 10px; padding: 10px 12px; font-size: 12px; overflow-x: auto; border: 1px solid #111827; }
     .field { margin-bottom: 8px; }
@@ -164,13 +167,45 @@
       const salesState = card.sales_state || 'cold';
       const cardData = card.card_data || {};
 
+      // Extract 7-field format data
+      const ig = cardData.ig || '';
+      const bizOrg = cardData.biz || cardData.org || '';
+      const sector = cardData.sector || '';
+      const name = cardData.name || card.id;
+      const univ = cardData.univ || '';
+      const email = cardData.email || '';
+      const phone = cardData.phone || '';
+
       let html = "";
-      html += `<h1>${cardData.name || card.id} <span class="badge ${type}">${type}</span> <span class="badge state">${salesState}</span></h1>`;
+      html += `<h1>${name}`;
+      if (bizOrg) {
+        html += ` <span class="badge ${bizOrg}">${bizOrg.toUpperCase()}</span>`;
+      }
+      if (sector) {
+        html += ` <span class="badge sector">${sector}</span>`;
+      }
+      html += ` <span class="badge state">${salesState}</span></h1>`;
       html += `<div class="sub">ID: <code>${card.id}</code></div>`;
 
-      // Card data fields
+      // Display 7-field format prominently
       html += "<div class='section'>";
-      html += "<div class='field-label'>Card Data</div>";
+      html += "<div class='field-label'>Card Data (7-Field Format)</div>";
+      html += "<div style='display: grid; grid-template-columns: 150px 1fr; gap: 8px 16px; margin-top: 12px;'>";
+      
+      html += `<div class='field'><div class='field-label'>IG:</div><div class='field-value'>${ig || '<em>empty</em>'}</div></div>`;
+      html += `<div class='field'><div class='field-label'>Type:</div><div class='field-value'>${bizOrg ? `<span class='badge ${bizOrg}'>${bizOrg.toUpperCase()}</span>` : '<em>empty</em>'}</div></div>`;
+      html += `<div class='field'><div class='field-label'>Sector:</div><div class='field-value'>${sector ? `<span class='badge sector'>${sector}</span>` : '<em>empty</em>'}</div></div>`;
+      html += `<div class='field'><div class='field-label'>Name:</div><div class='field-value'>${name || '<em>empty</em>'}</div></div>`;
+      html += `<div class='field'><div class='field-label'>University:</div><div class='field-value'>${univ || '<em>empty</em>'}</div></div>`;
+      html += `<div class='field'><div class='field-label'>Email:</div><div class='field-value'>${email || '<em>empty</em>'}</div></div>`;
+      html += `<div class='field'><div class='field-label'>Phone:</div><div class='field-value'>${phone || '<em>empty</em>'}</div></div>`;
+      
+      html += "</div>";
+      html += "</div>";
+
+      // Also show raw JSON for debugging
+      html += "<div class='section'>";
+      html += "<div class='field-label'>Raw Card Data (JSON)</div>";
       html += "<pre>" + JSON.stringify(cardData, null, 2) + "</pre>";
       html += "</div>";
 

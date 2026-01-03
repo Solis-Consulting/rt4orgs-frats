@@ -2739,6 +2739,9 @@ async def upload_cards(
     Upload array of heterogeneous JSON card objects.
     Validates schema, normalizes IDs, resolves references, and stores cards.
     Requires owner or rep authentication.
+    
+    Cards are normalized to 7-field format: ig, biz/org, sector, name, univ, email, phone
+    Accepts both legacy formats (fraternity cards with role/chapter/etc.) and new formats.
     """
     # Authenticate user
     try:

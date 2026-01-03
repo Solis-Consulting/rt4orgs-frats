@@ -13,6 +13,27 @@ from datetime import datetime
 import psycopg2
 from psycopg2.extras import Json
 
+# Valid sector categories
+RT4ORGS_SECTORS = {
+    "Greek Life",
+    "Faith-Based",
+    "Cultural Identity",
+    "Honors Academic",
+    "Professional Career",
+    "Club Sports",
+    "Student Government",
+    "Arts Performance",
+    "Interest-Based"
+}
+
+RT4BIZ_SECTORS = {
+    "Housing",
+    "Fitness",
+    "Salons"
+}
+
+ALL_VALID_SECTORS = RT4ORGS_SECTORS | RT4BIZ_SECTORS
+
 # Vertical type definitions
 VERTICAL_TYPES = {
     "frats": {
@@ -160,7 +181,8 @@ def generate_card_id(card: Dict[str, Any]) -> str:
 
 def validate_card_schema(card: Dict[str, Any]) -> tuple[bool, Optional[str]]:
     """
-    Validate card schema - only allows 6 standard fields: univ, org, name, ig, email, phone
+    Validate card schema - allows 7 standard fields: ig, biz/org, sector, name, univ, email, phone
+    Also accepts legacy fields during migration (role, chapter, fraternity, metadata, tags, insta, other_social, etc.)
     Returns (is_valid, error_message).
     """
     card_type = card.get("type")
@@ -171,21 +193,37 @@ def validate_card_schema(card: Dict[str, Any]) -> tuple[bool, Optional[str]]:
     if card_type not in ["person", "fraternity", "team", "business"]:
         return False, f"Invalid type: {card_type}. Must be one of: person, fraternity, team, business"
     
-    # Standard fields that are allowed
-    standard_fields = {"univ", "org", "name", "ig", "email", "phone"}
+    # Standard 7 fields that are allowed
+    standard_fields = {"ig", "biz", "org", "sector", "name", "univ", "email", "phone"}
+    # Legacy fields that are accepted but will be normalized (for migration compatibility)
+    legacy_fields = {
+        "role", "tags", "chapter", "fraternity", "metadata", "insta", "other_social",
+        "university", "school", "organization", "organization_name", "group", "team",
+        "instagram", "phone_number", "contact_name", "faith_group", "program", "department"
+    }
     # System fields that are allowed (not part of card_data)
     system_fields = {"id", "type", "sales_state", "owner", "vertical"}
     # Entity-specific fields
     entity_fields = {"members", "contacts"}
     
-    # Check that only standard fields, system fields, and entity fields are present
+    # Check that only standard fields, legacy fields, system fields, and entity fields are present
     invalid_fields = []
     for field in card.keys():
-        if field not in standard_fields and field not in system_fields and field not in entity_fields:
+        if field not in standard_fields and field not in legacy_fields and field not in system_fields and field not in entity_fields:
             invalid_fields.append(field)
     
     if invalid_fields:
-        return False, f"Card contains invalid fields: {', '.join(invalid_fields)}. Only allowed fields are: {', '.join(sorted(standard_fields))}"
+        return False, f"Card contains invalid fields: {', '.join(invalid_fields)}. Standard fields are: ig, biz/org, sector, name, univ, email, phone"
+    
+    # Validate biz/org field if present (must be "biz" or "org")
+    biz_org = card.get("biz") or card.get("org")
+    if biz_org and biz_org not in ["biz", "org"]:
+        return False, f"Invalid biz/org value: {biz_org}. Must be 'biz' or 'org'"
+    
+    # Validate sector if present (must be one of the valid sectors)
+    sector = card.get("sector")
+    if sector and sector not in ALL_VALID_SECTORS:
+        return False, f"Invalid sector: {sector}. Must be one of: {', '.join(sorted(ALL_VALID_SECTORS))}"
     
     # All fields are optional (can be empty strings), but validate that name exists for person cards
     if card_type == "person":
@@ -219,27 +257,16 @@ def validate_card_schema(card: Dict[str, Any]) -> tuple[bool, Optional[str]]:
 
 def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Normalize card: ensure id exists, clean up structure, standardize to 6 fields only.
-    Returns normalized card dict with only: univ, org, name, ig, email, phone
+    Normalize card: ensure id exists, clean up structure, standardize to 7 fields.
+    Returns normalized card dict with fields in order: ig, biz/org, sector, name, univ, email, phone
+    
+    Handles:
+    - Legacy fraternity cards (with insta, fraternity, chapter, role, metadata, etc.)
+    - Legacy faith cards
+    - New scraped cards (with ig, org, name, univ, email, phone)
     """
     # System fields that should be preserved
     system_fields = ["id", "type", "sales_state", "owner", "vertical", "members", "contacts"]
-    
-    # Map common field variations to standard names (in priority order)
-    field_mappings = [
-        ("contact_name", "name"),
-        ("university", "univ"),
-        ("school", "univ"),
-        ("organization", "org"),
-        ("organization_name", "org"),
-        ("fraternity", "org"),
-        ("chapter", "org"),
-        ("group", "org"),
-        ("team", "org"),
-        ("instagram", "ig"),
-        ("insta", "ig"),
-        ("phone_number", "phone"),
-    ]
     
     normalized = {}
     
@@ -248,31 +275,109 @@ def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
         if sys_field in card:
             normalized[sys_field] = card[sys_field]
     
-    # Map fields from input card (take first non-empty match)
-    standard_fields = ["univ", "org", "name", "ig", "email", "phone"]
-    for standard_field in standard_fields:
-        # First check if it exists in standard form
-        if standard_field in card:
-            normalized[standard_field] = card[standard_field]
-        else:
-            # Check field mappings
-            for old_field, new_field in field_mappings:
-                if new_field == standard_field:
-                    # Check direct field
-                    if old_field in card and card[old_field]:
-                        normalized[standard_field] = card[old_field]
-                        break
-                    # Check nested metadata.insta
-                    if old_field == "insta" and "metadata" in card:
-                        metadata = card["metadata"]
-                        if isinstance(metadata, dict) and "insta" in metadata and metadata["insta"]:
-                            normalized[standard_field] = metadata["insta"]
-                            break
+    # Extract ig (field 1) - check multiple sources
+    ig_value = ""
+    if "ig" in card and card["ig"]:
+        ig_value = str(card["ig"]).strip()
+    elif "insta" in card and card["insta"]:
+        ig_value = str(card["insta"]).strip()
+    elif "instagram" in card and card["instagram"]:
+        ig_value = str(card["instagram"]).strip()
+    elif "metadata" in card and isinstance(card["metadata"], dict):
+        metadata = card["metadata"]
+        if "insta" in metadata and metadata["insta"]:
+            ig_value = str(metadata["insta"]).strip()
     
-    # Ensure all 6 standard fields exist (empty string if missing)
-    for field in standard_fields:
-        if field not in normalized:
-            normalized[field] = ""
+    # Extract biz/org (field 2) and determine sector (field 3)
+    biz_org_value = ""
+    sector_value = ""
+    
+    # Check if it's explicitly set
+    if "biz" in card and card["biz"]:
+        biz_org_value = "biz"
+    elif "org" in card and card["org"]:
+        biz_org_value = "org"
+    
+    # Legacy fraternity detection
+    if "fraternity" in card and card["fraternity"]:
+        biz_org_value = "org"
+        sector_value = "Greek Life"
+    # Legacy faith detection (check for faith-related indicators)
+    elif any(keyword in str(card.get("name", "")).lower() + " " + str(card.get("org", "")).lower() 
+             for keyword in ["faith", "church", "religious", "ministry", "campus", "christian", "catholic", "baptist"]):
+        biz_org_value = "org"
+        sector_value = "Faith-Based"
+    # Check if sector is explicitly provided
+    elif "sector" in card and card["sector"]:
+        sector_value = str(card["sector"]).strip()
+        # If sector is set but biz/org isn't, determine from sector
+        if not biz_org_value:
+            if sector_value in RT4BIZ_SECTORS:
+                biz_org_value = "biz"
+            elif sector_value in RT4ORGS_SECTORS:
+                biz_org_value = "org"
+    
+    # If still no biz/org determined, try to infer from other fields
+    if not biz_org_value:
+        # Check for business indicators
+        if any(keyword in str(card.get("name", "")).lower() 
+               for keyword in ["apartment", "housing", "gym", "fitness", "salon", "spa", "wellness"]):
+            biz_org_value = "biz"
+            if not sector_value:
+                name_lower = str(card.get("name", "")).lower()
+                if "apartment" in name_lower or "housing" in name_lower:
+                    sector_value = "Housing"
+                elif "gym" in name_lower or "fitness" in name_lower or "wellness" in name_lower:
+                    sector_value = "Fitness"
+                elif "salon" in name_lower or "spa" in name_lower:
+                    sector_value = "Salons"
+        else:
+            # Default to org if not clearly a business
+            biz_org_value = "org"
+            if not sector_value:
+                sector_value = "Interest-Based"  # Default org sector
+    
+    # Extract name (field 4)
+    name_value = ""
+    if "name" in card and card["name"]:
+        name_value = str(card["name"]).strip()
+    elif "contact_name" in card and card["contact_name"]:
+        name_value = str(card["contact_name"]).strip()
+    
+    # Extract univ (field 5)
+    univ_value = ""
+    if "univ" in card and card["univ"]:
+        univ_value = str(card["univ"]).strip()
+    elif "university" in card and card["university"]:
+        univ_value = str(card["university"]).strip()
+    elif "school" in card and card["school"]:
+        univ_value = str(card["school"]).strip()
+    
+    # Extract email (field 6)
+    email_value = ""
+    if "email" in card and card["email"]:
+        email_value = str(card["email"]).strip()
+    
+    # Extract phone (field 7)
+    phone_value = ""
+    if "phone" in card and card["phone"]:
+        phone_value = str(card["phone"]).strip()
+    elif "phone_number" in card and card["phone_number"]:
+        phone_value = str(card["phone_number"]).strip()
+    
+    # Build normalized card with fields in exact order: ig, biz/org, sector, name, univ, email, phone
+    # Note: Python dicts maintain insertion order (Python 3.7+)
+    normalized["ig"] = ig_value
+    # Set either "biz" or "org" field (not both)
+    if biz_org_value == "biz":
+        normalized["biz"] = "biz"
+    else:
+        normalized["org"] = "org"
+    normalized["sector"] = sector_value
+    normalized["name"] = name_value
+    normalized["univ"] = univ_value
+    normalized["email"] = email_value
+    normalized["phone"] = phone_value
     
     # Ensure type is set (default to person)
     if "type" not in normalized:
