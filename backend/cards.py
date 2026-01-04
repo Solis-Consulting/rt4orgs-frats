@@ -34,6 +34,45 @@ RT4BIZ_SECTORS = {
 
 ALL_VALID_SECTORS = RT4ORGS_SECTORS | RT4BIZ_SECTORS
 
+# Mapping from sector to vertical type
+# Only ORG sectors map to verticals; BIZ sectors don't use the vertical system
+SECTOR_TO_VERTICAL_MAP: Dict[str, Optional[str]] = {
+    # ORG sectors → verticals
+    "Greek Life": "frats",
+    "Faith-Based": "faith",
+    "Cultural Identity": "cultural",
+    "Honors Academic": "academic",
+    "Professional Career": "government",  # Professional orgs use government vertical
+    "Club Sports": "sports",
+    "Student Government": "government",
+    "Arts Performance": "cultural",  # Arts orgs use cultural vertical
+    "Interest-Based": None,  # No vertical for unclassified
+    
+    # BIZ sectors (no vertical mapping - businesses use different system)
+    "Housing": None,
+    "Fitness": None,
+    "Salons": None,
+}
+
+
+def sector_to_vertical(sector: str, biz_org: str) -> Optional[str]:
+    """
+    Map sector + biz/org to vertical type.
+    
+    Args:
+        sector: Sector string (e.g., "Cultural Identity", "Faith-Based")
+        biz_org: Either "biz" or "org"
+    
+    Returns:
+        Vertical string (e.g., "cultural", "faith", "frats") or None if no mapping
+    """
+    # Only ORG cards get verticals; BIZ cards don't use vertical system
+    if biz_org == "biz":
+        return None
+    
+    # Look up sector in mapping
+    return SECTOR_TO_VERTICAL_MAP.get(sector)
+
 
 def classify_card_deterministic(card: Dict[str, Any], respect_existing: bool = True) -> tuple[str, str]:
     """
@@ -558,6 +597,13 @@ def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
     # Extract biz/org (field 2) and determine sector (field 3)
     # Use deterministic rule-first classification (NOT fuzzy NLP)
     biz_org_value, sector_value = classify_card_deterministic(card)
+    
+    # Infer vertical from sector if not already set
+    # Only set vertical for ORG cards; preserve existing vertical if set
+    if "vertical" not in normalized or not normalized.get("vertical"):
+        inferred_vertical = sector_to_vertical(sector_value, biz_org_value)
+        if inferred_vertical:
+            normalized["vertical"] = inferred_vertical
     
     # Extract name (field 4)
     name_value = ""
