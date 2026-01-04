@@ -476,7 +476,16 @@ def generate_card_id(card: Dict[str, Any]) -> str:
     """Auto-generate card ID if missing."""
     card_type = card.get("type", "person")
     name = card.get("name", "unknown")
-    org = card.get("org", "")
+    
+    # Check for org_name first (preserved org name), then fall back to org field
+    # org_name contains the actual org name (e.g., "Sigma Alpha Epsilon")
+    # org field might contain the type ("org" or "biz") or legacy org name
+    org = card.get("org_name", "")
+    if not org:
+        org = card.get("org", "")
+        # Skip if org is just the type indicator ("org" or "biz")
+        if org in ["org", "biz"]:
+            org = ""
     
     parts = [card_type, name]
     if org:
@@ -594,6 +603,23 @@ def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
         if "insta" in metadata and metadata["insta"]:
             ig_value = str(metadata["insta"]).strip()
     
+    # Extract org name BEFORE classification (needed for ID generation)
+    # This preserves the actual org name (e.g., "Sigma Alpha Epsilon") before we overwrite it with "org" type
+    org_name_value = ""
+    if "org" in card and card["org"]:
+        # Only extract if it's not already the literal "org" or "biz" (type indicator)
+        org_val = str(card["org"]).strip()
+        if org_val not in ["org", "biz"]:
+            org_name_value = org_val
+    # Also check legacy fields for org name
+    if not org_name_value:
+        if "organization" in card and card["organization"]:
+            org_name_value = str(card["organization"]).strip()
+        elif "organization_name" in card and card["organization_name"]:
+            org_name_value = str(card["organization_name"]).strip()
+        elif "group" in card and card["group"]:
+            org_name_value = str(card["group"]).strip()
+    
     # Extract biz/org (field 2) and determine sector (field 3)
     # Use deterministic rule-first classification (NOT fuzzy NLP)
     biz_org_value, sector_value = classify_card_deterministic(card)
@@ -648,7 +674,13 @@ def normalize_card(card: Dict[str, Any]) -> Dict[str, Any]:
     normalized["email"] = email_value
     normalized["phone"] = phone_value
     
+    # Preserve org name separately for ID generation (before we remove legacy fields)
+    # This allows generate_card_id() to use the actual org name even though "org" field is now the type
+    if org_name_value:
+        normalized["org_name"] = org_name_value
+    
     # Remove any legacy fields that might have been preserved
+    # Note: org_name is NOT removed - it's needed for ID generation
     legacy_fields_to_remove = ["role", "tags", "chapter", "fraternity", "metadata", "insta", "other_social", 
                                "instagram", "phone_number", "contact_name", "university", "school", 
                                "organization", "organization_name", "group", "team", "faith_group", 
